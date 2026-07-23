@@ -14,6 +14,7 @@ export function NuevaVenta() {
 
   const [clienteId, setClienteId] = useState("");
   const [fecha, setFecha] = useState(hoyISO());
+  const [tipoPrecio, setTipoPrecio] = useState<"minorista" | "mayorista">("minorista");
   const [items, setItems] = useState<Reng[]>([{ herramienta_id: "", cantidad: "1", precio: "" }]);
   const [descTipo, setDescTipo] = useState<"monto" | "porcentaje">("monto");
   const [descValor, setDescValor] = useState("");
@@ -58,12 +59,27 @@ export function NuevaVenta() {
     return out;
   }, [items, hMap]);
 
+  function precioDe(h: any, tipo = tipoPrecio): number {
+    if (!h) return 0;
+    // Mayorista si tiene precio > 0; si no, cae al minorista.
+    return tipo === "mayorista" && h.precio_mayor > 0 ? h.precio_mayor : h.precio;
+  }
   function setItem(i: number, patch: Partial<Reng>) {
     setItems((arr) => arr.map((it, j) => (j === i ? { ...it, ...patch } : it)));
   }
   function elegirHerramienta(i: number, hid: string) {
     const h = hMap.get(hid);
-    setItem(i, { herramienta_id: hid, precio: h ? String(aPesos(h.precio)) : "" });
+    setItem(i, { herramienta_id: hid, precio: h ? String(aPesos(precioDe(h))) : "" });
+  }
+  function cambiarTipoPrecio(tipo: "minorista" | "mayorista") {
+    setTipoPrecio(tipo);
+    // Reprecia los renglones que ya tienen herramienta elegida.
+    setItems((arr) =>
+      arr.map((it) => {
+        const h = hMap.get(it.herramienta_id);
+        return h ? { ...it, precio: String(aPesos(precioDe(h, tipo))) } : it;
+      })
+    );
   }
   function agregarReng() { setItems((a) => [...a, { herramienta_id: "", cantidad: "1", precio: "" }]); }
   function quitarReng(i: number) { setItems((a) => (a.length > 1 ? a.filter((_, j) => j !== i) : a)); }
@@ -138,6 +154,12 @@ export function NuevaVenta() {
               </select>
             </Campo>
             <Campo label="Fecha"><input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></Campo>
+            <Campo label="Lista de precios">
+              <select value={tipoPrecio} onChange={(e) => cambiarTipoPrecio(e.target.value as any)}>
+                <option value="minorista">Minorista (por menor)</option>
+                <option value="mayorista">Mayorista (por mayor)</option>
+              </select>
+            </Campo>
           </div>
         </div>
       </div>

@@ -179,6 +179,49 @@ input.num { text-align: right; font-family: var(--mono); }
 .dt-list dt { color: var(--texto-suave); }
 .dt-list dd { margin: 0; font-family: var(--mono); }
 
+/* ── WhatsApp ────────────────────────────────────────── */
+.btn.wa { background: #25d366; color: #072b12; border-color: #1da851; }
+.btn.wa:hover { background: #20bd5a; }
+
+/* ── Comprobante imprimible ──────────────────────────── */
+.comprobante-overlay {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5);
+  display: flex; align-items: flex-start; justify-content: center; padding: 20px 12px; z-index: 60; overflow-y: auto;
+}
+.comprobante-caja { width: 100%; max-width: 620px; margin: auto; }
+.comprobante-barra { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 10px; }
+.comprobante {
+  background: #fff; color: #111827; border-radius: 8px; padding: 28px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3); font-size: 14px;
+}
+.comp-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111827; padding-bottom: 12px; margin-bottom: 12px; gap: 12px; }
+.comp-marca { font-size: 26px; font-weight: 800; letter-spacing: .02em; }
+.comp-sub { font-size: 12px; color: #4b5563; }
+.comp-doc { text-align: right; }
+.comp-doc-tit { font-weight: 700; letter-spacing: .06em; }
+.comp-doc-num { font-family: var(--mono); font-size: 18px; font-weight: 700; }
+.comp-cliente { margin-bottom: 12px; }
+.comp-anulada { color: var(--rojo); font-weight: 700; }
+table.comp-tabla { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+.comp-tabla th, .comp-tabla td { padding: 6px 8px; border-bottom: 1px solid #e5e7eb; text-align: left; }
+.comp-tabla th { background: #f3f4f6; font-size: 12px; text-transform: uppercase; }
+.comp-tabla .num { text-align: right; font-family: var(--mono); white-space: nowrap; }
+.comp-totales { margin-left: auto; width: 260px; }
+.comp-totales > div { display: flex; justify-content: space-between; padding: 3px 0; }
+.comp-totales .num { font-family: var(--mono); }
+.comp-total { border-top: 1px solid #111827; border-bottom: 1px solid #111827; font-weight: 800; font-size: 16px; padding: 6px 0 !important; margin: 4px 0; }
+.comp-saldo { font-weight: 700; }
+.comp-nota { margin-top: 14px; font-size: 13px; }
+.comp-pie { margin-top: 18px; text-align: center; color: #6b7280; font-size: 12px; border-top: 1px dashed #d1d5db; padding-top: 10px; }
+
+@media print {
+  body * { visibility: hidden; }
+  .comprobante, .comprobante * { visibility: visible; }
+  .comprobante { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none; border-radius: 0; padding: 0; }
+  .no-print { display: none !important; }
+  .comprobante-overlay { position: static; background: none; padding: 0; overflow: visible; }
+}
+
 @media (max-width: 640px) {
   .contenido { padding: 10px; }
   .topbar .marca { font-size: 15px; }

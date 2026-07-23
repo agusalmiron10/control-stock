@@ -2,12 +2,14 @@ import { useState } from "react";
 import { api } from "../api";
 import { pesos, fecha } from "../format";
 import { Cargando, Error, Vacio, Confirmar, useCarga } from "../components/ui";
+import { Comprobante } from "../components/Comprobante";
 import { navegar } from "../lib/router";
 
 export function Ventas() {
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
   const [anular, setAnular] = useState<any | null>(null);
+  const [comprobante, setComprobante] = useState<number | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
 
   const qs = new URLSearchParams();
@@ -66,7 +68,10 @@ export function Ventas() {
                     <td className={`num ${v.saldo > 0 ? "debe" : ""}`}>{pesos(v.saldo)}</td>
                     <td><span className={`badge ${v.estado}`}>{v.estado}</span></td>
                     <td className="acc">
-                      {v.estado !== "anulada" && <button className="btn chico peligro" onClick={() => setAnular(v)}>Anular</button>}
+                      <div className="btn-grupo" style={{ justifyContent: "flex-end" }}>
+                        <button className="btn chico" onClick={() => setComprobante(v.id)}>Comprobante</button>
+                        {v.estado !== "anulada" && <button className="btn chico peligro" onClick={() => setAnular(v)}>Anular</button>}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -76,6 +81,7 @@ export function Ventas() {
         </div>
       )}
 
+      {comprobante && <Comprobante ventaId={comprobante} onCerrar={() => setComprobante(null)} />}
       {anular && (
         <Confirmar mensaje={`¿Anular la venta #${anular.numero} de ${anular.cliente_nombre} por ${pesos(anular.total)}? Devuelve el stock y libera los pagos.`}
           textoConfirmar="Anular venta" peligro onSi={hacerAnular} onNo={() => setAnular(null)} />

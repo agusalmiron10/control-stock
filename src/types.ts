@@ -31,7 +31,9 @@ export interface Herramienta {
   id: number;
   codigo: string;
   nombre: string;
-  precio: number;
+  precio: number; // minorista, centavos
+  precio_mayor: number; // mayorista, centavos
+  rubro: string | null;
   costo: number;
   stock: number;
   stock_minimo: number;
@@ -91,5 +93,6 @@ export interface PrecioHistorial {
   fecha: string;
   precio_anterior: number;
   precio_nuevo: number;
+  tipo_precio: string; // 'minorista' | 'mayorista'
   motivo: string | null;
 }

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Env, Variables, Herramienta, MovimientoStock, PrecioHistorial } from "../types";
-import { HttpError, texto, entero, fechaISO, boolOpt } from "../validate";
+import { HttpError, texto, entero, fechaISO, enumerado, boolOpt } from "../validate";
 
 export const herramientas = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -30,6 +30,8 @@ herramientas.post("/", async (c) => {
   const codigo = texto(b.codigo, "código", { max: 40 })!;
   const nombre = texto(b.nombre, "nombre", { max: 120 })!;
   const precio = entero(b.precio ?? 0, "precio", { min: 0 });
+  const precio_mayor = entero(b.precio_mayor ?? 0, "precio mayorista", { min: 0 });
+  const rubro = texto(b.rubro, "rubro", { requerido: false, max: 60 });
   const costo = entero(b.costo ?? 0, "costo", { min: 0 });
   const stock = entero(b.stock ?? 0, "stock");
   const stock_minimo = entero(b.stock_minimo ?? 0, "stock mínimo", { min: 0 });
@@ -39,10 +41,10 @@ herramientas.post("/", async (c) => {
 
   const fecha = hoy();
   const res = await c.env.DB.prepare(
-    `INSERT INTO herramientas (codigo, nombre, precio, costo, stock, stock_minimo, notas)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO herramientas (codigo, nombre, precio, precio_mayor, rubro, costo, stock, stock_minimo, notas)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(codigo, nombre, precio, costo, stock, stock_minimo, texto(b.notas, "notas", { requerido: false }))
+    .bind(codigo, nombre, precio, precio_mayor, rubro, costo, stock, stock_minimo, texto(b.notas, "notas", { requerido: false }))
     .run();
   const id = Number(res.meta.last_row_id);
 
@@ -70,13 +72,14 @@ herramientas.put("/:id", async (c) => {
     .first();
   if (dup) throw new HttpError(409, `Ya existe otra herramienta con el código "${codigo}".`);
 
-  // OJO: el precio NO se cambia acá (tiene su propio endpoint con historial).
+  // OJO: los precios NO se cambian acá (tienen su propio endpoint con historial).
   await c.env.DB.prepare(
-    `UPDATE herramientas SET codigo=?, nombre=?, costo=?, stock_minimo=?, notas=? WHERE id=?`
+    `UPDATE herramientas SET codigo=?, nombre=?, rubro=?, costo=?, stock_minimo=?, notas=? WHERE id=?`
   )
     .bind(
       codigo,
       texto(b.nombre, "nombre", { max: 120 }),
+      texto(b.rubro, "rubro", { requerido: false, max: 60 }),
       entero(b.costo ?? h.costo, "costo", { min: 0 }),
       entero(b.stock_minimo ?? h.stock_minimo, "stock mínimo", { min: 0 }),
       texto(b.notas, "notas", { requerido: false }),
@@ -146,25 +149,130 @@ herramientas.post("/:id/ajuste", async (c) => {
   return c.json({ ok: true, stock: resultante });
 });
 
-/** Cambio de precio: guarda historial; las ventas pasadas no se tocan. */
+/** Cambio de precio (minorista y/o mayorista): guarda historial. Las ventas pasadas no se tocan. */
 herramientas.post("/:id/precio", async (c) => {
   const id = Number(c.req.param("id"));
   const b = await c.req.json().catch(() => ({}));
-  const precio_nuevo = entero(b.precio_nuevo, "precio nuevo", { min: 0 });
   const fecha = b.fecha ? fechaISO(b.fecha, "fecha") : hoy();
+  const motivo = texto(b.motivo, "motivo", { requerido: false });
 
-  const h = await c.env.DB.prepare(`SELECT precio FROM herramientas WHERE id = ?`).bind(id).first<{ precio: number }>();
+  const h = await c.env.DB
+    .prepare(`SELECT precio, precio_mayor FROM herramientas WHERE id = ?`)
+    .bind(id)
+    .first<{ precio: number; precio_mayor: number }>();
   if (!h) throw new HttpError(404, "Herramienta no encontrada.");
-  if (precio_nuevo === h.precio) throw new HttpError(400, "El precio nuevo es igual al actual.");
 
-  await c.env.DB.batch([
-    c.env.DB.prepare(`UPDATE herramientas SET precio = ? WHERE id = ?`).bind(precio_nuevo, id),
-    c.env.DB.prepare(
-      `INSERT INTO precios_historial (herramienta_id, fecha, precio_anterior, precio_nuevo, motivo)
-       VALUES (?, ?, ?, ?, ?)`
-    ).bind(id, fecha, h.precio, precio_nuevo, texto(b.motivo, "motivo", { requerido: false })),
-  ]);
-  return c.json({ ok: true, precio: precio_nuevo });
+  const stmts: D1PreparedStatement[] = [];
+  let cambio = false;
+
+  if (b.precio_nuevo != null) {
+    const nuevo = entero(b.precio_nuevo, "precio minorista nuevo", { min: 0 });
+    if (nuevo !== h.precio) {
+      cambio = true;
+      stmts.push(c.env.DB.prepare(`UPDATE herramientas SET precio = ? WHERE id = ?`).bind(nuevo, id));
+      stmts.push(
+        c.env.DB.prepare(
+          `INSERT INTO precios_historial (herramienta_id, fecha, precio_anterior, precio_nuevo, tipo_precio, motivo)
+           VALUES (?, ?, ?, ?, 'minorista', ?)`
+        ).bind(id, fecha, h.precio, nuevo, motivo)
+      );
+    }
+  }
+  if (b.precio_mayor_nuevo != null) {
+    const nuevo = entero(b.precio_mayor_nuevo, "precio mayorista nuevo", { min: 0 });
+    if (nuevo !== h.precio_mayor) {
+      cambio = true;
+      stmts.push(c.env.DB.prepare(`UPDATE herramientas SET precio_mayor = ? WHERE id = ?`).bind(nuevo, id));
+      stmts.push(
+        c.env.DB.prepare(
+          `INSERT INTO precios_historial (herramienta_id, fecha, precio_anterior, precio_nuevo, tipo_precio, motivo)
+           VALUES (?, ?, ?, ?, 'mayorista', ?)`
+        ).bind(id, fecha, h.precio_mayor, nuevo, motivo)
+      );
+    }
+  }
+
+  if (!cambio) throw new HttpError(400, "No hay cambios de precio para guardar.");
+  await c.env.DB.batch(stmts);
+  return c.json({ ok: true });
+});
+
+/**
+ * Ajuste masivo de precios por porcentaje.
+ * body: { porcentaje, tipo?: 'ambos'|'minorista'|'mayorista', rubro?, redondeo?, motivo? }
+ * redondeo en centavos (ej. 10000 = redondear al $100 más cercano; 0/undefined = sin redondeo).
+ */
+herramientas.post("/ajuste-masivo", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const porcentaje = Number(b.porcentaje);
+  if (!Number.isFinite(porcentaje) || porcentaje === 0) {
+    throw new HttpError(400, "Ingresá un porcentaje distinto de cero (ej. 12 para +12%, -5 para -5%).");
+  }
+  const tipo = enumerado(b.tipo ?? "ambos", "tipo de precio", ["ambos", "minorista", "mayorista"]);
+  const rubro = b.rubro ? texto(b.rubro, "rubro", { max: 60 }) : null;
+  const redondeo = b.redondeo != null ? entero(b.redondeo, "redondeo", { min: 0 }) : 0;
+  const fecha = b.fecha ? fechaISO(b.fecha, "fecha") : hoy();
+  const motivo = texto(b.motivo, "motivo", { requerido: false }) ?? `Ajuste masivo ${porcentaje > 0 ? "+" : ""}${porcentaje}%`;
+
+  const factor = 1 + porcentaje / 100;
+  const nuevoPrecio = (viejo: number): number => {
+    if (viejo <= 0) return viejo; // no toca los que están en 0
+    let n = Math.round(viejo * factor);
+    if (redondeo > 0) n = Math.round(n / redondeo) * redondeo;
+    return Math.max(0, n);
+  };
+
+  const where = rubro ? `WHERE activo = 1 AND rubro = ?` : `WHERE activo = 1`;
+  const rows = await c.env.DB.prepare(`SELECT id, precio, precio_mayor FROM herramientas ${where}`)
+    .bind(...(rubro ? [rubro] : []))
+    .all<{ id: number; precio: number; precio_mayor: number }>();
+
+  const stmts: D1PreparedStatement[] = [];
+  let cambiadas = 0;
+  for (const h of rows.results ?? []) {
+    let toco = false;
+    if (tipo !== "mayorista") {
+      const np = nuevoPrecio(h.precio);
+      if (np !== h.precio) {
+        toco = true;
+        stmts.push(c.env.DB.prepare(`UPDATE herramientas SET precio = ? WHERE id = ?`).bind(np, h.id));
+        stmts.push(
+          c.env.DB.prepare(
+            `INSERT INTO precios_historial (herramienta_id, fecha, precio_anterior, precio_nuevo, tipo_precio, motivo)
+             VALUES (?, ?, ?, ?, 'minorista', ?)`
+          ).bind(h.id, fecha, h.precio, np, motivo)
+        );
+      }
+    }
+    if (tipo !== "minorista") {
+      const nm = nuevoPrecio(h.precio_mayor);
+      if (nm !== h.precio_mayor) {
+        toco = true;
+        stmts.push(c.env.DB.prepare(`UPDATE herramientas SET precio_mayor = ? WHERE id = ?`).bind(nm, h.id));
+        stmts.push(
+          c.env.DB.prepare(
+            `INSERT INTO precios_historial (herramienta_id, fecha, precio_anterior, precio_nuevo, tipo_precio, motivo)
+             VALUES (?, ?, ?, ?, 'mayorista', ?)`
+          ).bind(h.id, fecha, h.precio_mayor, nm, motivo)
+        );
+      }
+    }
+    if (toco) cambiadas++;
+  }
+
+  if (stmts.length === 0) {
+    throw new HttpError(400, "No hubo precios para ajustar (¿están todos en 0 o no coincide el rubro?).");
+  }
+  await c.env.DB.batch(stmts);
+  return c.json({ ok: true, herramientas_afectadas: cambiadas });
+});
+
+/** Rubros distintos (para filtros y ajuste masivo). */
+herramientas.get("/rubros", async (c) => {
+  const rows = await c.env.DB.prepare(
+    `SELECT DISTINCT rubro FROM herramientas WHERE rubro IS NOT NULL AND rubro != '' ORDER BY rubro`
+  ).all<{ rubro: string }>();
+  return c.json({ rubros: (rows.results ?? []).map((r) => r.rubro) });
 });
 
 herramientas.get("/:id/movimientos", async (c) => {

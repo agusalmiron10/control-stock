@@ -267,7 +267,9 @@ export async function exportarGeneral(desde?: string, hasta?: string): Promise<v
       [
         { key: "codigo", header: "Código", width: 12 },
         { key: "nombre", header: "Herramienta", width: 30 },
-        { key: "precio", header: "Precio actual", width: 15, tipo: "money" },
+        { key: "rubro", header: "Rubro", width: 16 },
+        { key: "precio", header: "Precio minorista", width: 15, tipo: "money" },
+        { key: "precio_mayor", header: "Precio mayorista", width: 15, tipo: "money" },
         { key: "stock", header: "Stock", width: 8, tipo: "int" },
         { key: "stock_minimo", header: "Stock mín.", width: 10, tipo: "int" },
         { key: "valor_stock", header: "Valor stock", width: 15, tipo: "money" },
@@ -306,9 +308,11 @@ export async function exportarPrecios(): Promise<void> {
     wb,
     hoja(
       [
+        { key: "rubro", header: "Rubro", width: 16 },
         { key: "codigo", header: "Código", width: 12 },
         { key: "herramienta", header: "Herramienta", width: 34 },
-        { key: "precio", header: "Precio actual", width: 16, tipo: "money" },
+        { key: "precio", header: "Precio minorista", width: 16, tipo: "money" },
+        { key: "precio_mayor", header: "Precio mayorista", width: 16, tipo: "money" },
         { key: "actualizado", header: "Actualizado", width: 13, tipo: "date" },
         { key: "stock", header: "Stock", width: 8, tipo: "int" },
       ],

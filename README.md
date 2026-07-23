@@ -259,7 +259,22 @@ del Worker).
 
 ---
 
-## 9. Consultas SQL directas (para depurar)
+## 9. Funciones extra
+
+- **Ajuste masivo de precios por %** (Herramientas → *% Ajuste masivo*): aumentá o bajá
+  todos los precios de una, filtrando por rubro, eligiendo minorista/mayorista/ambos y con
+  redondeo opcional ($1/$10/$100). Cada cambio queda en el historial. Los precios en $0 no se tocan.
+- **Precio mayorista y minorista**: cada herramienta tiene los dos precios. En la venta elegís
+  la lista (por menor / por mayor) y se precargan los renglones con el precio que corresponde.
+- **WhatsApp**: desde la ficha del cliente, botones que abren WhatsApp con el mensaje armado
+  (estado de cuenta, recordatorio de deuda). Desde Herramientas, *Compartir lista* manda la
+  lista de precios por WhatsApp.
+- **Comprobante imprimible**: en cada venta, botón *Comprobante* abre un remito prolijo para
+  imprimir o *Guardar como PDF* y mandárselo al cliente.
+- **Rubros**: las herramientas se agrupan por rubro (Masas, Grinfas, Barretas, etc.) para
+  filtrar y para el ajuste masivo.
+
+## 10. Consultas SQL directas (para depurar)
 
 ```bash
 npx wrangler d1 execute control-stock --local  --command "SELECT * FROM clientes"

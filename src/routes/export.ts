@@ -181,7 +181,8 @@ exportar.get("/general", async (c) => {
       aplicado_a: p.venta_numero ? `Venta #${p.venta_numero}` : "A cuenta", nota: p.nota ?? "",
     })),
     herramientas: (herrRows.results ?? []).map((h) => ({
-      codigo: h.codigo, nombre: h.nombre, precio: h.precio, stock: h.stock,
+      codigo: h.codigo, nombre: h.nombre, rubro: h.rubro ?? "",
+      precio: h.precio, precio_mayor: h.precio_mayor, stock: h.stock,
       stock_minimo: h.stock_minimo, valor_stock: h.stock * h.costo, unidades_vendidas: vendMap.get(h.id) ?? 0,
       activo: h.activo ? "sí" : "archivada",
     })),
@@ -211,7 +212,8 @@ exportar.get("/precios", async (c) => {
 
   return c.json({
     lista: (herrRows.results ?? []).map((h) => ({
-      codigo: h.codigo, herramienta: h.nombre, precio: h.precio,
+      rubro: h.rubro ?? "", codigo: h.codigo, herramienta: h.nombre,
+      precio: h.precio, precio_mayor: h.precio_mayor,
       actualizado: ultMap.get(h.id) ?? h.creado_en.slice(0, 10), stock: h.stock,
     })),
     historial: (histRows.results ?? []).map((ph) => ({

@@ -55,3 +55,15 @@ INSERT INTO herramientas (codigo, nombre, precio, costo, stock, stock_minimo) VA
   ('CABO-CANO',  'Cabo de caño',      0, 0, 0, 0),
   ('BALDE-ALB',  'Balde de albañil',  0, 0, 0, 0),
   ('PALA-GER',   'Palas de Gerardi',  0, 0, 0, 0);
+
+-- Rubros (categorías). Requiere la migración 0002.
+UPDATE herramientas SET rubro='Corta fierros' WHERE codigo LIKE 'CF-%';
+UPDATE herramientas SET rubro='Masas'         WHERE codigo LIKE 'MASA-%';
+UPDATE herramientas SET rubro='Clavos'        WHERE codigo LIKE 'CLAVO-%';
+UPDATE herramientas SET rubro='Cucharas'      WHERE codigo LIKE 'CUCH-%';
+UPDATE herramientas SET rubro='Con cabo'      WHERE codigo IN ('HACHA','HACHITA','PIQUETA','HACHUELA');
+UPDATE herramientas SET rubro='Barretas'      WHERE codigo LIKE 'BARR-%' OR codigo='BARRETON-25';
+UPDATE herramientas SET rubro='Ruedas'        WHERE codigo LIKE 'RUEDA-%';
+UPDATE herramientas SET rubro='Tenazas'       WHERE codigo LIKE 'TEN-%';
+UPDATE herramientas SET rubro='Grinfas'       WHERE codigo LIKE 'GRINFA-%';
+UPDATE herramientas SET rubro='Otros'         WHERE codigo IN ('PICO','PALA-CANO','PALA-MAD','CABO-CANO','BALDE-ALB','PALA-GER');

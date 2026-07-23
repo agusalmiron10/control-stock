@@ -4,7 +4,9 @@ import { pesos, fecha } from "../format";
 import { Cargando, Error, Vacio, Confirmar, useCarga } from "../components/ui";
 import { FormCliente } from "./Clientes";
 import { FormPago } from "../components/FormPago";
+import { Comprobante } from "../components/Comprobante";
 import { exportarCliente } from "../excel";
+import { waEstadoDeCuenta, waRecordatorioDeuda } from "../lib/whatsapp";
 import { navegar } from "../lib/router";
 
 export function ClienteFicha({ id }: { id: number }) {
@@ -13,6 +15,7 @@ export function ClienteFicha({ id }: { id: number }) {
   const [pagoEditar, setPagoEditar] = useState<any | null>(null);
   const [pagoBorrar, setPagoBorrar] = useState<any | null>(null);
   const [ventaAnular, setVentaAnular] = useState<any | null>(null);
+  const [comprobante, setComprobante] = useState<number | null>(null);
   const [archivar, setArchivar] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
 
@@ -60,7 +63,13 @@ export function ClienteFicha({ id }: { id: number }) {
           <h1 style={{ marginTop: 4 }}>{c.nombre} {!c.activo && <span className="mut">(archivado)</span>}</h1>
         </div>
         <div className="btn-grupo">
-          <button className="btn" onClick={() => exportarCliente(id).catch((e) => setAviso(e.message))}>⬇ Excel del cliente</button>
+          <button className="btn wa" onClick={() => waEstadoDeCuenta(c, data.saldo, data.total_comprado, data.total_pagado)}>
+            WhatsApp: estado de cuenta
+          </button>
+          {data.saldo > 0 && (
+            <button className="btn wa" onClick={() => waRecordatorioDeuda(c, data.saldo)}>Recordar deuda</button>
+          )}
+          <button className="btn" onClick={() => exportarCliente(id).catch((e) => setAviso(e.message))}>⬇ Excel</button>
           <button className="btn" onClick={() => setEditar(true)}>Editar</button>
           <button className="btn" onClick={() => setArchivar(true)}>{c.activo ? "Archivar" : "Reactivar"}</button>
           <button className="btn primario" onClick={() => setPagoNuevo(true)}>+ Registrar pago</button>
@@ -115,9 +124,12 @@ export function ClienteFicha({ id }: { id: number }) {
                     <td className={`num ${v.saldo > 0 ? "debe" : ""}`}>{pesos(v.saldo)}</td>
                     <td><span className={`badge ${v.estado}`}>{v.estado}</span></td>
                     <td className="acc">
-                      {v.estado !== "anulada" && (
-                        <button className="btn chico peligro" onClick={() => setVentaAnular(v)}>Anular</button>
-                      )}
+                      <div className="btn-grupo" style={{ justifyContent: "flex-end" }}>
+                        <button className="btn chico" onClick={() => setComprobante(v.id)}>Comprobante</button>
+                        {v.estado !== "anulada" && (
+                          <button className="btn chico peligro" onClick={() => setVentaAnular(v)}>Anular</button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -160,6 +172,7 @@ export function ClienteFicha({ id }: { id: number }) {
       </div>
 
       {editar && <FormCliente cliente={c} onCerrar={(m) => { setEditar(false); actualizar(m); }} />}
+      {comprobante && <Comprobante ventaId={comprobante} onCerrar={() => setComprobante(null)} />}
       {pagoNuevo && <FormPago clienteFijo={{ id, nombre: c.nombre }} onCerrar={(m) => { setPagoNuevo(false); actualizar(m); }} />}
       {pagoEditar && <FormPago clienteFijo={{ id, nombre: c.nombre }} pago={pagoEditar} onCerrar={(m) => { setPagoEditar(null); actualizar(m); }} />}
 
