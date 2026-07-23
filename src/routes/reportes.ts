@@ -259,6 +259,46 @@ reportes.get("/evolucion", async (c) => {
   return c.json({ evolucion, deuda_diaria: deuda.results ?? [] });
 });
 
+/**
+ * Detalle de qué se vendió y a quién, en un rango de fechas (y cliente opcional).
+ * Sin costos ni márgenes — accesible para cualquier rol. La usa el botón
+ * "Descargar PDF" de Ventas.
+ */
+reportes.get("/ventas-detalle", async (c) => {
+  const desde = c.req.query("desde");
+  const hasta = c.req.query("hasta");
+  const clienteId = c.req.query("cliente_id");
+
+  const cond: string[] = ["v.anulada = 0"];
+  const args: unknown[] = [];
+  if (desde) { cond.push("v.fecha >= ?"); args.push(desde); }
+  if (hasta) { cond.push("v.fecha <= ?"); args.push(hasta); }
+  if (clienteId) { cond.push("v.cliente_id = ?"); args.push(Number(clienteId)); }
+
+  const rows = await c.env.DB.prepare(
+    `SELECT v.fecha, v.numero, v.total AS venta_total, cl.id AS cliente_id, cl.nombre AS cliente_nombre,
+            vi.nombre_herramienta AS producto, vi.cantidad, vi.precio_unitario, vi.subtotal
+     FROM venta_items vi
+     JOIN ventas v ON v.id = vi.venta_id
+     JOIN clientes cl ON cl.id = v.cliente_id
+     WHERE ${cond.join(" AND ")}
+     ORDER BY v.fecha, v.numero, vi.id`
+  ).bind(...args).all();
+
+  const items = rows.results ?? [];
+  const totalVendido = items.reduce((a, r: any) => a + r.subtotal, 0);
+  const ventasUnicas = new Set(items.map((r: any) => r.numero)).size;
+
+  return c.json({
+    desde: desde ?? null,
+    hasta: hasta ?? null,
+    cliente_id: clienteId ? Number(clienteId) : null,
+    items,
+    total_vendido: totalVendido,
+    cantidad_ventas: ventasUnicas,
+  });
+});
+
 /** Último resumen diario generado por el Cron (para la tarjeta "Resumen de ayer" del Panel). */
 reportes.get("/resumen-diario", async (c) => {
   const fecha = c.req.query("fecha");

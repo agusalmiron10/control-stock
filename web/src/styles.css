@@ -225,11 +225,13 @@ table.comp-tabla { width: 100%; border-collapse: collapse; margin-bottom: 12px; 
 
 @media print {
   body * { visibility: hidden; }
-  .comprobante, .comprobante * { visibility: visible; }
-  .comprobante { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none; border-radius: 0; padding: 0; }
+  .comprobante, .comprobante *, .reporte-imprimible, .reporte-imprimible * { visibility: visible; }
+  .comprobante, .reporte-imprimible { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none; border-radius: 0; padding: 0; }
   .no-print { display: none !important; }
   .comprobante-overlay { position: static; background: none; padding: 0; overflow: visible; }
 }
+
+.reporte-imprimible .comp-tabla th, .reporte-imprimible .comp-tabla td { padding: 5px 8px; }
 
 /* ── Tablas: los botones de acción no apilan, se scrollea horizontal ── */
 table.tabla td.acc .btn-grupo { flex-wrap: nowrap; }
