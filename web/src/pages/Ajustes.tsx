@@ -127,7 +127,7 @@ function Seguridad({ onOk, onError }: { onOk: (m: string) => void; onError: (m: 
     <div className="card">
       <h2>Seguridad</h2>
       <div className="card-body">
-        <div className="fila" style={{ alignItems: "flex-start" }}>
+        <div className="fila fila-apilable" style={{ alignItems: "flex-start" }}>
           <form onSubmit={cambiarPass} style={{ flex: 1 }}>
             <h3 style={{ fontSize: 14, marginTop: 0 }}>Cambiar mi contraseña</h3>
             <Campo label="Contraseña actual"><input type="password" value={actual} onChange={(e) => setActual(e.target.value)} /></Campo>

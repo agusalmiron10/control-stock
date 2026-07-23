@@ -65,6 +65,11 @@ a:hover { text-decoration: underline; }
   padding: 4px 8px; border-radius: 6px; margin-left: 8px; cursor: pointer;
 }
 .topbar .usuario button:hover { background: var(--barra-activo); color: #fff; }
+.topbar .menu-toggle {
+  display: none; background: transparent; border: 1px solid #4b5563; color: #fff;
+  font-size: 18px; line-height: 1; padding: 6px 10px; border-radius: 6px; cursor: pointer;
+}
+.nav-salir-movil { display: none; }
 
 .contenido { padding: 16px; max-width: 1200px; width: 100%; margin: 0 auto; }
 
@@ -226,9 +231,42 @@ table.comp-tabla { width: 100%; border-collapse: collapse; margin-bottom: 12px; 
   .comprobante-overlay { position: static; background: none; padding: 0; overflow: visible; }
 }
 
+/* ── Tablas: los botones de acción no apilan, se scrollea horizontal ── */
+table.tabla td.acc .btn-grupo { flex-wrap: nowrap; }
+
 @media (max-width: 640px) {
   .contenido { padding: 10px; }
-  .topbar .marca { font-size: 15px; }
-  .topbar nav a { padding: 9px 9px; font-size: 13px; }
+
+  /* Menú hamburguesa: la navegación pasa a desplegable, una sola fila arriba.
+     .topbar ya es position:sticky (ver arriba), que también sirve de contenedor
+     de posicionamiento para el <nav> absolute — no hay que pisarlo con relative. */
+  .topbar { flex-wrap: nowrap; justify-content: space-between; }
+  .topbar .marca { font-size: 15px; margin-right: 0; }
+  .topbar .menu-toggle { display: inline-flex; }
+  .topbar .usuario { display: none; }
+  .topbar nav {
+    display: none;
+    position: absolute; top: 100%; left: 0; right: 0;
+    flex-direction: column; gap: 0; background: var(--barra);
+    padding: 6px 10px 10px; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
+    max-height: calc(100vh - 48px); overflow-y: auto; z-index: 30;
+  }
+  .topbar nav.abierta { display: flex; }
+  .topbar nav a { padding: 12px 10px; border-radius: 6px; font-size: 15px; }
+  .topbar nav a.activo { background: var(--barra-activo); color: #fff; border-radius: 6px; }
+  .nav-salir-movil {
+    display: block; margin-top: 6px; padding-top: 12px !important;
+    border-top: 1px solid #4b5563; color: #fca5a5 !important; cursor: pointer;
+  }
+  /* z-index 15 (no 25): .topbar tiene z-index:20 y genera su propio contexto de
+     apilamiento, así que el <nav> (z-index:30) queda atrapado adentro — un fondo
+     con z-index mayor a 20 quedaría por encima de todo el topbar y se comería los
+     clics de los links en vez del propio fondo. Con 15 queda debajo del topbar
+     pero por encima del contenido normal de la página. */
+  .menu-fondo { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 15; }
+
+  /* Ajustes → Seguridad: dos formularios lado a lado se apilan en celular. */
+  .fila-apilable { flex-direction: column; }
+
   table.tabla th, table.tabla td { padding: 8px 8px; }
 }

@@ -33,7 +33,12 @@ const NAV = [
 
 export function App() {
   const [estado, setEstado] = useState<Estado | null>(null);
+  const [menuAbierto, setMenuAbierto] = useState(false);
   const ruta = useRuta();
+
+  useEffect(() => {
+    setMenuAbierto(false);
+  }, [ruta.path]);
 
   const cargarEstado = useCallback(() => {
     api
@@ -66,18 +71,27 @@ export function App() {
     <div className="app">
       <header className="topbar">
         <div className="marca">🔧 Control de Stock</div>
-        <nav>
+        <button
+          className="menu-toggle"
+          aria-label={menuAbierto ? "Cerrar menú" : "Abrir menú"}
+          onClick={() => setMenuAbierto((v) => !v)}
+        >
+          {menuAbierto ? "✕" : "☰"}
+        </button>
+        <nav className={menuAbierto ? "abierta" : ""}>
           {NAV.map(([path, label]) => (
             <a key={path} href={`#${path}`} className={base === path ? "activo" : ""}>
               {label}
             </a>
           ))}
+          <a className="nav-salir-movil" onClick={salir}>Salir ({estado.usuario})</a>
         </nav>
         <div className="usuario">
           {estado.usuario}
           <button onClick={salir}>Salir</button>
         </div>
       </header>
+      {menuAbierto && <div className="menu-fondo" onClick={() => setMenuAbierto(false)} />}
       <main className="contenido">
         <Vista ruta={ruta} />
       </main>
