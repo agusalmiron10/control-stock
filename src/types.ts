@@ -5,11 +5,14 @@ export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
   SESSION_SECRET: string;
+  BACKUPS: R2Bucket;
 }
+
+export type Rol = "dueño" | "empleado";
 
 /** Variables que la sesión deja disponibles en el contexto de Hono. */
 export interface Variables {
-  usuario: { uid: number; usuario: string };
+  usuario: { uid: number; usuario: string; rol: Rol };
 }
 
 export type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
@@ -85,6 +88,7 @@ export interface MovimientoStock {
   stock_resultante: number;
   venta_id: number | null;
   motivo: string | null;
+  costo_unitario: number | null;
 }
 
 export interface PrecioHistorial {
@@ -95,4 +99,42 @@ export interface PrecioHistorial {
   precio_nuevo: number;
   tipo_precio: string; // 'minorista' | 'mayorista'
   motivo: string | null;
+}
+
+export interface Presupuesto {
+  id: number;
+  numero: number;
+  cliente_id: number;
+  fecha: string;
+  subtotal: number;
+  descuento: number;
+  total: number;
+  estado: "pendiente" | "aceptado" | "rechazado" | "vencido";
+  valido_hasta: string | null;
+  nota: string | null;
+  venta_id: number | null;
+  creado_en: string;
+}
+
+export interface PresupuestoItem {
+  id: number;
+  presupuesto_id: number;
+  herramienta_id: number;
+  nombre_herramienta: string;
+  cantidad: number;
+  precio_unitario: number;
+  subtotal: number;
+}
+
+export interface ResumenDiario {
+  id: number;
+  fecha: string;
+  ventas_total: number;
+  ventas_cant: number;
+  cobranzas_total: number;
+  cobranzas_cant: number;
+  saldo_pendiente: number;
+  clientes_con_deuda: number;
+  stock_bajo_cant: number;
+  generado_en: string;
 }

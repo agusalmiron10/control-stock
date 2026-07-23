@@ -7,10 +7,12 @@ import { clientes } from "./routes/clientes";
 import { herramientas } from "./routes/herramientas";
 import { ventas } from "./routes/ventas";
 import { pagos } from "./routes/pagos";
+import { presupuestos } from "./routes/presupuestos";
 import { panel } from "./routes/panel";
 import { reportes } from "./routes/reportes";
 import { exportar } from "./routes/export";
 import { backup } from "./routes/backup";
+import { scheduled } from "./scheduled";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -31,6 +33,7 @@ api.route("/clientes", clientes);
 api.route("/herramientas", herramientas);
 api.route("/ventas", ventas);
 api.route("/pagos", pagos);
+api.route("/presupuestos", presupuestos);
 api.route("/panel", panel);
 api.route("/reportes", reportes);
 api.route("/export", exportar);
@@ -45,4 +48,7 @@ app.all("/api/*", (c) => c.json({ error: "Ruta no encontrada." }, 404));
 // rutas del router del front (ej. /clientes/12).
 app.all("*", (c) => c.env.ASSETS.fetch(c.req.raw));
 
-export default app;
+export default {
+  fetch: app.fetch,
+  scheduled,
+};

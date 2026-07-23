@@ -1,8 +1,10 @@
 import { Hono } from "hono";
 import type { Env, Variables } from "../types";
 import { HttpError } from "../validate";
+import { requireDueno } from "../auth";
 
 export const backup = new Hono<{ Bindings: Env; Variables: Variables }>();
+backup.use("*", requireDueno);
 
 const TABLAS = [
   "clientes",
@@ -12,6 +14,8 @@ const TABLAS = [
   "pagos",
   "movimientos_stock",
   "precios_historial",
+  "presupuestos",
+  "presupuesto_items",
 ] as const;
 
 /** Descarga toda la base (menos usuarios) como JSON. */

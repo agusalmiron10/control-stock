@@ -29,6 +29,20 @@
     }
   ],
 
+  // Bucket R2 para el backup automático nocturno (ver src/scheduled.ts).
+  "r2_buckets": [
+    {
+      "binding": "BACKUPS",
+      "bucket_name": "control-stock-backups"
+    }
+  ],
+
+  // Cron diario a las 05:00 UTC (02:00 en Argentina): calcula el resumen del
+  // día anterior y sube un backup a R2. Ver src/scheduled.ts.
+  "triggers": {
+    "crons": ["0 5 * * *"]
+  },
+
   "observability": {
     "enabled": true
   }

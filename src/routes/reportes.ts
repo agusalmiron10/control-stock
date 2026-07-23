@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Env, Variables, Cliente, Venta, Herramienta } from "../types";
 import { estadoDeCuentaTodos } from "../cuenta";
+import { requireDueno } from "../auth";
 
 export const reportes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -81,7 +82,7 @@ reportes.get("/cobranzas", async (c) => {
  * Rentabilidad: margen y ganancia estimada por producto (usa el costo ACTUAL).
  * Filtro opcional por rango de fechas de venta.
  */
-reportes.get("/rentabilidad", async (c) => {
+reportes.get("/rentabilidad", requireDueno, async (c) => {
   const desde = c.req.query("desde") || undefined;
   const hasta = c.req.query("hasta") || undefined;
 
@@ -136,3 +137,173 @@ reportes.get("/rentabilidad", async (c) => {
     productos: porProducto,
   });
 });
+
+/**
+ * Plan de producción: qué conviene fabricar. Cruza stock actual + mínimo con
+ * la velocidad de venta de los últimos 30 y 60 días. Sugiere una cantidad a
+ * producir para volver a tener ~1 mes de stock por encima del mínimo.
+ */
+reportes.get("/produccion", async (c) => {
+  const esDueno = c.get("usuario").rol === "dueño";
+  const hoy = hoyISO();
+  const hace30 = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const hace60 = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
+
+  const herr = await c.env.DB.prepare(`SELECT * FROM herramientas WHERE activo = 1`).all<Herramienta>();
+
+  const v30 = await c.env.DB.prepare(
+    `SELECT vi.herramienta_id AS hid, SUM(vi.cantidad) AS u FROM venta_items vi
+     JOIN ventas v ON v.id = vi.venta_id WHERE v.anulada = 0 AND v.fecha >= ? GROUP BY vi.herramienta_id`
+  ).bind(hace30).all<{ hid: number; u: number }>();
+  const v60 = await c.env.DB.prepare(
+    `SELECT vi.herramienta_id AS hid, SUM(vi.cantidad) AS u FROM venta_items vi
+     JOIN ventas v ON v.id = vi.venta_id WHERE v.anulada = 0 AND v.fecha >= ? GROUP BY vi.herramienta_id`
+  ).bind(hace60).all<{ hid: number; u: number }>();
+  const map30 = new Map((v30.results ?? []).map((r) => [r.hid, r.u]));
+  const map60 = new Map((v60.results ?? []).map((r) => [r.hid, r.u]));
+
+  const sugeridos = (herr.results ?? [])
+    .map((h) => {
+      const vendidas30 = map30.get(h.id) ?? 0;
+      const vendidas60 = map60.get(h.id) ?? 0;
+      // Velocidad mensual: promedia 30 y 60 días (dividido 2) para suavizar picos.
+      const velocidadMensual = Math.round((vendidas30 + vendidas60 / 2) / 2);
+      // Objetivo: mínimo + 1 mes de venta por delante.
+      const objetivo = h.stock_minimo + velocidadMensual;
+      const sugerido = Math.max(0, objetivo - h.stock);
+      return {
+        id: h.id, codigo: h.codigo, nombre: h.nombre, rubro: h.rubro ?? "",
+        stock: h.stock, stock_minimo: h.stock_minimo, costo: esDueno ? h.costo : 0,
+        vendidas_30d: vendidas30, vendidas_60d: vendidas60, velocidad_mensual: velocidadMensual,
+        cantidad_sugerida: sugerido,
+        urgente: h.stock <= h.stock_minimo,
+      };
+    })
+    .filter((x) => x.cantidad_sugerida > 0 || x.urgente)
+    .sort((a, b) => (b.urgente ? 1 : 0) - (a.urgente ? 1 : 0) || b.cantidad_sugerida - a.cantidad_sugerida);
+
+  return c.json({ generado: hoy, sugeridos });
+});
+
+/** Caja del día: ventas y cobranzas de hoy (o de la fecha pedida), por medio de pago. */
+reportes.get("/caja", async (c) => {
+  const fecha = c.req.query("fecha") || hoyISO();
+
+  const ventasDia = await c.env.DB.prepare(
+    `SELECT COALESCE(SUM(total),0) AS total, COUNT(*) AS cant FROM ventas WHERE anulada = 0 AND fecha = ?`
+  ).bind(fecha).first<{ total: number; cant: number }>();
+
+  const porMedio = await c.env.DB.prepare(
+    `SELECT medio, COALESCE(SUM(monto),0) AS total, COUNT(*) AS cant FROM pagos WHERE fecha = ? GROUP BY medio`
+  ).bind(fecha).all<{ medio: string; total: number; cant: number }>();
+
+  const pagosRows = await c.env.DB.prepare(
+    `SELECT p.*, cl.nombre AS cliente_nombre, v.numero AS venta_numero FROM pagos p
+     JOIN clientes cl ON cl.id = p.cliente_id LEFT JOIN ventas v ON v.id = p.venta_id
+     WHERE p.fecha = ? ORDER BY p.id`
+  ).bind(fecha).all();
+
+  const totalCobrado = (porMedio.results ?? []).reduce((a, m) => a + m.total, 0);
+
+  return c.json({
+    fecha,
+    ventas_total: ventasDia?.total ?? 0,
+    ventas_cant: ventasDia?.cant ?? 0,
+    cobrado_total: totalCobrado,
+    por_medio: porMedio.results ?? [],
+    pagos: pagosRows.results ?? [],
+  });
+});
+
+/** Evolución mensual de ventas y cobranzas (últimos N meses). */
+reportes.get("/evolucion", async (c) => {
+  const meses = Math.min(24, Math.max(1, Number(c.req.query("meses")) || 6));
+  const desde = new Date();
+  desde.setUTCDate(1);
+  desde.setUTCMonth(desde.getUTCMonth() - (meses - 1));
+  const desdeStr = desde.toISOString().slice(0, 10);
+
+  const ventasPorMes = await c.env.DB.prepare(
+    `SELECT substr(fecha,1,7) AS mes, COALESCE(SUM(total),0) AS total, COUNT(*) AS cant
+     FROM ventas WHERE anulada = 0 AND fecha >= ? GROUP BY mes ORDER BY mes`
+  ).bind(desdeStr).all<{ mes: string; total: number; cant: number }>();
+
+  const cobranzasPorMes = await c.env.DB.prepare(
+    `SELECT substr(fecha,1,7) AS mes, COALESCE(SUM(monto),0) AS total, COUNT(*) AS cant
+     FROM pagos WHERE fecha >= ? GROUP BY mes ORDER BY mes`
+  ).bind(desdeStr).all<{ mes: string; total: number; cant: number }>();
+
+  // Completar meses sin datos con 0, para que el gráfico no tenga huecos.
+  const claves: string[] = [];
+  const cursor = new Date(desde);
+  for (let i = 0; i < meses; i++) {
+    claves.push(cursor.toISOString().slice(0, 7));
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+  }
+  const vMap = new Map((ventasPorMes.results ?? []).map((r) => [r.mes, r]));
+  const cMap = new Map((cobranzasPorMes.results ?? []).map((r) => [r.mes, r]));
+
+  const evolucion = claves.map((mes) => ({
+    mes,
+    ventas_total: vMap.get(mes)?.total ?? 0,
+    ventas_cant: vMap.get(mes)?.cant ?? 0,
+    cobranzas_total: cMap.get(mes)?.total ?? 0,
+    cobranzas_cant: cMap.get(mes)?.cant ?? 0,
+  }));
+
+  // Deuda pendiente en el tiempo: usamos los resúmenes diarios del cron (si ya hay historial).
+  const deuda = await c.env.DB.prepare(
+    `SELECT fecha, saldo_pendiente FROM resumenes_diarios WHERE fecha >= ? ORDER BY fecha`
+  ).bind(desdeStr).all<{ fecha: string; saldo_pendiente: number }>();
+
+  return c.json({ evolucion, deuda_diaria: deuda.results ?? [] });
+});
+
+/** Último resumen diario generado por el Cron (para la tarjeta "Resumen de ayer" del Panel). */
+reportes.get("/resumen-diario", async (c) => {
+  const fecha = c.req.query("fecha");
+  const row = fecha
+    ? await c.env.DB.prepare(`SELECT * FROM resumenes_diarios WHERE fecha = ?`).bind(fecha).first()
+    : await c.env.DB.prepare(`SELECT * FROM resumenes_diarios ORDER BY fecha DESC LIMIT 1`).first();
+  return c.json({ resumen: row ?? null });
+});
+
+/**
+ * Calcula el resumen de UN día (ventas, cobranzas, saldo pendiente, stock bajo).
+ * La usa el Cron Trigger (src/scheduled.ts) para guardar el snapshot diario.
+ * Exportada para poder testearla o llamarla manualmente si hace falta.
+ */
+export async function calcularResumenDia(env: Env, fecha: string) {
+  const ventasDia = await env.DB.prepare(
+    `SELECT COALESCE(SUM(total),0) AS total, COUNT(*) AS cant FROM ventas WHERE anulada = 0 AND fecha = ?`
+  ).bind(fecha).first<{ total: number; cant: number }>();
+
+  const cobranzasDia = await env.DB.prepare(
+    `SELECT COALESCE(SUM(monto),0) AS total, COUNT(*) AS cant FROM pagos WHERE fecha = ?`
+  ).bind(fecha).first<{ total: number; cant: number }>();
+
+  const cuentas = await estadoDeCuentaTodos(env);
+  let saldoPendiente = 0;
+  let clientesConDeuda = 0;
+  for (const cta of cuentas.values()) {
+    if (cta.saldoCliente > 0) {
+      saldoPendiente += cta.saldoCliente;
+      clientesConDeuda++;
+    }
+  }
+
+  const stockBajo = await env.DB.prepare(
+    `SELECT COUNT(*) AS n FROM herramientas WHERE activo = 1 AND stock <= stock_minimo`
+  ).first<{ n: number }>();
+
+  return {
+    fecha,
+    ventas_total: ventasDia?.total ?? 0,
+    ventas_cant: ventasDia?.cant ?? 0,
+    cobranzas_total: cobranzasDia?.total ?? 0,
+    cobranzas_cant: cobranzasDia?.cant ?? 0,
+    saldo_pendiente: saldoPendiente,
+    clientes_con_deuda: clientesConDeuda,
+    stock_bajo_cant: stockBajo?.n ?? 0,
+  };
+}

@@ -13,6 +13,15 @@ export function pesos(centavos: number): string {
   return fmtPesos.format((centavos ?? 0) / 100);
 }
 
+/** Centavos → forma compacta para etiquetas de gráficos: "$4,9 M" / "$820 K". */
+export function pesosCompacto(centavos: number): string {
+  const pesosValor = (centavos ?? 0) / 100;
+  const abs = Math.abs(pesosValor);
+  if (abs >= 1_000_000) return `$${(pesosValor / 1_000_000).toLocaleString("es-AR", { maximumFractionDigits: 1 })} M`;
+  if (abs >= 1_000) return `$${(pesosValor / 1_000).toLocaleString("es-AR", { maximumFractionDigits: 0 })} K`;
+  return `$${pesosValor.toLocaleString("es-AR", { maximumFractionDigits: 0 })}`;
+}
+
 /** Número entero con separador de miles. */
 export function numero(n: number): string {
   return fmtNum.format(n ?? 0);
@@ -48,4 +57,14 @@ export function hoyISO(): string {
 /** Nombre de archivo con fecha, ej. "control-stock-general-2026-07-22.xlsx". */
 export function nombreArchivo(prefijo: string): string {
   return `${prefijo}-${hoyISO()}.xlsx`;
+}
+
+const MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+
+/** "2026-07" → "jul '26" (para etiquetas de gráficos). */
+export function mesCorto(aaaaMm: string): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(aaaaMm);
+  if (!m) return aaaaMm;
+  const mes = MESES_CORTOS[Number(m[2]) - 1] ?? m[2];
+  return `${mes} '${m[1].slice(2)}`;
 }

@@ -2,9 +2,11 @@ import { api } from "../api";
 import { pesos, numero, fecha } from "../format";
 import { Cargando, Error, useCarga } from "../components/ui";
 import { navegar } from "../lib/router";
+import { waResumenDiario } from "../lib/whatsapp";
 
 export function Panel() {
   const { data, error, cargando } = useCarga<any>(() => api.get("/api/panel"), []);
+  const resumenQ = useCarga<any>(() => api.get("/api/reportes/resumen-diario"), []);
 
   if (cargando) return <Cargando />;
   if (error) return <Error msg={error} />;
@@ -13,6 +15,7 @@ export function Panel() {
   const tipoMov: Record<string, string> = {
     alta: "Alta", produccion: "Producción", venta: "Venta", ajuste: "Ajuste", anulacion: "Anulación",
   };
+  const r = resumenQ.data?.resumen;
 
   return (
     <div>
@@ -20,6 +23,16 @@ export function Panel() {
         <h1>Panel</h1>
         <span className="mut">Mes en curso: {data.mes}</span>
       </div>
+
+      {r && (
+        <div className="pill-alerta" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, background: "#eef2ff", borderColor: "#c7d2fe", color: "#3730a3" }}>
+          <div>
+            <b>Resumen de ayer ({fecha(r.fecha)}):</b> vendiste {pesos(r.ventas_total)} ({r.ventas_cant}) y cobraste {pesos(r.cobranzas_total)} ({r.cobranzas_cant}).
+            {r.stock_bajo_cant > 0 && <> {r.stock_bajo_cant} producto(s) con stock bajo.</>}
+          </div>
+          <button className="btn chico wa" onClick={() => waResumenDiario(r)}>Compartir</button>
+        </div>
+      )}
 
       <div className="grid-kpi">
         <div className="kpi">

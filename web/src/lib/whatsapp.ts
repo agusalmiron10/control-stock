@@ -51,6 +51,44 @@ export function waRecordatorioDeuda(cliente: any, saldo: number) {
   abrir(telefonoWa(cliente.telefono), l.join("\n"));
 }
 
+/** Manda un presupuesto (cotización) a un cliente. */
+export function waPresupuesto(cliente: any, presupuesto: any, items: any[]) {
+  const l: string[] = [];
+  l.push(`Hola ${cliente.nombre}, te paso el presupuesto de ${NEGOCIO.nombre}:`);
+  l.push("");
+  for (const it of items) {
+    l.push(`${it.cantidad} x ${it.nombre_herramienta} — ${pesos(it.subtotal)}`);
+  }
+  l.push("");
+  if (presupuesto.descuento > 0) l.push(`Subtotal: ${pesos(presupuesto.subtotal)}`);
+  if (presupuesto.descuento > 0) l.push(`Descuento: ${pesos(presupuesto.descuento)}`);
+  l.push(`*Total: ${pesos(presupuesto.total)}*`);
+  if (presupuesto.valido_hasta) l.push(`Válido hasta el ${fecha(presupuesto.valido_hasta)}.`);
+  l.push("");
+  l.push(`Cualquier consulta, avisame. ${NEGOCIO.telefono}`);
+  abrir(telefonoWa(cliente.telefono), l.join("\n"));
+}
+
+/** Recordatorio de un presupuesto pendiente. */
+export function waRecordatorioPresupuesto(cliente: any, presupuesto: any) {
+  const l: string[] = [];
+  l.push(`Hola ${cliente.nombre}, ¿pudiste ver el presupuesto que te mandé por ${pesos(presupuesto.total)}?`);
+  l.push(`Cualquier cosa quedo atento. ${NEGOCIO.telefono}`);
+  abrir(telefonoWa(cliente.telefono), l.join("\n"));
+}
+
+/** Comparte el resumen del día anterior (generado por el Cron automático). */
+export function waResumenDiario(r: any) {
+  const l: string[] = [];
+  l.push(`*${NEGOCIO.nombre} — Resumen del ${fecha(r.fecha)}*`);
+  l.push("");
+  l.push(`Ventas: ${pesos(r.ventas_total)} (${r.ventas_cant})`);
+  l.push(`Cobrado: ${pesos(r.cobranzas_total)} (${r.cobranzas_cant})`);
+  l.push(`Total a cobrar: ${pesos(r.saldo_pendiente)} — ${r.clientes_con_deuda} clientes`);
+  if (r.stock_bajo_cant > 0) l.push(`Stock bajo o en cero: ${r.stock_bajo_cant} producto(s)`);
+  abrir(null, l.join("\n"));
+}
+
 /** Comparte la lista de precios (texto) — abre WhatsApp para elegir contacto. */
 export function waListaDePrecios(herramientas: any[], tipo: "minorista" | "mayorista") {
   const conPrecio = herramientas.filter((h) => (tipo === "mayorista" ? h.precio_mayor : h.precio) > 0);

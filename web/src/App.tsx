@@ -9,15 +9,22 @@ import { Clientes } from "./pages/Clientes";
 import { ClienteFicha } from "./pages/ClienteFicha";
 import { Ventas } from "./pages/Ventas";
 import { NuevaVenta } from "./pages/NuevaVenta";
+import { Presupuestos } from "./pages/Presupuestos";
+import { NuevoPresupuesto } from "./pages/NuevoPresupuesto";
+import { PresupuestoDetalle } from "./pages/PresupuestoDetalle";
 import { Pagos } from "./pages/Pagos";
 import { Cobranzas } from "./pages/Cobranzas";
+import { Produccion } from "./pages/Produccion";
 import { Reportes } from "./pages/Reportes";
 import { Ajustes } from "./pages/Ajustes";
+import type { Rol } from "./lib/rol";
+import { RolContext } from "./lib/rol";
 
 interface Estado {
   needsSetup: boolean;
   authenticated: boolean;
   usuario: string | null;
+  rol: Rol | null;
 }
 
 const NAV = [
@@ -25,8 +32,10 @@ const NAV = [
   ["/herramientas", "Herramientas"],
   ["/clientes", "Clientes"],
   ["/ventas", "Ventas"],
+  ["/presupuestos", "Presupuestos"],
   ["/pagos", "Pagos"],
   ["/cobranzas", "Cobranzas"],
+  ["/produccion", "Producción"],
   ["/reportes", "Reportes"],
   ["/ajustes", "Ajustes"],
 ] as const;
@@ -44,7 +53,7 @@ export function App() {
     api
       .get<Estado>("/api/auth/status")
       .then(setEstado)
-      .catch(() => setEstado({ needsSetup: false, authenticated: false, usuario: null }));
+      .catch(() => setEstado({ needsSetup: false, authenticated: false, usuario: null, rol: null }));
   }, []);
 
   useEffect(() => {
@@ -93,7 +102,9 @@ export function App() {
       </header>
       {menuAbierto && <div className="menu-fondo" onClick={() => setMenuAbierto(false)} />}
       <main className="contenido">
-        <Vista ruta={ruta} />
+        <RolContext.Provider value={estado.rol ?? "dueño"}>
+          <Vista ruta={ruta} />
+        </RolContext.Provider>
       </main>
     </div>
   );
@@ -111,10 +122,14 @@ function Vista({ ruta }: { ruta: ReturnType<typeof useRuta> }) {
       return id ? <ClienteFicha id={Number(id)} /> : <Clientes />;
     case "ventas":
       return id === "nueva" ? <NuevaVenta /> : <Ventas />;
+    case "presupuestos":
+      return id === "nuevo" ? <NuevoPresupuesto /> : id ? <PresupuestoDetalle id={Number(id)} /> : <Presupuestos />;
     case "pagos":
       return <Pagos />;
     case "cobranzas":
       return <Cobranzas />;
+    case "produccion":
+      return <Produccion />;
     case "reportes":
       return <Reportes />;
     case "ajustes":

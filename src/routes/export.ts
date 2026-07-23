@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Env, Variables, Cliente, Venta, VentaItem, Pago, Herramienta, MovimientoStock, PrecioHistorial } from "../types";
 import { HttpError } from "../validate";
 import { estadoDeCuenta, estadoDeCuentaTodos } from "../cuenta";
+import { requireDueno } from "../auth";
 
 export const exportar = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -73,8 +74,8 @@ exportar.get("/cliente/:id", async (c) => {
   });
 });
 
-/** Datos para el Excel general del negocio. */
-exportar.get("/general", async (c) => {
+/** Datos para el Excel general del negocio (trae costos y márgenes: solo dueño). */
+exportar.get("/general", requireDueno, async (c) => {
   const desde = c.req.query("desde") || undefined;
   const hasta = c.req.query("hasta") || undefined;
 

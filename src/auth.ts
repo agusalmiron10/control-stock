@@ -5,7 +5,7 @@
  */
 import type { MiddlewareHandler } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
-import type { Env, Variables } from "./types";
+import type { Env, Variables, Rol } from "./types";
 
 const PBKDF2_ITERS = 100_000;
 const COOKIE = "sesion";
@@ -77,6 +77,7 @@ async function hmacKey(secret: string): Promise<CryptoKey> {
 interface SessionPayload {
   uid: number;
   usuario: string;
+  rol: Rol;
   exp: number; // epoch segundos
 }
 
@@ -113,9 +114,9 @@ function esHttps(c: { req: { url: string } }): boolean {
   }
 }
 
-export async function crearSesion(c: any, uid: number, usuario: string): Promise<void> {
+export async function crearSesion(c: any, uid: number, usuario: string, rol: Rol): Promise<void> {
   const exp = Math.floor(Date.now() / 1000) + SESSION_TTL_S;
-  const token = await signToken({ uid, usuario, exp }, c.env.SESSION_SECRET);
+  const token = await signToken({ uid, usuario, rol, exp }, c.env.SESSION_SECRET);
   setCookie(c, COOKIE, token, {
     httpOnly: true,
     secure: esHttps(c),
@@ -130,11 +131,11 @@ export function cerrarSesion(c: any): void {
 }
 
 /** Lee la sesión si existe y es válida; si no, devuelve null. No corta la request. */
-export async function leerSesionOpcional(c: any): Promise<{ uid: number; usuario: string } | null> {
+export async function leerSesionOpcional(c: any): Promise<{ uid: number; usuario: string; rol: Rol } | null> {
   const token = getCookie(c, COOKIE);
   if (!token) return null;
   const payload = await verifyToken(token, c.env.SESSION_SECRET);
-  return payload ? { uid: payload.uid, usuario: payload.usuario } : null;
+  return payload ? { uid: payload.uid, usuario: payload.usuario, rol: payload.rol } : null;
 }
 
 /** Middleware: exige sesión válida en todas las rutas de datos. */
@@ -143,7 +144,15 @@ export const requireAuth: MiddlewareHandler<{ Bindings: Env; Variables: Variable
   if (!token) return c.json({ error: "No autenticado. Iniciá sesión." }, 401);
   const payload = await verifyToken(token, c.env.SESSION_SECRET);
   if (!payload) return c.json({ error: "Sesión vencida. Volvé a iniciar sesión." }, 401);
-  c.set("usuario", { uid: payload.uid, usuario: payload.usuario });
+  c.set("usuario", { uid: payload.uid, usuario: payload.usuario, rol: payload.rol ?? "dueño" });
+  await next();
+};
+
+/** Middleware: exige rol "dueño". Usar después de requireAuth. */
+export const requireDueno: MiddlewareHandler<{ Bindings: Env; Variables: Variables }> = async (c, next) => {
+  if (c.get("usuario").rol !== "dueño") {
+    return c.json({ error: "Esta información es solo para el dueño de la cuenta." }, 403);
+  }
   await next();
 };
 

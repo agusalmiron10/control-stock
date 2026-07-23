@@ -66,6 +66,16 @@ npm run db:migrate:local     # base local (para npm run dev)
 npm run db:migrate:remote    # base real en Cloudflare
 ```
 
+### 2.2b. Crear el bucket R2 para el backup automático
+
+El backup nocturno (ver sección 11) necesita un bucket R2:
+
+```bash
+npx wrangler r2 bucket create control-stock-backups
+```
+
+Si le ponés otro nombre, actualizá `bucket_name` en `wrangler.jsonc` (bloque `r2_buckets`).
+
 ### 2.3. Cargar el secreto de sesión
 
 El secreto firma la cookie de sesión. **Nunca va en el código ni en el repo.**
@@ -136,28 +146,34 @@ Compila el frontend y sube todo a Cloudflare. Te queda una URL
 
 ```
 control-stock/
-├── wrangler.jsonc          # Config del Worker: D1, assets, dominio
+├── wrangler.jsonc          # Config del Worker: D1, R2, Cron, assets, dominio
 ├── migrations/             # Migraciones SQL versionadas
-│   └── 0001_init.sql
-├── seed/                   # Datos de ejemplo y reset
-│   ├── seed.sql
-│   └── reset.sql
+│   ├── 0001_init.sql
+│   ├── 0002_mayorista_rubro.sql
+│   └── 0003_pro.sql        # Presupuestos, roles, resumen diario, costo por lote
+├── seed/                   # Datos de ejemplo, demo y reset
 ├── src/                    # Backend (Worker + Hono)
-│   ├── index.ts            # Punto de entrada, monta rutas y sirve el SPA
-│   ├── auth.ts             # Hash de contraseñas, cookie de sesión, rate limit
+│   ├── index.ts            # Punto de entrada, monta rutas, sirve el SPA y el cron
+│   ├── scheduled.ts        # Cron diario: resumen del día + backup a R2
+│   ├── auth.ts             # Hash de contraseñas, cookie de sesión, rate limit, roles
 │   ├── imputacion.ts       # 💡 Función pura de imputación FIFO (única fuente de verdad)
 │   ├── cuenta.ts           # Puente entre la base y la imputación
 │   ├── validate.ts         # Validaciones con mensajes en castellano
 │   ├── types.ts            # Tipos de las filas y del entorno
-│   └── routes/             # clientes, herramientas, ventas, pagos, panel, export, backup, auth
+│   └── routes/             # clientes, herramientas, ventas, pagos, presupuestos,
+│                            # panel, reportes, export, backup, auth
 ├── web/                    # Frontend (React + Vite)
+│   ├── public/              # manifest, service worker e íconos de la PWA
 │   └── src/
 │       ├── App.tsx         # Sesión + navegación (router por hash)
 │       ├── api.ts          # Cliente de la API
 │       ├── format.ts       # Formato argentino ($ y fechas)
 │       ├── excel.ts        # Generación de los 3 Excel con SheetJS
-│       ├── components/     # Modal, formularios reutilizables
-│       └── pages/          # Panel, Herramientas, Clientes, Ventas, Pagos, Ajustes
+│       ├── lib/rol.ts      # Contexto de rol (dueño/empleado) para el frontend
+│       ├── lib/whatsapp.ts # Mensajes de WhatsApp (estado de cuenta, presupuesto, etc.)
+│       ├── components/     # Modal, formularios reutilizables, gráfico de barras
+│       └── pages/          # Panel, Herramientas, Clientes, Ventas, Presupuestos,
+│                            # Pagos, Cobranzas, Producción, Reportes, Ajustes
 ├── test/
 │   └── imputacion.test.ts  # Tests de la lógica de plata
 └── dist/client/            # Salida del build de Vite (se sirve como assets)
@@ -242,6 +258,11 @@ del Worker).
 - Sesión por **cookie firmada** (`HttpOnly`, `Secure`, `SameSite=Lax`).
 - **Todos los endpoints de datos exigen sesión válida.** Ninguna ruta de datos queda abierta.
 - **Rate limiting** básico en el login (por IP, en memoria del Worker).
+- **Roles: dueño / empleado.** El primer usuario (setup) siempre es dueño. Un **empleado**
+  puede cargar ventas, pagos, stock y presupuestos, pero **no ve costos ni rentabilidad**
+  (la API devuelve esos campos en `0`/`null`), y no puede exportar el Excel general, tocar
+  el respaldo ni crear otros usuarios (esas rutas devuelven 403). Se administra desde
+  Ajustes → Usuarios.
 
 ---
 
@@ -254,7 +275,9 @@ del Worker).
 | `npm test` | Corre los tests de la lógica de plata |
 | `npm run typecheck` | Chequea tipos (Worker y web) |
 | `npm run db:migrate:local` / `:remote` | Aplica migraciones |
-| `npm run db:seed:local` / `:remote` | Carga datos de ejemplo |
+| `npm run db:seed:local` / `:remote` | Carga datos de ejemplo (3 herramientas, 3 clientes) |
+| `npm run db:demo:gen` | Regenera `seed/demo.sql` (50 clientes, precios, ventas variadas) |
+| `npm run db:demo:local` / `:remote` | Carga esa demo en la base |
 | `npm run db:reset:local` / `:remote` | Borra datos de negocio (no el usuario) |
 
 ---
@@ -280,7 +303,37 @@ del Worker).
 - **Ficha de producto** (clic en el nombre de la herramienta): stock, precios, unidades vendidas,
   ganancia, quiénes lo compraron, historial de precios y movimientos de stock.
 
-## 10. Consultas SQL directas (para depurar)
+## 10. Más funciones pro
+
+- **Presupuestos / cotizaciones**: se cargan igual que una venta pero **no tocan stock ni
+  generan deuda**. Se mandan por WhatsApp, y con un botón **"Convertir a venta"** se
+  transforman en la venta real (ahí sí descuentan stock y pueden llevar un pago inicial).
+  Quedan con estado pendiente / aceptado / rechazado / vencido.
+- **Plan de producción** (sección *Producción*): cruza el stock actual y el mínimo con lo
+  vendido en los últimos 30 y 60 días, y sugiere cuánto fabricar de cada producto para
+  volver a tener ~1 mes de stock. Un botón "Producir" lleva directo al alta de producción.
+- **Costo por lote**: al registrar una producción podés cargar el costo total del lote
+  (materiales + mano de obra). El sistema recalcula el costo de la herramienta como
+  **promedio ponderado** entre el stock que ya tenías (a su costo viejo) y el lote nuevo —
+  así la rentabilidad deja de ser una estimación y se acerca a tu costo real.
+- **Caja del día** y **Evolución mensual** (pestañas en *Reportes*): cuánto entró hoy
+  separado por medio de pago (efectivo/transferencia/cheque), y gráficos de ventas y
+  cobranzas de los últimos 6 meses.
+- **Resumen diario automático**: un Cron Trigger corre solo cada madrugada (`0 5 * * *`,
+  02:00 Argentina), calcula el resumen del día anterior y lo deja guardado. Al abrir el
+  Panel a la mañana, aparece una tarjeta **"Resumen de ayer"** con un botón para mandarlo
+  por WhatsApp con un click. *(El envío automático de WhatsApp real requiere la API paga
+  de WhatsApp Business de Meta; esta versión te deja el mensaje listo para mandar vos.)*
+- **Backup automático nocturno**: el mismo Cron sube una copia completa de la base a
+  Cloudflare R2 (`control-stock-backups`) cada madrugada, con **30 días de retención**
+  (se van borrando solas las copias más viejas). Se suma al backup manual y al Time Travel
+  de D1 — tres capas de respaldo.
+- **App instalable (PWA)**: desde el navegador del celular, "Agregar a la pantalla de
+  inicio" instala la app con su propio ícono, abre a pantalla completa y funciona como una
+  app nativa. El service worker cachea solo el shell visual — los datos de stock, ventas y
+  cuenta corriente **siempre** se piden frescos a la base, nunca quedan cacheados viejos.
+
+## 11. Consultas SQL directas (para depurar)
 
 ```bash
 npx wrangler d1 execute control-stock --local  --command "SELECT * FROM clientes"

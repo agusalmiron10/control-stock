@@ -4,6 +4,8 @@ import { pesos, numero, aCentavos, aPesos, hoyISO } from "../format";
 import { Cargando, Error, Vacio, Modal, Campo, Confirmar, useCarga } from "../components/ui";
 import { exportarPrecios } from "../excel";
 import { waListaDePrecios } from "../lib/whatsapp";
+import { FormProduccion } from "../components/FormProduccion";
+import { useRol, esDueno } from "../lib/rol";
 
 type Modo =
   | { t: "cerrado" }
@@ -158,6 +160,7 @@ export function Herramientas() {
 }
 
 function FormHerramienta({ modo, onCerrar }: { modo: any; onCerrar: (m?: string) => void }) {
+  const rol = useRol();
   const editar = modo.t === "editar";
   const h = modo.h;
   const [codigo, setCodigo] = useState(h?.codigo ?? "");
@@ -178,9 +181,10 @@ function FormHerramienta({ modo, onCerrar }: { modo: any; onCerrar: (m?: string)
     setGuardando(true);
     try {
       const body: any = {
-        codigo, nombre, rubro, costo: aCentavos(costo || "0"),
+        codigo, nombre, rubro,
         stock_minimo: Number(stockMin || 0), notas,
       };
+      if (esDueno(rol)) body.costo = aCentavos(costo || "0");
       if (editar) {
         await api.put(`/api/herramientas/${h.id}`, body);
       } else {
@@ -221,9 +225,11 @@ function FormHerramienta({ modo, onCerrar }: { modo: any; onCerrar: (m?: string)
           </div>
         )}
         <div className="fila">
-          <Campo label="Costo ($)">
-            <input className="num" type="number" step="0.01" value={costo} onChange={(e) => setCosto(e.target.value)} />
-          </Campo>
+          {esDueno(rol) && (
+            <Campo label="Costo ($)">
+              <input className="num" type="number" step="0.01" value={costo} onChange={(e) => setCosto(e.target.value)} />
+            </Campo>
+          )}
           {!editar && (
             <Campo label="Stock inicial">
               <input className="num" type="number" value={stock} onChange={(e) => setStock(e.target.value)} />
@@ -240,39 +246,6 @@ function FormHerramienta({ modo, onCerrar }: { modo: any; onCerrar: (m?: string)
   );
 }
 
-function FormProduccion({ h, onCerrar }: { h: any; onCerrar: (m?: string) => void }) {
-  const [cantidad, setCantidad] = useState("");
-  const [fecha, setFecha] = useState(hoyISO());
-  const [motivo, setMotivo] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  async function guardar(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    try {
-      await api.post(`/api/herramientas/${h.id}/produccion`, { cantidad: Number(cantidad), fecha, motivo });
-      onCerrar(`Producción registrada: +${cantidad} de ${h.nombre}.`);
-    } catch (err: any) { setError(err.message); }
-  }
-
-  return (
-    <Modal titulo={`Producción — ${h.nombre}`} onCerrar={() => onCerrar()}
-      pie={<><button className="btn" onClick={() => onCerrar()}>Cancelar</button>
-        <button className="btn primario" form="fp">Registrar</button></>}>
-      <form id="fp" onSubmit={guardar}>
-        <Error msg={error} />
-        <p className="mut">Stock actual: <b>{numero(h.stock)}</b></p>
-        <div className="fila">
-          <Campo label="Unidades fabricadas">
-            <input className="num" type="number" min={1} value={cantidad} onChange={(e) => setCantidad(e.target.value)} autoFocus />
-          </Campo>
-          <Campo label="Fecha"><input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></Campo>
-        </div>
-        <Campo label="Motivo (opcional)"><input value={motivo} onChange={(e) => setMotivo(e.target.value)} /></Campo>
-      </form>
-    </Modal>
-  );
-}
 
 function FormAjuste({ h, onCerrar }: { h: any; onCerrar: (m?: string) => void }) {
   const [nuevo, setNuevo] = useState(String(h.stock));

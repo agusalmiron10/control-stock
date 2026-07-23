@@ -1,12 +1,14 @@
 import { api } from "../api";
 import { pesos, numero, fecha } from "../format";
 import { Cargando, Error, Vacio, useCarga } from "../components/ui";
+import { useRol, esDueno } from "../lib/rol";
 
 const TIPO_MOV: Record<string, string> = {
   alta: "Alta", produccion: "Producción", venta: "Venta", ajuste: "Ajuste", anulacion: "Anulación",
 };
 
 export function ProductoFicha({ id }: { id: number }) {
+  const rol = useRol();
   const { data, error, cargando } = useCarga<any>(() => api.get(`/api/herramientas/${id}/ficha`), [id]);
 
   if (cargando) return <Cargando />;
@@ -33,8 +35,12 @@ export function ProductoFicha({ id }: { id: number }) {
         <div className="kpi"><div className="rot">Mayorista</div><div className="val">{pesos(h.precio_mayor)}</div></div>
         <div className="kpi"><div className="rot">Unidades vendidas</div><div className="val">{numero(data.unidades_vendidas)}</div>
           <div className="mut">{pesos(data.total_vendido)} facturado</div></div>
-        <div className="kpi"><div className="rot">Ganancia estimada</div><div className="val saldado">{pesos(data.ganancia_estimada)}</div></div>
-        <div className="kpi"><div className="rot">Stock a costo</div><div className="val">{pesos(data.valor_stock_costo)}</div></div>
+        {esDueno(rol) && (
+          <>
+            <div className="kpi"><div className="rot">Ganancia estimada</div><div className="val saldado">{pesos(data.ganancia_estimada)}</div></div>
+            <div className="kpi"><div className="rot">Stock a costo</div><div className="val">{pesos(data.valor_stock_costo)}</div></div>
+          </>
+        )}
       </div>
 
       <div className="card">
@@ -42,7 +48,7 @@ export function ProductoFicha({ id }: { id: number }) {
         <div className="card-body">
           <dl className="dt-list">
             <dt>Rubro</dt><dd>{h.rubro ?? "—"}</dd>
-            <dt>Costo</dt><dd>{pesos(h.costo)}</dd>
+            {esDueno(rol) && <><dt>Costo</dt><dd>{pesos(h.costo)}</dd></>}
             <dt>Notas</dt><dd>{h.notas ?? "—"}</dd>
           </dl>
         </div>

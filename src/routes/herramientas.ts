@@ -8,6 +8,12 @@ function hoy(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** Un empleado no ve el costo (ni por lo tanto el margen). El dueño ve todo. */
+function paraRol<T extends { costo: number }>(h: T, rol: string): T {
+  if (rol === "dueño") return h;
+  return { ...h, costo: 0 };
+}
+
 herramientas.get("/", async (c) => {
   const buscar = c.req.query("buscar")?.trim().toLowerCase() ?? "";
   const incluirArchivadas = boolOpt(c.req.query("incluirArchivadas"));
@@ -22,7 +28,8 @@ herramientas.get("/", async (c) => {
       (h) => h.nombre.toLowerCase().includes(buscar) || h.codigo.toLowerCase().includes(buscar)
     );
   }
-  return c.json({ herramientas: lista });
+  const rol = c.get("usuario").rol;
+  return c.json({ herramientas: lista.map((h) => paraRol(h, rol)) });
 });
 
 herramientas.post("/", async (c) => {
@@ -97,25 +104,43 @@ herramientas.post("/:id/archivar", async (c) => {
   return c.json({ ok: true });
 });
 
-/** Producción: fabriqué X unidades, el stock sube. */
+/**
+ * Producción: fabriqué X unidades, el stock sube.
+ * Si viene costo_lote (costo total del lote fabricado, en centavos), se
+ * recalcula el costo de la herramienta como PROMEDIO PONDERADO entre el
+ * stock que ya tenía (a su costo actual) y el lote nuevo:
+ *   costo_nuevo = (stock_actual*costo_actual + cantidad*costo_unit_lote) / (stock_actual + cantidad)
+ * Si el stock actual es 0 o negativo, el costo nuevo es directamente el del lote.
+ */
 herramientas.post("/:id/produccion", async (c) => {
   const id = Number(c.req.param("id"));
   const b = await c.req.json().catch(() => ({}));
   const cantidad = entero(b.cantidad, "cantidad", { min: 1 });
   const fecha = b.fecha ? fechaISO(b.fecha, "fecha") : hoy();
 
-  const h = await c.env.DB.prepare(`SELECT stock FROM herramientas WHERE id = ?`).bind(id).first<{ stock: number }>();
+  const h = await c.env.DB.prepare(`SELECT stock, costo FROM herramientas WHERE id = ?`).bind(id).first<{ stock: number; costo: number }>();
   if (!h) throw new HttpError(404, "Herramienta no encontrada.");
   const resultante = h.stock + cantidad;
 
+  let costoNuevo = h.costo;
+  let costoUnitLote: number | null = null;
+  if (b.costo_lote != null) {
+    const costoLote = entero(b.costo_lote, "costo del lote", { min: 0 });
+    costoUnitLote = Math.round(costoLote / cantidad);
+    costoNuevo =
+      h.stock > 0
+        ? Math.round((h.stock * h.costo + cantidad * costoUnitLote) / resultante)
+        : costoUnitLote;
+  }
+
   await c.env.DB.batch([
-    c.env.DB.prepare(`UPDATE herramientas SET stock = ? WHERE id = ?`).bind(resultante, id),
+    c.env.DB.prepare(`UPDATE herramientas SET stock = ?, costo = ? WHERE id = ?`).bind(resultante, costoNuevo, id),
     c.env.DB.prepare(
-      `INSERT INTO movimientos_stock (herramienta_id, fecha, tipo, cantidad, stock_resultante, motivo)
-       VALUES (?, ?, 'produccion', ?, ?, ?)`
-    ).bind(id, fecha, cantidad, resultante, texto(b.motivo, "motivo", { requerido: false })),
+      `INSERT INTO movimientos_stock (herramienta_id, fecha, tipo, cantidad, stock_resultante, motivo, costo_unitario)
+       VALUES (?, ?, 'produccion', ?, ?, ?, ?)`
+    ).bind(id, fecha, cantidad, resultante, texto(b.motivo, "motivo", { requerido: false }), costoUnitLote),
   ]);
-  return c.json({ ok: true, stock: resultante });
+  return c.json({ ok: true, stock: resultante, costo: costoNuevo });
 });
 
 /** Ajuste: corrige stock por rotura/pérdida/conteo. Motivo obligatorio. */
@@ -304,12 +329,14 @@ herramientas.get("/:id/ficha", async (c) => {
     `SELECT * FROM precios_historial WHERE herramienta_id = ? ORDER BY fecha DESC, id DESC`
   ).bind(id).all<PrecioHistorial>();
 
+  const rol = c.get("usuario").rol;
+  const esDueno = rol === "dueño";
   return c.json({
-    herramienta: h,
+    herramienta: paraRol(h, rol),
     unidades_vendidas: agg?.unidades ?? 0,
     total_vendido: agg?.total ?? 0,
-    ganancia_estimada: (agg?.total ?? 0) - (agg?.unidades ?? 0) * h.costo,
-    valor_stock_costo: h.stock * h.costo,
+    ganancia_estimada: esDueno ? (agg?.total ?? 0) - (agg?.unidades ?? 0) * h.costo : null,
+    valor_stock_costo: esDueno ? h.stock * h.costo : null,
     compradores: compradores.results ?? [],
     movimientos: movimientos.results ?? [],
     historial_precios: precios.results ?? [],
