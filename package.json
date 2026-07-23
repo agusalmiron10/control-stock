@@ -18,7 +18,10 @@
     "db:seed:local": "wrangler d1 execute control-stock --local --file=./seed/seed.sql",
     "db:seed:remote": "wrangler d1 execute control-stock --remote --file=./seed/seed.sql",
     "db:reset:local": "wrangler d1 execute control-stock --local --file=./seed/reset.sql",
-    "db:reset:remote": "wrangler d1 execute control-stock --remote --file=./seed/reset.sql"
+    "db:reset:remote": "wrangler d1 execute control-stock --remote --file=./seed/reset.sql",
+    "db:demo:gen": "node seed/gen_demo.mjs",
+    "db:demo:local": "wrangler d1 execute control-stock --local --file=./seed/demo.sql",
+    "db:demo:remote": "wrangler d1 execute control-stock --remote --file=./seed/demo.sql"
   },
   "dependencies": {
     "hono": "^4.6.14"
