@@ -179,6 +179,10 @@ input.num { text-align: right; font-family: var(--mono); }
 .dt-list dt { color: var(--texto-suave); }
 .dt-list dd { margin: 0; font-family: var(--mono); }
 
+/* ── Barra mini (rentabilidad) ───────────────────────── */
+.barra-mini { background: #e5e7eb; border-radius: 4px; height: 10px; width: 100%; overflow: hidden; }
+.barra-mini-fill { background: var(--verde); height: 100%; border-radius: 4px; }
+
 /* ── WhatsApp ────────────────────────────────────────── */
 .btn.wa { background: #25d366; color: #072b12; border-color: #1da851; }
 .btn.wa:hover { background: #20bd5a; }

@@ -275,6 +275,47 @@ herramientas.get("/rubros", async (c) => {
   return c.json({ rubros: (rows.results ?? []).map((r) => r.rubro) });
 });
 
+/** Ficha completa de un producto: datos, ventas, compradores, movimientos, historial de precios. */
+herramientas.get("/:id/ficha", async (c) => {
+  const id = Number(c.req.param("id"));
+  const h = await c.env.DB.prepare(`SELECT * FROM herramientas WHERE id = ?`).bind(id).first<Herramienta>();
+  if (!h) throw new HttpError(404, "Herramienta no encontrada.");
+
+  const agg = await c.env.DB.prepare(
+    `SELECT COALESCE(SUM(vi.cantidad),0) AS unidades, COALESCE(SUM(vi.subtotal),0) AS total
+     FROM venta_items vi JOIN ventas v ON v.id = vi.venta_id
+     WHERE vi.herramienta_id = ? AND v.anulada = 0`
+  ).bind(id).first<{ unidades: number; total: number }>();
+
+  const compradores = await c.env.DB.prepare(
+    `SELECT cl.id AS cliente_id, cl.nombre, SUM(vi.cantidad) AS unidades, SUM(vi.subtotal) AS total
+     FROM venta_items vi
+     JOIN ventas v ON v.id = vi.venta_id
+     JOIN clientes cl ON cl.id = v.cliente_id
+     WHERE vi.herramienta_id = ? AND v.anulada = 0
+     GROUP BY cl.id ORDER BY unidades DESC`
+  ).bind(id).all<{ cliente_id: number; nombre: string; unidades: number; total: number }>();
+
+  const movimientos = await c.env.DB.prepare(
+    `SELECT * FROM movimientos_stock WHERE herramienta_id = ? ORDER BY fecha DESC, id DESC LIMIT 50`
+  ).bind(id).all<MovimientoStock>();
+
+  const precios = await c.env.DB.prepare(
+    `SELECT * FROM precios_historial WHERE herramienta_id = ? ORDER BY fecha DESC, id DESC`
+  ).bind(id).all<PrecioHistorial>();
+
+  return c.json({
+    herramienta: h,
+    unidades_vendidas: agg?.unidades ?? 0,
+    total_vendido: agg?.total ?? 0,
+    ganancia_estimada: (agg?.total ?? 0) - (agg?.unidades ?? 0) * h.costo,
+    valor_stock_costo: h.stock * h.costo,
+    compradores: compradores.results ?? [],
+    movimientos: movimientos.results ?? [],
+    historial_precios: precios.results ?? [],
+  });
+});
+
 herramientas.get("/:id/movimientos", async (c) => {
   const id = Number(c.req.param("id"));
   const rows = await c.env.DB.prepare(

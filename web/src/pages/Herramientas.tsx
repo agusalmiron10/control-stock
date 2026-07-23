@@ -110,7 +110,7 @@ export function Herramientas() {
                   return (
                     <tr key={h.id} className={h.activo ? "" : "archivado"}>
                       <td className="num">{h.codigo}</td>
-                      <td>{h.nombre}{!h.activo && " (archivada)"}</td>
+                      <td><a href={`#/herramientas/${h.id}`}>{h.nombre}</a>{!h.activo && " (archivada)"}</td>
                       <td>{h.rubro ?? "—"}</td>
                       <td className="num">{pesos(h.precio)}</td>
                       <td className="num">{pesos(h.precio_mayor)}</td>

@@ -273,6 +273,12 @@ del Worker).
   imprimir o *Guardar como PDF* y mandárselo al cliente.
 - **Rubros**: las herramientas se agrupan por rubro (Masas, Grinfas, Barretas, etc.) para
   filtrar y para el ajuste masivo.
+- **Cobranzas** (sección propia): clientes que deben, ordenados por antigüedad de la deuda
+  (0-30 / 31-60 / 61-90 / +90 días), con totales por tramo y recordatorio por WhatsApp al lado.
+- **Rentabilidad** (sección *Reportes*): vendido, costo estimado, ganancia y margen del período,
+  valor del stock a costo y a precio de venta, y el detalle por producto ordenado por ganancia.
+- **Ficha de producto** (clic en el nombre de la herramienta): stock, precios, unidades vendidas,
+  ganancia, quiénes lo compraron, historial de precios y movimientos de stock.
 
 ## 10. Consultas SQL directas (para depurar)
 

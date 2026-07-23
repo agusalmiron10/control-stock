@@ -8,6 +8,7 @@ import { herramientas } from "./routes/herramientas";
 import { ventas } from "./routes/ventas";
 import { pagos } from "./routes/pagos";
 import { panel } from "./routes/panel";
+import { reportes } from "./routes/reportes";
 import { exportar } from "./routes/export";
 import { backup } from "./routes/backup";
 
@@ -31,6 +32,7 @@ api.route("/herramientas", herramientas);
 api.route("/ventas", ventas);
 api.route("/pagos", pagos);
 api.route("/panel", panel);
+api.route("/reportes", reportes);
 api.route("/export", exportar);
 api.route("/backup", backup);
 app.route("/api", api);

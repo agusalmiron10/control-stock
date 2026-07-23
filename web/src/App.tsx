@@ -4,11 +4,14 @@ import { useRuta, navegar } from "./lib/router";
 import { Auth } from "./pages/Auth";
 import { Panel } from "./pages/Panel";
 import { Herramientas } from "./pages/Herramientas";
+import { ProductoFicha } from "./pages/ProductoFicha";
 import { Clientes } from "./pages/Clientes";
 import { ClienteFicha } from "./pages/ClienteFicha";
 import { Ventas } from "./pages/Ventas";
 import { NuevaVenta } from "./pages/NuevaVenta";
 import { Pagos } from "./pages/Pagos";
+import { Cobranzas } from "./pages/Cobranzas";
+import { Reportes } from "./pages/Reportes";
 import { Ajustes } from "./pages/Ajustes";
 
 interface Estado {
@@ -23,6 +26,8 @@ const NAV = [
   ["/clientes", "Clientes"],
   ["/ventas", "Ventas"],
   ["/pagos", "Pagos"],
+  ["/cobranzas", "Cobranzas"],
+  ["/reportes", "Reportes"],
   ["/ajustes", "Ajustes"],
 ] as const;
 
@@ -87,13 +92,17 @@ function Vista({ ruta }: { ruta: ReturnType<typeof useRuta> }) {
     case "panel":
       return <Panel />;
     case "herramientas":
-      return <Herramientas />;
+      return id ? <ProductoFicha id={Number(id)} /> : <Herramientas />;
     case "clientes":
       return id ? <ClienteFicha id={Number(id)} /> : <Clientes />;
     case "ventas":
       return id === "nueva" ? <NuevaVenta /> : <Ventas />;
     case "pagos":
       return <Pagos />;
+    case "cobranzas":
+      return <Cobranzas />;
+    case "reportes":
+      return <Reportes />;
     case "ajustes":
       return <Ajustes />;
     default:
