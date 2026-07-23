@@ -1,0 +1,38 @@
+{
+  // Configuración del Worker de Cloudflare para "control-stock".
+  // Documentación: https://developers.cloudflare.com/workers/wrangler/configuration/
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "control-stock",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-12-18",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Assets estáticos: el build de Vite (React) se sirve desde el mismo Worker.
+  // run_worker_first fuerza que /api/* pase SIEMPRE por el Worker (Hono),
+  // y el resto de las rutas caen al SPA (index.html) para el router del front.
+  // El Worker corre primero (Hono maneja /api/*) y delega el resto al binding de
+  // assets, que sirve el SPA (index.html) para las rutas del router del front.
+  "assets": {
+    "directory": "./dist/client",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  },
+
+  // Base de datos D1. Pegá acá el database_id que te devuelve `wrangler d1 create`.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "control-stock",
+      "database_id": "REEMPLAZAR_CON_TU_DATABASE_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "observability": {
+    "enabled": true
+  }
+
+  // El secreto de sesión NO va acá. Se carga con:
+  //   wrangler secret put SESSION_SECRET
+}
