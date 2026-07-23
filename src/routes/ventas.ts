@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { Env, Variables, Venta, VentaItem, Herramienta } from "../types";
 import { HttpError, texto, entero, fechaISO, enumerado, boolOpt } from "../validate";
-import { estadoDeCuenta } from "../cuenta";
+import { estadoDeCuenta, estadoDeCuentaTodos } from "../cuenta";
 
 export const ventas = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -32,10 +32,8 @@ ventas.get("/", async (c) => {
     .bind(...args)
     .all<Venta & { cliente_nombre: string }>();
 
-  // Estado de pago: se calcula por cliente presente en el resultado.
-  const clientesIds = new Set((rows.results ?? []).map((v) => v.cliente_id));
-  const cuentas = new Map<number, Awaited<ReturnType<typeof estadoDeCuenta>>>();
-  for (const cid of clientesIds) cuentas.set(cid, await estadoDeCuenta(c.env, cid));
+  // Estado de pago: batch en 2 queries (evita N+1).
+  const cuentas = await estadoDeCuentaTodos(c.env);
 
   const lista = (rows.results ?? []).map((v) => {
     const r = cuentas.get(v.cliente_id)?.porVenta.get(v.id);
