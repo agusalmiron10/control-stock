@@ -226,3 +226,17 @@ presupuestos.post("/:id/convertir", async (c) => {
   await c.env.DB.batch(stmts);
   return c.json({ venta_id: ventaId, numero });
 });
+
+/** Eliminar presupuesto (solo si no fue convertido a venta). */
+presupuestos.delete("/:id", async (c) => {
+  const id = Number(c.req.param("id"));
+  const p = await c.env.DB.prepare(`SELECT * FROM presupuestos WHERE id = ?`).bind(id).first<Presupuesto>();
+  if (!p) throw new HttpError(404, "Presupuesto no encontrado.");
+  if (p.venta_id) throw new HttpError(400, "No se puede eliminar un presupuesto que ya se convirtió en venta.");
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(`DELETE FROM presupuesto_items WHERE presupuesto_id = ?`).bind(id),
+    c.env.DB.prepare(`DELETE FROM presupuestos WHERE id = ?`).bind(id),
+  ]);
+  return c.json({ ok: true });
+});

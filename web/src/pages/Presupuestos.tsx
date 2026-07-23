@@ -1,16 +1,34 @@
 import { useState } from "react";
 import { api } from "../api";
 import { pesos, fecha } from "../format";
-import { Cargando, Error, Vacio, useCarga } from "../components/ui";
+import { Cargando, Error, Vacio, Confirmar, useCarga } from "../components/ui";
+import { PresupuestoPDF } from "../components/PresupuestoPDF";
 import { navegar } from "../lib/router";
 
 const ESTADOS = ["pendiente", "aceptado", "rechazado", "vencido"] as const;
 
 export function Presupuestos() {
   const [estado, setEstado] = useState("");
+  const [pdfId, setPdfId] = useState<number | null>(null);
+  const [eliminar, setEliminar] = useState<any | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+
   const qs = new URLSearchParams();
   if (estado) qs.set("estado", estado);
-  const { data, error, cargando } = useCarga<any>(() => api.get(`/api/presupuestos?${qs}`), [estado]);
+  const { data, error, cargando, recargar } = useCarga<any>(() => api.get(`/api/presupuestos?${qs}`), [estado]);
+
+  async function hacerEliminar() {
+    if (!eliminar) return;
+    try {
+      await api.del(`/api/presupuestos/${eliminar.id}`);
+      setAviso(`Presupuesto #${eliminar.numero} eliminado.`);
+      setEliminar(null);
+      recargar();
+    } catch (err: any) {
+      setAviso(err.message);
+      setEliminar(null);
+    }
+  }
 
   return (
     <div>
@@ -18,6 +36,8 @@ export function Presupuestos() {
         <h1>Presupuestos</h1>
         <button className="btn primario" onClick={() => navegar("/presupuestos/nuevo")}>+ Nuevo presupuesto</button>
       </div>
+
+      {aviso && <div className="ok-box" onClick={() => setAviso(null)}>{aviso}</div>}
 
       <div className="barra-filtros">
         <div className="campo">
@@ -51,7 +71,13 @@ export function Presupuestos() {
                     <td className="num">{pesos(p.total)}</td>
                     <td><span className={`badge ${p.estado === "aceptado" ? "pagada" : p.estado === "rechazado" ? "impaga" : p.estado === "vencido" ? "anulada" : "parcial"}`}>{p.estado}</span></td>
                     <td className="acc">
-                      <button className="btn chico" onClick={() => navegar(`/presupuestos/${p.id}`)}>Ver</button>
+                      <div className="btn-grupo" style={{ justifyContent: "flex-end" }}>
+                        <button className="btn chico" onClick={() => navegar(`/presupuestos/${p.id}`)}>Ver</button>
+                        <button className="btn chico" onClick={() => setPdfId(p.id)}>PDF</button>
+                        {!p.venta_id && (
+                          <button className="btn chico peligro" onClick={() => setEliminar(p)}>Eliminar</button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -59,6 +85,17 @@ export function Presupuestos() {
             </table>
           </div>
         </div>
+      )}
+
+      {pdfId && <PresupuestoPDF presupuestoId={pdfId} onCerrar={() => setPdfId(null)} />}
+      {eliminar && (
+        <Confirmar
+          mensaje={`¿Eliminar el presupuesto #${eliminar.numero} de ${eliminar.cliente_nombre} por ${pesos(eliminar.total)}? Esta acción no se puede deshacer.`}
+          textoConfirmar="Eliminar"
+          peligro
+          onSi={hacerEliminar}
+          onNo={() => setEliminar(null)}
+        />
       )}
     </div>
   );
