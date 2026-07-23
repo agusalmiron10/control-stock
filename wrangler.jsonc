@@ -24,7 +24,7 @@
     {
       "binding": "DB",
       "database_name": "control-stock",
-      "database_id": "REEMPLAZAR_CON_TU_DATABASE_ID",
+      "database_id": "5b941f72-b258-4530-937f-5f38678b76c7",
       "migrations_dir": "migrations"
     }
   ],
