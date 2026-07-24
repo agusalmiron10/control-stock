@@ -24,7 +24,8 @@
     "db:demo:remote": "wrangler d1 execute control-stock --remote --file=./seed/demo.sql"
   },
   "dependencies": {
-    "hono": "^4.6.14"
+    "hono": "^4.6.14",
+    "qrcode-generator": "^2.0.4"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241218.0",

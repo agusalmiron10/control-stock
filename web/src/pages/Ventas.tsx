@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
 import { pesos, fecha } from "../format";
 import { Cargando, Error, Vacio, Confirmar, useCarga } from "../components/ui";
@@ -7,15 +7,20 @@ import { DetalleVentaModal } from "../components/DetalleVentaModal";
 import { ReporteVentasPDF } from "../components/ReporteVentasPDF";
 import { navegar } from "../lib/router";
 
-export function Ventas() {
+/** aperturaInicial: viene del link permanente #/ventas/:id (ej. el QR del comprobante) y abre el detalle solo. */
+export function Ventas({ aperturaInicial }: { aperturaInicial?: number } = {}) {
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
   const [clienteId, setClienteId] = useState("");
   const [anular, setAnular] = useState<any | null>(null);
   const [comprobante, setComprobante] = useState<number | null>(null);
-  const [detalle, setDetalle] = useState<number | null>(null);
+  const [detalle, setDetalle] = useState<number | null>(aperturaInicial ?? null);
   const [mostrarPDF, setMostrarPDF] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (aperturaInicial) setDetalle(aperturaInicial);
+  }, [aperturaInicial]);
 
   const qs = new URLSearchParams();
   if (desde) qs.set("desde", desde);

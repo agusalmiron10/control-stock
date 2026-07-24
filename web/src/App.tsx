@@ -121,7 +121,7 @@ function Vista({ ruta }: { ruta: ReturnType<typeof useRuta> }) {
     case "clientes":
       return id ? <ClienteFicha id={Number(id)} /> : <Clientes />;
     case "ventas":
-      return id === "nueva" ? <NuevaVenta /> : <Ventas />;
+      return id === "nueva" ? <NuevaVenta /> : id ? <Ventas aperturaInicial={Number(id)} /> : <Ventas />;
     case "presupuestos":
       return id === "nuevo" ? <NuevoPresupuesto /> : id ? <PresupuestoDetalle id={Number(id)} /> : <Presupuestos />;
     case "pagos":

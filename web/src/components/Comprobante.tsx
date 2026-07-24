@@ -2,6 +2,7 @@ import { api } from "../api";
 import { pesos, fecha, numero } from "../format";
 import { NEGOCIO } from "../lib/negocio";
 import { Cargando, Error, useCarga } from "./ui";
+import { QRCode } from "./QRCode";
 
 /** Comprobante / remito imprimible de una venta. Botón imprime → "Guardar como PDF". */
 export function Comprobante({ ventaId, onCerrar }: { ventaId: number; onCerrar: () => void }) {
@@ -74,6 +75,11 @@ export function Comprobante({ ventaId, onCerrar }: { ventaId: number; onCerrar: 
             </div>
 
             {data.venta.nota && <div className="comp-nota"><b>Nota:</b> {data.venta.nota}</div>}
+
+            <div className="comp-qr">
+              <QRCode value={`${window.location.origin}/#/ventas/${data.venta.id}`} />
+              <div className="comp-qr-txt">Escaneá para<br />ver esta venta<br />en el sistema</div>
+            </div>
 
             <div className="comp-pie">¡Gracias por su compra! — {NEGOCIO.nombre}</div>
           </div>

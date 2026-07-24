@@ -2,6 +2,7 @@ import { api } from "../api";
 import { pesos, fecha, numero } from "../format";
 import { NEGOCIO } from "../lib/negocio";
 import { Cargando, Error, useCarga } from "./ui";
+import { QRCode } from "./QRCode";
 
 /** Comprobante / presupuesto imprimible. Botón imprime → "Guardar como PDF". */
 export function PresupuestoPDF({ presupuestoId, onCerrar }: { presupuestoId: number; onCerrar: () => void }) {
@@ -70,6 +71,11 @@ export function PresupuestoPDF({ presupuestoId, onCerrar }: { presupuestoId: num
             </div>
 
             {data.presupuesto.nota && <div className="comp-nota"><b>Nota:</b> {data.presupuesto.nota}</div>}
+
+            <div className="comp-qr">
+              <QRCode value={`${window.location.origin}/#/presupuestos/${data.presupuesto.id}`} />
+              <div className="comp-qr-txt">Escaneá para<br />ver este presupuesto<br />en el sistema</div>
+            </div>
 
             <div className="comp-pie">
               Presupuesto sujeto a cambios de precio sin previo aviso — {NEGOCIO.nombre}
