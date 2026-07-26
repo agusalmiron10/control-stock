@@ -23,6 +23,8 @@ export function Herramientas() {
   const [modo, setModo] = useState<Modo>({ t: "cerrado" });
   const [archivarH, setArchivarH] = useState<any | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
+  const [pagina, setPagina] = useState(1);
+  const LIMITE = 20;
 
   const qs = new URLSearchParams();
   if (buscar) qs.set("buscar", buscar);
@@ -49,11 +51,20 @@ export function Herramientas() {
 
   let lista: any[] = data?.herramientas ?? [];
   if (rubroF) lista = lista.filter((h) => (h.rubro ?? "") === rubroF);
+  
+  const totalProductos = lista.length;
+  const totalPaginas = Math.ceil(totalProductos / LIMITE);
+  const listaPaginada = lista.slice((pagina - 1) * LIMITE, pagina * LIMITE);
 
   return (
     <div>
       <div className="encabezado-seccion">
-        <h1>Herramientas</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <h1>Herramientas</h1>
+          <span style={{ background: "var(--acento)", color: "white", padding: "4px 12px", borderRadius: "20px", fontSize: "1.2rem", fontWeight: "bold" }}>
+            {totalProductos} {totalProductos === 1 ? "producto" : "productos"}
+          </span>
+        </div>
         <div className="btn-grupo">
           <button className="btn" onClick={() => setModo({ t: "masivo" })}>% Ajuste masivo</button>
           <button className="btn wa" onClick={() => waListaDePrecios(data?.herramientas ?? [], "minorista")}>
@@ -71,11 +82,11 @@ export function Herramientas() {
       <div className="barra-filtros">
         <div className="campo" style={{ flex: 2 }}>
           <label>Buscar por nombre o código</label>
-          <input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Ej: martillo, MART-001" />
+          <input value={buscar} onChange={(e) => { setBuscar(e.target.value); setPagina(1); }} placeholder="Ej: martillo, MART-001" />
         </div>
         <div className="campo">
           <label>Rubro</label>
-          <select value={rubroF} onChange={(e) => setRubroF(e.target.value)}>
+          <select value={rubroF} onChange={(e) => { setRubroF(e.target.value); setPagina(1); }}>
             <option value="">Todos</option>
             {(rubrosQ.data?.rubros ?? []).map((r: string) => <option key={r} value={r}>{r}</option>)}
           </select>
@@ -96,7 +107,7 @@ export function Herramientas() {
         />
       ) : (
         <div className="card">
-          <div className="tabla-wrap">
+          <div className="tabla-wrap solo-escritorio">
             <table className="tabla">
               <thead>
                 <tr>
@@ -106,7 +117,7 @@ export function Herramientas() {
                 </tr>
               </thead>
               <tbody>
-                {lista.map((h: any) => {
+                {listaPaginada.map((h: any) => {
                   const bajo = h.stock <= h.stock_minimo;
                   const cero = h.stock <= 0;
                   return (
@@ -133,6 +144,43 @@ export function Herramientas() {
               </tbody>
             </table>
           </div>
+
+          <div className="card-body solo-movil lista-tarjetas">
+            {listaPaginada.map((h: any) => {
+              const bajo = h.stock <= h.stock_minimo;
+              const cero = h.stock <= 0;
+              return (
+                <div className="tarjeta-fila" key={h.id}>
+                  <div className="tf-titulo">
+                    <a href={`#/herramientas/${h.id}`}>{h.nombre}</a>{!h.activo && " (archivada)"}
+                    <span className="mut" style={{ fontWeight: 400 }}> · {h.codigo}{h.rubro ? ` · ${h.rubro}` : ""}</span>
+                  </div>
+                  <div className="tf-datos">
+                    <span className="num">Min. {pesos(h.precio)}</span>
+                    <span className="num">May. {pesos(h.precio_mayor)}</span>
+                    <span className={`num ${cero ? "stock-cero" : bajo ? "stock-bajo" : ""}`}>Stock {numero(h.stock)}</span>
+                  </div>
+                  <div className="tf-datos" style={{ marginTop: 8 }}>
+                    <div className="btn-grupo">
+                      <button className="btn chico" onClick={() => setModo({ t: "produccion", h })}>Producir</button>
+                      <button className="btn chico" onClick={() => setModo({ t: "ajuste", h })}>Ajustar</button>
+                      <button className="btn chico" onClick={() => setModo({ t: "precio", h })}>Precio</button>
+                      <button className="btn chico" onClick={() => setModo({ t: "editar", h })}>Editar</button>
+                      <button className="btn chico" onClick={() => setArchivarH(h)}>{h.activo ? "Archivar" : "Reactivar"}</button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          
+          {totalPaginas > 1 && (
+            <div className="card-body" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "1rem", borderTop: "1px solid var(--borde)", padding: "16px" }}>
+              <button className="btn" disabled={pagina === 1} onClick={() => setPagina(p => p - 1)}>Anterior</button>
+              <span>Página <b>{pagina}</b> de {totalPaginas}</span>
+              <button className="btn" disabled={pagina === totalPaginas} onClick={() => setPagina(p => p + 1)}>Siguiente</button>
+            </div>
+          )}
         </div>
       )}
 
