@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import { api } from "../api";
 import { useCarga, Cargando, Error } from "../components/ui";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
-import MarkerClusterGroup from "react-leaflet-cluster";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { pesos } from "../format";
@@ -66,46 +65,44 @@ export function MapaClientes() {
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
               />
               
-              <MarkerClusterGroup chunkedLoading>
-                {clientesConCoords.map((c: any) => (
-                  <Marker 
-                    key={c.id} 
-                    position={[Number(c.latitud), Number(c.longitud)]}
-                  >
-                    <Popup>
-                      <div style={{ minWidth: "200px" }}>
-                        <h4 style={{ margin: "0 0 5px 0" }}>{c.nombre}</h4>
-                        {c.localidad && <p style={{ margin: "2px 0", fontSize: "0.9em", color: "#666" }}>{c.localidad}</p>}
-                        <hr style={{ margin: "8px 0", borderTop: "1px solid #ccc" }} />
-                        <p style={{ margin: "2px 0" }}>
-                          <strong>Saldo: </strong> 
-                          <span className={c.saldo > 0 ? "debe" : c.saldo < 0 ? "afavor" : ""}>
-                            {c.saldo < 0 ? `${pesos(-c.saldo)} a favor` : pesos(c.saldo)}
-                          </span>
-                        </p>
-                        <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
-                          <button 
-                            className="btn chico primario" 
-                            style={{ flex: 1 }}
-                            onClick={() => navegar(`/clientes/${c.id}`)}
-                          >
-                            Ver ficha
-                          </button>
-                          <a 
-                            href={`https://www.google.com/maps/dir/?api=1&destination=${c.latitud},${c.longitud}`} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="btn chico"
-                            style={{ flex: 1, textAlign: "center", textDecoration: "none" }}
-                          >
-                            Cómo llegar 📍
-                          </a>
-                        </div>
+              {clientesConCoords.map((c: any) => (
+                <Marker 
+                  key={c.id} 
+                  position={[Number(c.latitud), Number(c.longitud)]}
+                >
+                  <Popup>
+                    <div style={{ minWidth: "200px" }}>
+                      <h4 style={{ margin: "0 0 5px 0" }}>{c.nombre}</h4>
+                      {c.localidad && <p style={{ margin: "2px 0", fontSize: "0.9em", color: "#666" }}>{c.localidad}</p>}
+                      <hr style={{ margin: "8px 0", borderTop: "1px solid #ccc" }} />
+                      <p style={{ margin: "2px 0" }}>
+                        <strong>Saldo: </strong> 
+                        <span className={c.saldo > 0 ? "debe" : c.saldo < 0 ? "afavor" : ""}>
+                          {c.saldo < 0 ? `${pesos(-c.saldo)} a favor` : pesos(c.saldo)}
+                        </span>
+                      </p>
+                      <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+                        <button 
+                          className="btn chico primario" 
+                          style={{ flex: 1 }}
+                          onClick={() => navegar(`/clientes/${c.id}`)}
+                        >
+                          Ver ficha
+                        </button>
+                        <a 
+                          href={`https://www.google.com/maps/dir/?api=1&destination=${c.latitud},${c.longitud}`} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="btn chico"
+                          style={{ flex: 1, textAlign: "center", textDecoration: "none" }}
+                        >
+                          Cómo llegar 📍
+                        </a>
                       </div>
-                    </Popup>
-                  </Marker>
-                ))}
-              </MarkerClusterGroup>
+                    </div>
+                  </Popup>
+                </Marker>
+              ))}
             </MapContainer>
           )}
         </div>
