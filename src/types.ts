@@ -18,20 +18,27 @@ export interface Variables {
 export type AppContext = Context<{ Bindings: Env; Variables: Variables }>;
 
 // ── Filas de la base ────────────────────────────────────────
+// clientes/herramientas/ventas/pagos usan id TEXT (UUID): el celular los
+// puede generar sin hablar con el servidor. venta_items/movimientos_stock/
+// precios_historial/presupuestos/presupuesto_items nunca se crean offline,
+// así que sus id propios siguen siendo INTEGER autoincrement de servidor.
+
 export interface Cliente {
-  id: number;
+  id: string;
   nombre: string;
   localidad: string | null;
   direccion: string | null;
   telefono: string | null;
   email: string | null;
   notas: string | null;
+  latitud: number | null;
+  longitud: number | null;
   activo: number;
   creado_en: string;
 }
 
 export interface Herramienta {
-  id: number;
+  id: string;
   codigo: string;
   nombre: string;
   precio: number; // minorista, centavos
@@ -45,23 +52,30 @@ export interface Herramienta {
   creado_en: string;
 }
 
+export type EstadoVenta = "borrador" | "sincronizada" | "confirmada" | "anulada";
+export type OrigenVenta = "celular" | "escritorio";
+
 export interface Venta {
-  id: number;
+  id: string;
   numero: number;
-  cliente_id: number;
+  cliente_id: string;
   fecha: string;
   subtotal: number;
   descuento: number;
   total: number;
   nota: string | null;
-  anulada: number;
+  estado: EstadoVenta;
+  origen: OrigenVenta;
+  necesita_revision: number;
+  motivo_revision: string | null;
   creado_en: string;
+  sincronizado_en: string | null;
 }
 
 export interface VentaItem {
   id: number;
-  venta_id: number;
-  herramienta_id: number;
+  venta_id: string;
+  herramienta_id: string;
   nombre_herramienta: string;
   cantidad: number;
   precio_unitario: number;
@@ -69,9 +83,9 @@ export interface VentaItem {
 }
 
 export interface Pago {
-  id: number;
-  cliente_id: number;
-  venta_id: number | null;
+  id: string;
+  cliente_id: string;
+  venta_id: string | null;
   fecha: string;
   monto: number;
   medio: string;
@@ -81,19 +95,19 @@ export interface Pago {
 
 export interface MovimientoStock {
   id: number;
-  herramienta_id: number;
+  herramienta_id: string;
   fecha: string;
   tipo: string;
   cantidad: number;
   stock_resultante: number;
-  venta_id: number | null;
+  venta_id: string | null;
   motivo: string | null;
   costo_unitario: number | null;
 }
 
 export interface PrecioHistorial {
   id: number;
-  herramienta_id: number;
+  herramienta_id: string;
   fecha: string;
   precio_anterior: number;
   precio_nuevo: number;
@@ -104,7 +118,7 @@ export interface PrecioHistorial {
 export interface Presupuesto {
   id: number;
   numero: number;
-  cliente_id: number;
+  cliente_id: string;
   fecha: string;
   subtotal: number;
   descuento: number;
@@ -112,14 +126,14 @@ export interface Presupuesto {
   estado: "pendiente" | "aceptado" | "rechazado" | "vencido";
   valido_hasta: string | null;
   nota: string | null;
-  venta_id: number | null;
+  venta_id: string | null;
   creado_en: string;
 }
 
 export interface PresupuestoItem {
   id: number;
   presupuesto_id: number;
-  herramienta_id: number;
+  herramienta_id: string;
   nombre_herramienta: string;
   cantidad: number;
   precio_unitario: number;
@@ -137,4 +151,13 @@ export interface ResumenDiario {
   clientes_con_deuda: number;
   stock_bajo_cant: number;
   generado_en: string;
+}
+
+/** Registro de idempotencia: una fila por operación de venta/pago ya procesada. */
+export interface Operacion {
+  idempotency_key: string;
+  tipo: "venta" | "pago";
+  entidad_id: string;
+  resultado: string; // JSON serializado
+  creado_en: string;
 }

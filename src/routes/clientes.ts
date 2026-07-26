@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import type { Env, Variables, Cliente, Venta, Pago } from "../types";
-import { HttpError, texto, boolOpt } from "../validate";
+import { HttpError, texto, boolOpt, uuidOpt, decimalOpt } from "../validate";
 import { estadoDeCuenta, estadoDeCuentaTodos } from "../cuenta";
+import { auditar } from "../auditoria";
 
 export const clientes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -45,28 +46,57 @@ clientes.get("/localidades", async (c) => {
   return c.json({ localidades: (rows.results ?? []).map((r) => r.localidad) });
 });
 
+/**
+ * Alta de cliente. Acepta id + idempotency_key opcionales (los manda el
+ * celular cuando lo crea offline desde "cliente nuevo"). Si la clave ya fue
+ * procesada, devuelve el mismo resultado sin insertar de nuevo.
+ */
 clientes.post("/", async (c) => {
   const b = await c.req.json().catch(() => ({}));
+  const idempotencyKey = uuidOpt(b.idempotency_key, "idempotency_key");
+
+  if (idempotencyKey) {
+    const previa = await c.env.DB.prepare(`SELECT resultado FROM operaciones WHERE idempotency_key = ?`)
+      .bind(idempotencyKey)
+      .first<{ resultado: string }>();
+    if (previa) return c.json(JSON.parse(previa.resultado));
+  }
+
   const nombre = texto(b.nombre, "nombre", { max: 120 })!;
-  const res = await c.env.DB.prepare(
-    `INSERT INTO clientes (nombre, localidad, direccion, telefono, email, notas)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  )
-    .bind(
+  const id = uuidOpt(b.id, "id") ?? crypto.randomUUID();
+
+  const stmts: D1PreparedStatement[] = [
+    c.env.DB.prepare(
+      `INSERT INTO clientes (id, nombre, localidad, direccion, telefono, email, notas, latitud, longitud) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      id,
       nombre,
       texto(b.localidad, "localidad", { requerido: false }),
       texto(b.direccion, "dirección", { requerido: false }),
       texto(b.telefono, "teléfono", { requerido: false, max: 60 }),
       texto(b.email, "email", { requerido: false, max: 120 }),
-      texto(b.notas, "notas", { requerido: false, max: 1000 })
-    )
-    .run();
-  return c.json({ id: Number(res.meta.last_row_id) });
+      texto(b.notas, "notas", { requerido: false, max: 1000 }),
+      decimalOpt(b.latitud, "latitud"),
+      decimalOpt(b.longitud, "longitud")
+    ),
+  ];
+
+  const resultado = { id };
+  if (idempotencyKey) {
+    stmts.push(
+      c.env.DB.prepare(
+        `INSERT INTO operaciones (idempotency_key, tipo, entidad_id, resultado) VALUES (?, 'cliente', ?, ?)`
+      ).bind(idempotencyKey, id, JSON.stringify(resultado))
+    );
+  }
+
+  await c.env.DB.batch(stmts);
+  return c.json(resultado);
 });
 
 /** Ficha completa. */
 clientes.get("/:id", async (c) => {
-  const id = Number(c.req.param("id"));
+  const id = c.req.param("id");
   const cliente = await c.env.DB.prepare(`SELECT * FROM clientes WHERE id = ?`).bind(id).first<Cliente>();
   if (!cliente) throw new HttpError(404, "Cliente no encontrado.");
 
@@ -80,11 +110,12 @@ clientes.get("/:id", async (c) => {
 
   const ventas = (ventasRows.results ?? []).map((v) => {
     const r = cta.porVenta.get(v.id);
+    const activa = v.estado === "sincronizada" || v.estado === "confirmada";
     return {
       ...v,
-      pagado: v.anulada ? 0 : r?.pagado ?? 0,
-      saldo: v.anulada ? 0 : r?.saldo ?? v.total,
-      estado: v.anulada ? "anulada" : r?.estado ?? "impaga",
+      pagado: activa ? r?.pagado ?? 0 : 0,
+      saldo: activa ? r?.saldo ?? v.total : 0,
+      estado_pago: activa ? r?.estado ?? "impaga" : null,
     };
   });
 
@@ -108,12 +139,12 @@ clientes.get("/:id", async (c) => {
 });
 
 clientes.put("/:id", async (c) => {
-  const id = Number(c.req.param("id"));
+  const id = c.req.param("id");
   const b = await c.req.json().catch(() => ({}));
   const existe = await c.env.DB.prepare(`SELECT id FROM clientes WHERE id = ?`).bind(id).first();
   if (!existe) throw new HttpError(404, "Cliente no encontrado.");
   await c.env.DB.prepare(
-    `UPDATE clientes SET nombre=?, localidad=?, direccion=?, telefono=?, email=?, notas=? WHERE id=?`
+    `UPDATE clientes SET nombre=?, localidad=?, direccion=?, telefono=?, email=?, notas=?, latitud=?, longitud=? WHERE id=?`
   )
     .bind(
       texto(b.nombre, "nombre", { max: 120 }),
@@ -122,6 +153,8 @@ clientes.put("/:id", async (c) => {
       texto(b.telefono, "teléfono", { requerido: false, max: 60 }),
       texto(b.email, "email", { requerido: false, max: 120 }),
       texto(b.notas, "notas", { requerido: false, max: 1000 }),
+      decimalOpt(b.latitud, "latitud"),
+      decimalOpt(b.longitud, "longitud"),
       id
     )
     .run();
@@ -130,9 +163,12 @@ clientes.put("/:id", async (c) => {
 
 /** Archivar / reactivar (borrado lógico). */
 clientes.post("/:id/archivar", async (c) => {
-  const id = Number(c.req.param("id"));
+  const id = c.req.param("id");
   const b = await c.req.json().catch(() => ({}));
   const activo = boolOpt(b.activar) ? 1 : 0;
-  await c.env.DB.prepare(`UPDATE clientes SET activo = ? WHERE id = ?`).bind(activo, id).run();
+  await c.env.DB.batch([
+    c.env.DB.prepare(`UPDATE clientes SET activo = ? WHERE id = ?`).bind(activo, id),
+    auditar(c.env, c.get("usuario").usuario, activo ? "reactivar_cliente" : "archivar_cliente", "cliente", id),
+  ]);
   return c.json({ ok: true });
 });

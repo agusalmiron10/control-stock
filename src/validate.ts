@@ -35,6 +35,15 @@ export function entero(
   return n;
 }
 
+export function decimalOpt(v: unknown, campo: string): number | null {
+  if (v == null || v === "") return null;
+  const n = typeof v === "string" ? Number(v) : (v as number);
+  if (typeof n !== "number" || !Number.isFinite(n)) {
+    throw new HttpError(400, `El campo "${campo}" tiene que ser un número decimal válido.`);
+  }
+  return n;
+}
+
 export function fechaISO(v: unknown, campo: string): string {
   const t = texto(v, campo)!;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) {
@@ -53,4 +62,21 @@ export function enumerado<T extends string>(v: unknown, campo: string, opciones:
 
 export function boolOpt(v: unknown): boolean {
   return v === true || v === 1 || v === "1" || v === "true";
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Valida un UUID (id minteado en el dispositivo: venta, pago, o clave de idempotencia). */
+export function uuid(v: unknown, campo: string): string {
+  const t = texto(v, campo, { max: 64 })!;
+  if (!UUID_RE.test(t)) {
+    throw new HttpError(400, `El campo "${campo}" tiene que ser un UUID válido.`);
+  }
+  return t.toLowerCase();
+}
+
+/** Igual que uuid(), pero opcional (para ids que el servidor puede generar si no vienen). */
+export function uuidOpt(v: unknown, campo: string): string | null {
+  if (v == null || v === "") return null;
+  return uuid(v, campo);
 }

@@ -3,13 +3,17 @@ import { api } from "../api";
 import { pesos } from "../format";
 import { Cargando, Error, Vacio, Modal, Campo, useCarga } from "../components/ui";
 import { navegar } from "../lib/router";
+import { exportarClientesTodos, exportarClientesContacto } from "../excel";
+import { ClientesPDF } from "../components/ClientesPDF";
 
 export function Clientes() {
   const [buscar, setBuscar] = useState("");
   const [localidad, setLocalidad] = useState("");
   const [soloDeben, setSoloDeben] = useState(false);
   const [nuevo, setNuevo] = useState(false);
+  const [mostrarPDF, setMostrarPDF] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
+  const [errorExport, setErrorExport] = useState<string | null>(null);
 
   const qs = new URLSearchParams();
   if (buscar) qs.set("buscar", buscar);
@@ -26,10 +30,16 @@ export function Clientes() {
     <div>
       <div className="encabezado-seccion">
         <h1>Clientes</h1>
-        <button className="btn primario" onClick={() => setNuevo(true)}>+ Nuevo cliente</button>
+        <div className="btn-grupo">
+          <button className="btn" onClick={() => setMostrarPDF(true)}>🖨 PDF</button>
+          <button className="btn" onClick={() => exportarClientesTodos().catch((e) => setErrorExport(e.message))}>⬇ Excel</button>
+          <button className="btn" onClick={() => exportarClientesContacto().catch((e) => setErrorExport(e.message))}>⬇ Excel (solo datos de contacto)</button>
+          <button className="btn primario" onClick={() => setNuevo(true)}>+ Nuevo cliente</button>
+        </div>
       </div>
 
       {aviso && <div className="ok-box" onClick={() => setAviso(null)}>{aviso}</div>}
+      {errorExport && <Error msg={errorExport} />}
 
       <div className="barra-filtros">
         <div className="campo" style={{ flex: 2 }}>
@@ -59,7 +69,7 @@ export function Clientes() {
         />
       ) : (
         <div className="card">
-          <div className="tabla-wrap">
+          <div className="tabla-wrap solo-escritorio">
             <table className="tabla">
               <thead>
                 <tr>
@@ -86,6 +96,25 @@ export function Clientes() {
               </tbody>
             </table>
           </div>
+
+          <div className="card-body solo-movil lista-tarjetas">
+            {data.clientes.map((c: any) => (
+              <div className="tarjeta-fila" key={c.id}>
+                <div className="tf-titulo">
+                  <a href={`#/clientes/${c.id}`}>{c.nombre}</a>
+                  {(c.localidad || c.telefono) && (
+                    <span className="mut" style={{ fontWeight: 400 }}> · {[c.localidad, c.telefono].filter(Boolean).join(" · ")}</span>
+                  )}
+                </div>
+                <div className="tf-datos">
+                  <span className={`num ${c.saldo > 0 ? "debe" : c.saldo < 0 ? "afavor" : ""}`}>
+                    {c.saldo < 0 ? `${pesos(-c.saldo)} a favor` : pesos(c.saldo)}
+                  </span>
+                  <button className="btn chico" onClick={() => navegar(`/clientes/${c.id}`)}>Ver ficha</button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -94,6 +123,7 @@ export function Clientes() {
           onCerrar={(msg) => { setNuevo(false); if (msg) setAviso(msg); recargar(); }}
         />
       )}
+      {mostrarPDF && <ClientesPDF onCerrar={() => setMostrarPDF(false)} />}
     </div>
   );
 }
@@ -104,6 +134,7 @@ export function FormCliente({ cliente, onCerrar }: { cliente?: any; onCerrar: (m
     nombre: cliente?.nombre ?? "", localidad: cliente?.localidad ?? "",
     direccion: cliente?.direccion ?? "", telefono: cliente?.telefono ?? "",
     email: cliente?.email ?? "", notas: cliente?.notas ?? "",
+    latitud: cliente?.latitud ?? "", longitud: cliente?.longitud ?? "",
   });
   const [error, setError] = useState<string | null>(null);
   const set = (k: string, v: string) => setF((s) => ({ ...s, [k]: v }));
@@ -131,6 +162,10 @@ export function FormCliente({ cliente, onCerrar }: { cliente?: any; onCerrar: (m
         </div>
         <Campo label="Dirección"><input value={f.direccion} onChange={(e) => set("direccion", e.target.value)} /></Campo>
         <Campo label="Email"><input value={f.email} onChange={(e) => set("email", e.target.value)} /></Campo>
+        <div className="fila">
+          <Campo label="Latitud"><input type="number" step="any" value={f.latitud} onChange={(e) => set("latitud", e.target.value)} placeholder="-34.6037" /></Campo>
+          <Campo label="Longitud"><input type="number" step="any" value={f.longitud} onChange={(e) => set("longitud", e.target.value)} placeholder="-58.3816" /></Campo>
+        </div>
         <Campo label="Notas"><textarea rows={2} value={f.notas} onChange={(e) => set("notas", e.target.value)} /></Campo>
       </form>
     </Modal>
