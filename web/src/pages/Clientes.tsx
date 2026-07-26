@@ -137,7 +137,32 @@ export function FormCliente({ cliente, onCerrar }: { cliente?: any; onCerrar: (m
     latitud: cliente?.latitud ?? "", longitud: cliente?.longitud ?? "",
   });
   const [error, setError] = useState<string | null>(null);
+  const [buscandoGps, setBuscandoGps] = useState(false);
   const set = (k: string, v: string) => setF((s) => ({ ...s, [k]: v }));
+
+  async function buscarCoordenadas() {
+    if (!f.localidad && !f.direccion) {
+      setError("Tenés que cargar la Localidad o la Dirección para buscar coordenadas.");
+      return;
+    }
+    setError(null);
+    setBuscandoGps(true);
+    try {
+      const query = encodeURIComponent(`${f.direccion ? f.direccion + ", " : ""}${f.localidad ? f.localidad + ", " : ""}Buenos Aires, Argentina`);
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${query}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data && data.length > 0) {
+        setF(s => ({ ...s, latitud: data[0].lat, longitud: data[0].lon }));
+      } else {
+        setError("No se encontraron coordenadas para esta dirección. Podés ingresarlas a mano (buscalas en Google Maps haciendo clic derecho).");
+      }
+    } catch (e: any) {
+      setError("Hubo un error de conexión buscando el GPS.");
+    } finally {
+      setBuscandoGps(false);
+    }
+  }
 
   async function guardar(e: React.FormEvent) {
     e.preventDefault();
@@ -162,10 +187,20 @@ export function FormCliente({ cliente, onCerrar }: { cliente?: any; onCerrar: (m
         </div>
         <Campo label="Dirección"><input value={f.direccion} onChange={(e) => set("direccion", e.target.value)} /></Campo>
         <Campo label="Email"><input value={f.email} onChange={(e) => set("email", e.target.value)} /></Campo>
-        <div className="fila">
-          <Campo label="Latitud"><input type="number" step="any" value={f.latitud} onChange={(e) => set("latitud", e.target.value)} placeholder="-34.6037" /></Campo>
-          <Campo label="Longitud"><input type="number" step="any" value={f.longitud} onChange={(e) => set("longitud", e.target.value)} placeholder="-58.3816" /></Campo>
+        
+        <div style={{ padding: "10px", background: "var(--fondo-card)", borderRadius: "var(--radio)", border: "1px solid var(--borde)", marginBottom: "15px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "10px" }}>
+            <strong>Ubicación GPS en Mapa</strong>
+            <button type="button" className="btn chico" onClick={buscarCoordenadas} disabled={buscandoGps}>
+              {buscandoGps ? "Buscando..." : "📍 Buscar auto."}
+            </button>
+          </div>
+          <div className="fila" style={{ margin: 0 }}>
+            <Campo label="Latitud"><input type="number" step="any" value={f.latitud} onChange={(e) => set("latitud", e.target.value)} placeholder="-34.6037" /></Campo>
+            <Campo label="Longitud"><input type="number" step="any" value={f.longitud} onChange={(e) => set("longitud", e.target.value)} placeholder="-58.3816" /></Campo>
+          </div>
         </div>
+
         <Campo label="Notas"><textarea rows={2} value={f.notas} onChange={(e) => set("notas", e.target.value)} /></Campo>
       </form>
     </Modal>

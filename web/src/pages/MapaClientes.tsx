@@ -81,13 +81,24 @@ export function MapaClientes() {
                           {c.saldo < 0 ? `${pesos(-c.saldo)} a favor` : pesos(c.saldo)}
                         </span>
                       </p>
-                      <button 
-                        className="btn chico primario" 
-                        style={{ marginTop: "10px", width: "100%" }}
-                        onClick={() => navegar(`/clientes/${c.id}`)}
-                      >
-                        Ver ficha completa
-                      </button>
+                      <div style={{ display: "flex", gap: "8px", marginTop: "10px" }}>
+                        <button 
+                          className="btn chico primario" 
+                          style={{ flex: 1 }}
+                          onClick={() => navegar(`/clientes/${c.id}`)}
+                        >
+                          Ver ficha
+                        </button>
+                        <a 
+                          href={`https://www.google.com/maps/dir/?api=1&destination=${c.latitud},${c.longitud}`} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="btn chico"
+                          style={{ flex: 1, textAlign: "center", textDecoration: "none" }}
+                        >
+                          Cómo llegar 📍
+                        </a>
+                      </div>
                     </div>
                   </Popup>
                 </Marker>
