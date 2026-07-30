@@ -7,7 +7,7 @@ const TIPO_MOV: Record<string, string> = {
   alta: "Alta", produccion: "Producción", venta: "Venta", ajuste: "Ajuste", anulacion: "Anulación",
 };
 
-export function ProductoFicha({ id }: { id: number }) {
+export function ProductoFicha({ id }: { id: string }) {
   const rol = useRol();
   const { data, error, cargando } = useCarga<any>(() => api.get(`/api/herramientas/${id}/ficha`), [id]);
 
@@ -56,7 +56,7 @@ export function ProductoFicha({ id }: { id: number }) {
 
       <div className="card">
         <h2>Quiénes lo compraron</h2>
-        <div className="tabla-wrap">
+        <div className="tabla-wrap solo-escritorio">
           {data.compradores.length === 0 ? (
             <Vacio mensaje="Todavía no se vendió este producto." />
           ) : (
@@ -74,11 +74,26 @@ export function ProductoFicha({ id }: { id: number }) {
             </table>
           )}
         </div>
+        {data.compradores.length === 0 ? (
+          <div className="solo-movil"><Vacio mensaje="Todavía no se vendió este producto." /></div>
+        ) : (
+          <div className="card-body solo-movil lista-tarjetas">
+            {data.compradores.map((c: any) => (
+              <div className="tarjeta-fila" key={c.cliente_id}>
+                <div className="tf-titulo"><a href={`#/clientes/${c.cliente_id}`}>{c.nombre}</a></div>
+                <div className="tf-datos">
+                  <span>{numero(c.unidades)} unidades</span>
+                  <span className="num">{pesos(c.total)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="card">
         <h2>Historial de precios</h2>
-        <div className="tabla-wrap">
+        <div className="tabla-wrap solo-escritorio">
           {data.historial_precios.length === 0 ? (
             <Vacio mensaje="Sin cambios de precio registrados." />
           ) : (
@@ -98,11 +113,26 @@ export function ProductoFicha({ id }: { id: number }) {
             </table>
           )}
         </div>
+        {data.historial_precios.length === 0 ? (
+          <div className="solo-movil"><Vacio mensaje="Sin cambios de precio registrados." /></div>
+        ) : (
+          <div className="card-body solo-movil lista-tarjetas">
+            {data.historial_precios.map((p: any) => (
+              <div className="tarjeta-fila" key={p.id}>
+                <div className="tf-titulo">{p.tipo_precio} <span className="mut" style={{ fontWeight: 400 }}>· {fecha(p.fecha)}</span></div>
+                <div className="tf-datos">
+                  <span className="num">{pesos(p.precio_anterior)} → {pesos(p.precio_nuevo)}</span>
+                  {p.motivo && <span className="mut">{p.motivo}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="card">
         <h2>Movimientos de stock</h2>
-        <div className="tabla-wrap">
+        <div className="tabla-wrap solo-escritorio">
           {data.movimientos.length === 0 ? (
             <Vacio mensaje="Sin movimientos de stock." />
           ) : (
@@ -115,13 +145,29 @@ export function ProductoFicha({ id }: { id: number }) {
                     <td>{TIPO_MOV[m.tipo] ?? m.tipo}</td>
                     <td className={`num ${m.cantidad < 0 ? "debe" : "saldado"}`}>{m.cantidad > 0 ? "+" : ""}{numero(m.cantidad)}</td>
                     <td className="num">{numero(m.stock_resultante)}</td>
-                    <td>{m.venta_id ? `Venta #${m.venta_id}` : m.motivo ?? "—"}</td>
+                    <td>{m.venta_numero ? `Venta #${m.venta_numero}` : m.motivo ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
         </div>
+        {data.movimientos.length === 0 ? (
+          <div className="solo-movil"><Vacio mensaje="Sin movimientos de stock." /></div>
+        ) : (
+          <div className="card-body solo-movil lista-tarjetas">
+            {data.movimientos.map((m: any) => (
+              <div className="tarjeta-fila" key={m.id}>
+                <div className="tf-titulo">{TIPO_MOV[m.tipo] ?? m.tipo} <span className="mut" style={{ fontWeight: 400 }}>· {fecha(m.fecha)}</span></div>
+                <div className="tf-datos">
+                  <span className={`num ${m.cantidad < 0 ? "debe" : "saldado"}`}>{m.cantidad > 0 ? "+" : ""}{numero(m.cantidad)}</span>
+                  <span className="num">Stock: {numero(m.stock_resultante)}</span>
+                  <span className="mut">{m.venta_numero ? `Venta #${m.venta_numero}` : m.motivo ?? "—"}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

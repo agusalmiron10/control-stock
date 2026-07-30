@@ -37,7 +37,7 @@ export function Produccion() {
       ) : (
         <div className="card">
           <h2>Qué conviene fabricar</h2>
-          <div className="tabla-wrap">
+          <div className="tabla-wrap solo-escritorio">
             <table className="tabla">
               <thead>
                 <tr>
@@ -64,6 +64,25 @@ export function Produccion() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          <div className="card-body solo-movil lista-tarjetas">
+            {data.sugeridos.map((s: any) => (
+              <div className="tarjeta-fila" key={s.id}>
+                <div className="tf-titulo">
+                  <a href={`#/herramientas/${s.id}`}>{s.nombre}</a>
+                  {s.rubro && <span className="mut" style={{ fontWeight: 400 }}> · {s.rubro}</span>}
+                </div>
+                <div className="tf-datos">
+                  <span className={`num ${s.urgente ? "stock-cero" : "stock-bajo"}`}>Stock {numero(s.stock)}</span>
+                  <span className="mut">mín. {numero(s.stock_minimo)}</span>
+                  <span className="num">Sugerido <b>{numero(s.cantidad_sugerida)}</b></span>
+                </div>
+                <div className="tf-datos" style={{ marginTop: 8 }}>
+                  <button className="btn chico primario" onClick={() => setProducir(s)}>Producir</button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

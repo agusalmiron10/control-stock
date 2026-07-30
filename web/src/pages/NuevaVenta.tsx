@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { api } from "../api";
 import { pesos, aCentavos, aPesos, hoyISO, numero } from "../format";
 import { Cargando, Error, Campo, Confirmar, useCarga } from "../components/ui";
+import { BuscadorCliente } from "../components/BuscadorCliente";
 import { navegar } from "../lib/router";
 
 interface Reng { herramienta_id: string; cantidad: string; precio: string }
@@ -11,6 +12,8 @@ const MEDIOS = ["efectivo", "transferencia", "cheque", "otro"];
 export function NuevaVenta() {
   const clientesQ = useCarga<any>(() => api.get("/api/clientes"), []);
   const herrQ = useCarga<any>(() => api.get("/api/herramientas"), []);
+  const [clientesExtra, setClientesExtra] = useState<any[]>([]);
+  const clientes = useMemo(() => [...(clientesQ.data?.clientes ?? []), ...clientesExtra], [clientesQ.data, clientesExtra]);
 
   const [clienteId, setClienteId] = useState("");
   const [fecha, setFecha] = useState(hoyISO());
@@ -102,11 +105,11 @@ export function NuevaVenta() {
     setError(null);
     setGuardando(true);
     const body: any = {
-      cliente_id: Number(clienteId),
+      cliente_id: clienteId,
       fecha,
       items: items
         .filter((it) => it.herramienta_id && Number(it.cantidad) > 0)
-        .map((it) => ({ herramienta_id: Number(it.herramienta_id), cantidad: Number(it.cantidad), precio_unitario: aCentavos(it.precio || "0") })),
+        .map((it) => ({ herramienta_id: it.herramienta_id, cantidad: Number(it.cantidad), precio_unitario: aCentavos(it.precio || "0") })),
       nota,
       permitir_stock_negativo: force || faltantes.length === 0 ? force : false,
     };
@@ -124,7 +127,7 @@ export function NuevaVenta() {
 
   if (clientesQ.cargando || herrQ.cargando) return <Cargando />;
 
-  const sinClientes = (clientesQ.data?.clientes ?? []).length === 0;
+  const sinClientes = clientes.length === 0;
   const sinHerr = herramientas.length === 0;
 
   return (
@@ -148,10 +151,12 @@ export function NuevaVenta() {
         <div className="card-body">
           <div className="fila">
             <Campo label="Cliente">
-              <select value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
-                <option value="">Elegí un cliente…</option>
-                {(clientesQ.data?.clientes ?? []).map((c: any) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-              </select>
+              <BuscadorCliente
+                clientes={clientes}
+                clienteId={clienteId}
+                onElegir={setClienteId}
+                onClienteNuevo={(c) => setClientesExtra((arr) => [...arr, c])}
+              />
             </Campo>
             <Campo label="Fecha"><input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></Campo>
             <Campo label="Lista de precios">

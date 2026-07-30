@@ -16,6 +16,7 @@ const TABLAS = [
   "precios_historial",
   "presupuestos",
   "presupuesto_items",
+  "operaciones",
 ] as const;
 
 /** Descarga toda la base (menos usuarios) como JSON. */

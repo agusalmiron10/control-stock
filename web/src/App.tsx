@@ -182,7 +182,7 @@ function Vista({ ruta }: { ruta: ReturnType<typeof useRuta> }) {
     case "panel":
       return <Panel />;
     case "herramientas":
-      return id ? <ProductoFicha id={id} /> : <Herramientas />;
+      return (id && id !== "null") ? <ProductoFicha id={id} /> : <Herramientas />;
     case "clientes":
       return id ? <ClienteFicha id={id} /> : <Clientes />;
     case "mapa-clientes":

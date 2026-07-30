@@ -18,31 +18,32 @@
  */
 
 export interface VentaImput {
-  id: number;
+  id: string;
   numero: number;
   fecha: string; // ISO YYYY-MM-DD
   total: number; // centavos
 }
 
 export interface PagoImput {
-  id: number;
-  venta_id: number | null;
+  id: string;
+  venta_id: string | null;
   monto: number; // centavos
 }
 
-export type EstadoVenta = "pagada" | "parcial" | "impaga";
+/** Estado de PAGO de una venta (no confundir con EstadoVenta de types.ts, que es el ciclo de vida borrador/sincronizada/confirmada/anulada). */
+export type EstadoPago = "pagada" | "parcial" | "impaga";
 
 export interface VentaResultado {
-  id: number;
+  id: string;
   numero: number;
   total: number;
   pagado: number;
   saldo: number; // total - pagado (>= 0)
-  estado: EstadoVenta;
+  estado: EstadoPago;
 }
 
 export interface ResultadoImputacion {
-  porVenta: Map<number, VentaResultado>;
+  porVenta: Map<string, VentaResultado>;
   /** Suma de totales de ventas − suma de todos los pagos. Positivo = debe, negativo = a favor. */
   saldoCliente: number;
   /** Crédito sin aplicar (>= 0). */
@@ -51,7 +52,7 @@ export interface ResultadoImputacion {
   totalPagado: number;
 }
 
-function estadoDe(total: number, pagado: number): EstadoVenta {
+function estadoDe(total: number, pagado: number): EstadoPago {
   if (pagado >= total) return "pagada";
   if (pagado > 0) return "parcial";
   return "impaga";
@@ -74,11 +75,11 @@ export function imputar(
   const ordenadas = ordenarFIFO(ventas);
 
   // Estado de pago por venta.
-  const pagado = new Map<number, number>();
+  const pagado = new Map<string, number>();
   for (const v of ordenadas) pagado.set(v.id, 0);
 
   // Índice rápido total por venta (para topear el excedente de pagos directos).
-  const totalPorVenta = new Map<number, number>();
+  const totalPorVenta = new Map<string, number>();
   for (const v of ordenadas) totalPorVenta.set(v.id, v.total);
 
   let pozo = 0; // pagos a cuenta + excedentes de pagos directos
@@ -110,7 +111,7 @@ export function imputar(
   }
 
   // Resultado por venta.
-  const porVenta = new Map<number, VentaResultado>();
+  const porVenta = new Map<string, VentaResultado>();
   let totalVentas = 0;
   for (const v of ordenadas) {
     const pg = pagado.get(v.id)!;

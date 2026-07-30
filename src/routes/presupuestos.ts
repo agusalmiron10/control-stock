@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Env, Variables, Presupuesto, PresupuestoItem, Herramienta } from "../types";
-import { HttpError, texto, entero, fechaISO, enumerado } from "../validate";
+import { HttpError, texto, entero, fechaISO, enumerado, uuid } from "../validate";
 
 export const presupuestos = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -9,6 +9,10 @@ const MEDIOS = ["efectivo", "transferencia", "cheque", "otro"] as const;
 
 function hoy(): string {
   return new Date().toISOString().slice(0, 10);
+}
+/** Formato SQLite datetime('now'): "YYYY-MM-DD HH:MM:SS" (UTC). */
+function ahoraSQL(): string {
+  return new Date().toISOString().replace("T", " ").slice(0, 19);
 }
 
 presupuestos.get("/", async (c) => {
@@ -31,11 +35,14 @@ presupuestos.get("/", async (c) => {
 presupuestos.get("/:id", async (c) => {
   const id = Number(c.req.param("id"));
   const p = await c.env.DB.prepare(
-    `SELECT p.*, cl.nombre AS cliente_nombre, cl.telefono AS cliente_telefono FROM presupuestos p
-     JOIN clientes cl ON cl.id = p.cliente_id WHERE p.id = ?`
+    `SELECT p.*, cl.nombre AS cliente_nombre, cl.telefono AS cliente_telefono, v.numero AS venta_numero
+     FROM presupuestos p
+     JOIN clientes cl ON cl.id = p.cliente_id
+     LEFT JOIN ventas v ON v.id = p.venta_id
+     WHERE p.id = ?`
   )
     .bind(id)
-    .first<Presupuesto & { cliente_nombre: string; cliente_telefono: string | null }>();
+    .first<Presupuesto & { cliente_nombre: string; cliente_telefono: string | null; venta_numero: number | null }>();
   if (!p) throw new HttpError(404, "Presupuesto no encontrado.");
 
   const items = await c.env.DB.prepare(`SELECT * FROM presupuesto_items WHERE presupuesto_id = ? ORDER BY id`)
@@ -46,14 +53,14 @@ presupuestos.get("/:id", async (c) => {
 });
 
 interface ItemEntrada {
-  herramienta_id: number;
+  herramienta_id: string;
   cantidad: number;
   precio_unitario: number;
 }
 
 presupuestos.post("/", async (c) => {
   const b = await c.req.json().catch(() => ({}));
-  const clienteId = entero(b.cliente_id, "cliente", { min: 1 });
+  const clienteId = uuid(b.cliente_id, "cliente");
   const fecha = b.fecha ? fechaISO(b.fecha, "fecha") : hoy();
   const validoHasta = b.valido_hasta ? fechaISO(b.valido_hasta, "válido hasta") : null;
   const nota = texto(b.nota, "nota", { requerido: false, max: 1000 });
@@ -65,7 +72,7 @@ presupuestos.post("/", async (c) => {
   if (itemsIn.length === 0) throw new HttpError(400, "El presupuesto tiene que tener al menos un renglón.");
 
   const items: ItemEntrada[] = itemsIn.map((it, i) => ({
-    herramienta_id: entero(it.herramienta_id, `herramienta del renglón ${i + 1}`, { min: 1 }),
+    herramienta_id: uuid(it.herramienta_id, `herramienta del renglón ${i + 1}`),
     cantidad: entero(it.cantidad, `cantidad del renglón ${i + 1}`, { min: 1 }),
     precio_unitario: entero(it.precio_unitario, `precio del renglón ${i + 1}`, { min: 0 }),
   }));
@@ -92,7 +99,7 @@ presupuestos.post("/", async (c) => {
   const total = subtotal - descuento;
 
   const maxRow = await c.env.DB
-    .prepare(`SELECT COALESCE(MAX(id),0) AS mid, COALESCE(MAX(numero),0) AS mnum FROM presupuestos`)
+    .prepare(`SELECT COALESCE(MAX(id), 0) AS mid, COALESCE(MAX(numero), 0) AS mnum FROM presupuestos`)
     .first<{ mid: number; mnum: number }>();
   const presupuestoId = (maxRow?.mid ?? 0) + 1;
   const numero = (maxRow?.mnum ?? 0) + 1;
@@ -136,6 +143,7 @@ presupuestos.post("/:id/estado", async (c) => {
  * Convertir un presupuesto en venta real: crea la venta + items + descuenta
  * stock + movimientos + pago inicial opcional, todo en el mismo batch atómico
  * que usa una venta normal. Marca el presupuesto como aceptado.
+ * Siempre se hace desde escritorio: la venta resultante nace confirmada.
  */
 presupuestos.post("/:id/convertir", async (c) => {
   const id = Number(c.req.param("id"));
@@ -161,35 +169,34 @@ presupuestos.post("/:id/convertir", async (c) => {
     .all<Herramienta>();
   const hMap = new Map((hRows.results ?? []).map((h) => [h.id, h]));
 
-  const pedidoPorH = new Map<number, number>();
+  const pedidoPorH = new Map<string, number>();
   for (const it of items) pedidoPorH.set(it.herramienta_id, (pedidoPorH.get(it.herramienta_id) ?? 0) + it.cantidad);
 
-  if (!permitirNegativo) {
-    const faltan: string[] = [];
-    for (const [hid, cant] of pedidoPorH) {
-      const h = hMap.get(hid);
-      if (h && h.stock < cant) faltan.push(`${h.nombre} (hay ${h.stock}, pedís ${cant})`);
-    }
-    if (faltan.length) {
-      throw new HttpError(
-        409,
-        `No alcanza el stock de: ${faltan.join("; ")}. Confirmá para vender igual (quedará en negativo).`
-      );
-    }
+  const faltantes: string[] = [];
+  for (const [hid, cant] of pedidoPorH) {
+    const h = hMap.get(hid);
+    if (h && h.stock < cant) faltantes.push(`${h.nombre} (hay ${h.stock}, pedís ${cant})`);
   }
+  if (faltantes.length > 0 && !permitirNegativo) {
+    throw new HttpError(
+      409,
+      `No alcanza el stock de: ${faltantes.join("; ")}. Confirmá para vender igual (quedará en negativo).`
+    );
+  }
+  const necesitaRevision = faltantes.length > 0;
+  const motivoRevision = necesitaRevision ? `Stock insuficiente: ${faltantes.join("; ")}` : null;
 
-  const maxRow = await c.env.DB
-    .prepare(`SELECT COALESCE(MAX(id),0) AS mid, COALESCE(MAX(numero),0) AS mnum FROM ventas`)
-    .first<{ mid: number; mnum: number }>();
-  const ventaId = (maxRow?.mid ?? 0) + 1;
+  const ventaId = crypto.randomUUID();
+  const maxRow = await c.env.DB.prepare(`SELECT COALESCE(MAX(numero), 0) AS mnum FROM ventas`).first<{ mnum: number }>();
   const numero = (maxRow?.mnum ?? 0) + 1;
+  const ahora = ahoraSQL();
 
   const stmts: D1PreparedStatement[] = [];
   stmts.push(
     c.env.DB.prepare(
-      `INSERT INTO ventas (id, numero, cliente_id, fecha, subtotal, descuento, total, nota, anulada)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`
-    ).bind(ventaId, numero, p.cliente_id, fecha, p.subtotal, p.descuento, p.total, `Presupuesto #${p.numero}`)
+      `INSERT INTO ventas (id, numero, cliente_id, fecha, subtotal, descuento, total, nota, estado, origen, necesita_revision, motivo_revision, creado_en, sincronizado_en)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'confirmada', 'escritorio', ?, ?, ?, ?)`
+    ).bind(ventaId, numero, p.cliente_id, fecha, p.subtotal, p.descuento, p.total, `Presupuesto #${p.numero}`, necesitaRevision ? 1 : 0, motivoRevision, ahora, ahora)
   );
   for (const it of items) {
     stmts.push(
@@ -215,8 +222,8 @@ presupuestos.post("/:id/convertir", async (c) => {
     const medio = enumerado(b.pago_inicial.medio ?? "efectivo", "medio de pago", MEDIOS);
     stmts.push(
       c.env.DB.prepare(
-        `INSERT INTO pagos (cliente_id, venta_id, fecha, monto, medio, nota) VALUES (?, ?, ?, ?, ?, ?)`
-      ).bind(p.cliente_id, ventaId, fecha, monto, medio, "Pago al convertir presupuesto")
+        `INSERT INTO pagos (id, cliente_id, venta_id, fecha, monto, medio, nota) VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).bind(crypto.randomUUID(), p.cliente_id, ventaId, fecha, monto, medio, "Pago al convertir presupuesto")
     );
   }
   stmts.push(

@@ -77,6 +77,23 @@ export function waRecordatorioPresupuesto(cliente: any, presupuesto: any) {
   abrir(telefonoWa(cliente.telefono), l.join("\n"));
 }
 
+/** Resumen de una venta recién cargada desde el celular (puede no estar
+ * sincronizada todavía, así que no tiene número de venta). */
+export function waVenta(cliente: any, items: { nombre: string; cantidad: number; subtotal: number }[], total: number, pagado: number) {
+  const l: string[] = [];
+  l.push(`Hola ${cliente.nombre}, te paso el resumen de tu compra en ${NEGOCIO.nombre}:`);
+  l.push("");
+  for (const it of items) l.push(`${it.cantidad} x ${it.nombre} — ${pesos(it.subtotal)}`);
+  l.push("");
+  l.push(`*Total: ${pesos(total)}*`);
+  if (pagado > 0) l.push(`Pagaste: ${pesos(pagado)}`);
+  const saldo = total - pagado;
+  if (saldo > 0) l.push(`Queda pendiente: ${pesos(saldo)}`);
+  l.push("");
+  l.push(`¡Gracias! ${NEGOCIO.telefono}`);
+  abrir(telefonoWa(cliente.telefono), l.join("\n"));
+}
+
 /** Comparte el resumen del día anterior (generado por el Cron automático). */
 export function waResumenDiario(r: any) {
   const l: string[] = [];

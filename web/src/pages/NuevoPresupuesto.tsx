@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { api } from "../api";
 import { pesos, aCentavos, aPesos, hoyISO } from "../format";
 import { Cargando, Error, Campo, useCarga } from "../components/ui";
+import { BuscadorCliente } from "../components/BuscadorCliente";
 import { navegar } from "../lib/router";
 
 interface Reng { herramienta_id: string; cantidad: string; precio: string }
@@ -9,6 +10,8 @@ interface Reng { herramienta_id: string; cantidad: string; precio: string }
 export function NuevoPresupuesto() {
   const clientesQ = useCarga<any>(() => api.get("/api/clientes"), []);
   const herrQ = useCarga<any>(() => api.get("/api/herramientas"), []);
+  const [clientesExtra, setClientesExtra] = useState<any[]>([]);
+  const clientes = useMemo(() => [...(clientesQ.data?.clientes ?? []), ...clientesExtra], [clientesQ.data, clientesExtra]);
 
   const [clienteId, setClienteId] = useState("");
   const [fecha, setFecha] = useState(hoyISO());
@@ -51,10 +54,10 @@ export function NuevoPresupuesto() {
 
     setGuardando(true);
     const body: any = {
-      cliente_id: Number(clienteId),
+      cliente_id: clienteId,
       fecha,
       valido_hasta: validoHasta || undefined,
-      items: validos.map((it) => ({ herramienta_id: Number(it.herramienta_id), cantidad: Number(it.cantidad), precio_unitario: aCentavos(it.precio || "0") })),
+      items: validos.map((it) => ({ herramienta_id: it.herramienta_id, cantidad: Number(it.cantidad), precio_unitario: aCentavos(it.precio || "0") })),
       nota,
     };
     if (descValor && Number(descValor) > 0) body.descuento = { tipo: descTipo, valor: descTipo === "monto" ? aCentavos(descValor) : Number(descValor) };
@@ -85,10 +88,12 @@ export function NuevoPresupuesto() {
         <div className="card-body">
           <div className="fila">
             <Campo label="Cliente">
-              <select value={clienteId} onChange={(e) => setClienteId(e.target.value)}>
-                <option value="">Elegí un cliente…</option>
-                {(clientesQ.data?.clientes ?? []).map((c: any) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-              </select>
+              <BuscadorCliente
+                clientes={clientes}
+                clienteId={clienteId}
+                onElegir={setClienteId}
+                onClienteNuevo={(c) => setClientesExtra((arr) => [...arr, c])}
+              />
             </Campo>
             <Campo label="Fecha"><input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></Campo>
             <Campo label="Válido hasta (opcional)"><input type="date" value={validoHasta} onChange={(e) => setValidoHasta(e.target.value)} /></Campo>

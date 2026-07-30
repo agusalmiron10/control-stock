@@ -57,7 +57,7 @@ export function Presupuestos() {
           accion={<button className="btn primario" onClick={() => navegar("/presupuestos/nuevo")}>Crear el primero</button>} />
       ) : (
         <div className="card">
-          <div className="tabla-wrap">
+          <div className="tabla-wrap solo-escritorio">
             <table className="tabla">
               <thead>
                 <tr><th className="num">N°</th><th>Fecha</th><th>Cliente</th><th className="num">Total</th><th>Estado</th><th></th></tr>
@@ -83,6 +83,28 @@ export function Presupuestos() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          <div className="card-body solo-movil lista-tarjetas">
+            {data.presupuestos.map((p: any) => (
+              <div className="tarjeta-fila" key={p.id}>
+                <div className="tf-titulo">
+                  #{p.numero} — <a href={`#/clientes/${p.cliente_id}`}>{p.cliente_nombre}</a>
+                  <span className="mut" style={{ fontWeight: 400 }}> · {fecha(p.fecha)}</span>
+                </div>
+                <div className="tf-datos">
+                  <span className="num">{pesos(p.total)}</span>
+                  <span className={`badge ${p.estado === "aceptado" ? "pagada" : p.estado === "rechazado" ? "impaga" : p.estado === "vencido" ? "anulada" : "parcial"}`}>{p.estado}</span>
+                </div>
+                <div className="tf-datos" style={{ marginTop: 8 }}>
+                  <button className="btn chico" onClick={() => navegar(`/presupuestos/${p.id}`)}>Ver</button>
+                  <button className="btn chico" onClick={() => setPdfId(p.id)}>PDF</button>
+                  {!p.venta_id && (
+                    <button className="btn chico peligro" onClick={() => setEliminar(p)}>Eliminar</button>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

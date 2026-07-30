@@ -12,6 +12,15 @@
     <link rel="icon" href="/icon-192.png" type="image/png" />
     <link rel="apple-touch-icon" href="/icon-180.png" />
     <title>Control de Stock y Cuenta Corriente</title>
+    <script>
+      // Aplica el tema guardado antes de pintar, así no parpadea con el
+      // tema equivocado al cargar (localStorage se lee sincrónico).
+      (function () {
+        var t = localStorage.getItem("cs_tema");
+        if (t === "claro") document.documentElement.setAttribute("data-theme", "light");
+        else if (t === "oscuro") document.documentElement.setAttribute("data-theme", "dark");
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

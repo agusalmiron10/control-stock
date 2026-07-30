@@ -89,7 +89,7 @@ function descargar(wb: XLSX.WorkBook, prefijo: string): void {
 }
 
 // ── A. Excel de un cliente ──────────────────────────────────
-export async function exportarCliente(clienteId: number): Promise<void> {
+export async function exportarCliente(clienteId: string): Promise<void> {
   const d = await api.get<any>(`/api/export/cliente/${clienteId}`);
   const wb = XLSX.utils.book_new();
   const cl = d.cliente;
@@ -339,4 +339,55 @@ export async function exportarPrecios(): Promise<void> {
   );
 
   descargar(wb, "lista-de-precios");
+}
+
+// ── D. Excel con todos los clientes ─────────────────────────
+export async function exportarClientesTodos(): Promise<void> {
+  const d = await api.get<any>(`/api/clientes?incluirArchivados=1`);
+  const wb = XLSX.utils.book_new();
+
+  XLSX.utils.book_append_sheet(
+    wb,
+    hoja(
+      [
+        { key: "nombre", header: "Nombre", width: 28 },
+        { key: "localidad", header: "Localidad", width: 16 },
+        { key: "direccion", header: "Dirección", width: 24 },
+        { key: "telefono", header: "Teléfono", width: 16 },
+        { key: "email", header: "Email", width: 22 },
+        { key: "total_comprado", header: "Total comprado", width: 15, tipo: "money" },
+        { key: "total_pagado", header: "Total pagado", width: 15, tipo: "money" },
+        { key: "saldo", header: "Saldo", width: 15, tipo: "money" },
+        { key: "notas", header: "Notas", width: 28 },
+        { key: "estado", header: "Estado", width: 12 },
+      ],
+      (d.clientes ?? []).map((c: any) => ({ ...c, estado: c.activo ? "Activo" : "Archivado" }))
+    ),
+    "Clientes"
+  );
+
+  descargar(wb, "clientes");
+}
+
+// ── E. Excel solo con datos personales (sin montos) ─────────
+export async function exportarClientesContacto(): Promise<void> {
+  const d = await api.get<any>(`/api/clientes?incluirArchivados=1`);
+  const wb = XLSX.utils.book_new();
+
+  XLSX.utils.book_append_sheet(
+    wb,
+    hoja(
+      [
+        { key: "nombre", header: "Nombre", width: 28 },
+        { key: "localidad", header: "Localidad", width: 16 },
+        { key: "direccion", header: "Dirección", width: 24 },
+        { key: "telefono", header: "Teléfono", width: 16 },
+        { key: "email", header: "Email", width: 22 },
+      ],
+      (d.clientes ?? []).filter((c: any) => c.activo)
+    ),
+    "Clientes"
+  );
+
+  descargar(wb, "clientes-contacto");
 }

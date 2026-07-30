@@ -17,7 +17,7 @@ function rango(col: string, desde?: string, hasta?: string): { sql: string; args
 
 /** Datos para el Excel de un cliente. Todo en centavos (el front formatea). */
 exportar.get("/cliente/:id", async (c) => {
-  const id = Number(c.req.param("id"));
+  const id = c.req.param("id");
   const cliente = await c.env.DB.prepare(`SELECT * FROM clientes WHERE id = ?`).bind(id).first<Cliente>();
   if (!cliente) throw new HttpError(404, "Cliente no encontrado.");
 
@@ -30,9 +30,9 @@ exportar.get("/cliente/:id", async (c) => {
     const r = cta.porVenta.get(v.id);
     return {
       fecha: v.fecha, numero: v.numero, total: v.total,
-      pagado: v.anulada ? 0 : r?.pagado ?? 0,
-      saldo: v.anulada ? 0 : r?.saldo ?? v.total,
-      estado: v.anulada ? "anulada" : r?.estado ?? "impaga",
+      pagado: v.estado === "anulada" ? 0 : r?.pagado ?? 0,
+      saldo: v.estado === "anulada" ? 0 : r?.saldo ?? v.total,
+      estado: v.estado === "anulada" ? "anulada" : r?.estado ?? "impaga",
       nota: v.nota ?? "",
     };
   });
@@ -40,7 +40,7 @@ exportar.get("/cliente/:id", async (c) => {
   const detalleRows = await c.env.DB.prepare(
     `SELECT vi.*, v.fecha, v.numero FROM venta_items vi
      JOIN ventas v ON v.id = vi.venta_id
-     WHERE v.cliente_id = ? AND v.anulada = 0 ORDER BY v.fecha, v.numero, vi.id`
+     WHERE v.cliente_id = ? AND v.estado IN ('sincronizada','confirmada') ORDER BY v.fecha, v.numero, vi.id`
   ).bind(id).all<VentaItem & { fecha: string; numero: number }>();
 
   const pagosRows = await c.env.DB.prepare(
@@ -84,16 +84,16 @@ exportar.get("/general", requireDueno, async (c) => {
 
   // Última compra / último pago por cliente.
   const ultimaCompra = await c.env.DB.prepare(
-    `SELECT cliente_id, MAX(fecha) AS f FROM ventas WHERE anulada = 0 GROUP BY cliente_id`
-  ).all<{ cliente_id: number; f: string }>();
+    `SELECT cliente_id, MAX(fecha) AS f FROM ventas WHERE estado IN ('sincronizada','confirmada') GROUP BY cliente_id`
+  ).all<{ cliente_id: string; f: string }>();
   const ultimoPago = await c.env.DB.prepare(
     `SELECT cliente_id, MAX(fecha) AS f FROM pagos GROUP BY cliente_id`
-  ).all<{ cliente_id: number; f: string }>();
+  ).all<{ cliente_id: string; f: string }>();
   const ucMap = new Map((ultimaCompra.results ?? []).map((r) => [r.cliente_id, r.f]));
   const upMap = new Map((ultimoPago.results ?? []).map((r) => [r.cliente_id, r.f]));
   const cantVentas = await c.env.DB.prepare(
-    `SELECT cliente_id, COUNT(*) AS n FROM ventas WHERE anulada = 0 GROUP BY cliente_id`
-  ).all<{ cliente_id: number; n: number }>();
+    `SELECT cliente_id, COUNT(*) AS n FROM ventas WHERE estado IN ('sincronizada','confirmada') GROUP BY cliente_id`
+  ).all<{ cliente_id: string; n: number }>();
   const cvMap = new Map((cantVentas.results ?? []).map((r) => [r.cliente_id, r.n]));
 
   const clientes = (clientesRows.results ?? []).map((cl) => {
@@ -120,8 +120,8 @@ exportar.get("/general", requireDueno, async (c) => {
     return {
       fecha: v.fecha, numero: v.numero, cliente: v.cliente_nombre,
       subtotal: v.subtotal, descuento: v.descuento, total: v.total,
-      pagado: v.anulada ? 0 : r?.pagado ?? 0, saldo: v.anulada ? 0 : r?.saldo ?? v.total,
-      estado: v.anulada ? "anulada" : r?.estado ?? "impaga", nota: v.nota ?? "",
+      pagado: v.estado === "anulada" ? 0 : r?.pagado ?? 0, saldo: v.estado === "anulada" ? 0 : r?.saldo ?? v.total,
+      estado: v.estado === "anulada" ? "anulada" : r?.estado ?? "impaga", nota: v.nota ?? "",
     };
   });
 
@@ -129,7 +129,7 @@ exportar.get("/general", requireDueno, async (c) => {
   const detalleRows = await c.env.DB.prepare(
     `SELECT vi.*, v.fecha, v.numero, cl.nombre AS cliente_nombre FROM venta_items vi
      JOIN ventas v ON v.id = vi.venta_id JOIN clientes cl ON cl.id = v.cliente_id
-     WHERE v.anulada = 0${rd.sql} ORDER BY v.fecha, v.numero, vi.id`
+     WHERE v.estado IN ('sincronizada','confirmada')${rd.sql} ORDER BY v.fecha, v.numero, vi.id`
   ).bind(...rd.args).all<VentaItem & { fecha: string; numero: number; cliente_nombre: string }>();
 
   const rp = rango("p.fecha", desde, hasta);
@@ -142,15 +142,16 @@ exportar.get("/general", requireDueno, async (c) => {
   const herrRows = await c.env.DB.prepare(`SELECT * FROM herramientas ORDER BY codigo`).all<Herramienta>();
   const vendidas = await c.env.DB.prepare(
     `SELECT vi.herramienta_id AS hid, SUM(vi.cantidad) AS u FROM venta_items vi
-     JOIN ventas v ON v.id = vi.venta_id WHERE v.anulada = 0 GROUP BY vi.herramienta_id`
-  ).all<{ hid: number; u: number }>();
+     JOIN ventas v ON v.id = vi.venta_id WHERE v.estado IN ('sincronizada','confirmada') GROUP BY vi.herramienta_id`
+  ).all<{ hid: string; u: number }>();
   const vendMap = new Map((vendidas.results ?? []).map((r) => [r.hid, r.u]));
 
   const rm = rango("m.fecha", desde, hasta);
   const movRows = await c.env.DB.prepare(
-    `SELECT m.*, h.nombre AS herramienta_nombre FROM movimientos_stock m
-     JOIN herramientas h ON h.id = m.herramienta_id WHERE 1=1${rm.sql} ORDER BY m.fecha, m.id`
-  ).bind(...rm.args).all<MovimientoStock & { herramienta_nombre: string }>();
+    `SELECT m.*, h.nombre AS herramienta_nombre, v.numero AS venta_numero FROM movimientos_stock m
+     JOIN herramientas h ON h.id = m.herramienta_id
+     LEFT JOIN ventas v ON v.id = m.venta_id WHERE 1=1${rm.sql} ORDER BY m.fecha, m.id`
+  ).bind(...rm.args).all<MovimientoStock & { herramienta_nombre: string; venta_numero: number | null }>();
 
   // Resumen del negocio.
   let totalDeuda = 0, totalFavor = 0, totalComprado = 0, totalPagado = 0;
@@ -189,7 +190,7 @@ exportar.get("/general", requireDueno, async (c) => {
     })),
     movimientos: (movRows.results ?? []).map((m) => ({
       fecha: m.fecha, herramienta: m.herramienta_nombre, tipo: m.tipo, cantidad: m.cantidad,
-      stock_resultante: m.stock_resultante, referencia: m.venta_id ? `Venta #${m.venta_id}` : m.motivo ?? "",
+      stock_resultante: m.stock_resultante, referencia: m.venta_numero ? `Venta #${m.venta_numero}` : m.motivo ?? "",
     })),
   });
 });
@@ -203,7 +204,7 @@ exportar.get("/precios", async (c) => {
   // Fecha de última actualización de precio por herramienta.
   const ult = await c.env.DB.prepare(
     `SELECT herramienta_id, MAX(fecha) AS f FROM precios_historial GROUP BY herramienta_id`
-  ).all<{ herramienta_id: number; f: string }>();
+  ).all<{ herramienta_id: string; f: string }>();
   const ultMap = new Map((ult.results ?? []).map((r) => [r.herramienta_id, r.f]));
 
   const histRows = await c.env.DB.prepare(

@@ -49,7 +49,7 @@ export function PresupuestoDetalle({ id }: { id: number }) {
             <dt>Fecha</dt><dd>{fecha(p.fecha)}</dd>
             <dt>Válido hasta</dt><dd>{p.valido_hasta ? fecha(p.valido_hasta) : "—"}</dd>
             <dt>Estado</dt><dd><span className={`badge ${p.estado === "aceptado" ? "pagada" : p.estado === "rechazado" ? "impaga" : p.estado === "vencido" ? "anulada" : "parcial"}`}>{p.estado}</span></dd>
-            {p.venta_id && <><dt>Venta generada</dt><dd><a href={`#/ventas`}>Venta #{p.venta_id}</a></dd></>}
+            {p.venta_id && <><dt>Venta generada</dt><dd><a href={`#/ventas`}>Venta #{p.venta_numero}</a></dd></>}
             {p.nota && <><dt>Nota</dt><dd>{p.nota}</dd></>}
           </dl>
         </div>
@@ -57,7 +57,7 @@ export function PresupuestoDetalle({ id }: { id: number }) {
 
       <div className="card">
         <h2>Renglones</h2>
-        <div className="tabla-wrap">
+        <div className="tabla-wrap solo-escritorio">
           <table className="tabla">
             <thead><tr><th>Herramienta</th><th className="num">Cant.</th><th className="num">Precio unit.</th><th className="num">Subtotal</th></tr></thead>
             <tbody>
@@ -71,6 +71,17 @@ export function PresupuestoDetalle({ id }: { id: number }) {
               ))}
             </tbody>
           </table>
+        </div>
+        <div className="card-body solo-movil lista-tarjetas">
+          {data.items.map((it: any) => (
+            <div className="tarjeta-fila" key={it.id}>
+              <div className="tf-titulo">{it.nombre_herramienta}</div>
+              <div className="tf-datos">
+                <span>{it.cantidad} x {pesos(it.precio_unitario)}</span>
+                <span className="num">{pesos(it.subtotal)}</span>
+              </div>
+            </div>
+          ))}
         </div>
         <div className="card-body">
           <dl className="dt-list" style={{ gridTemplateColumns: "auto auto", marginLeft: "auto", width: 240 }}>

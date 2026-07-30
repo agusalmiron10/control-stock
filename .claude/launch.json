@@ -1,0 +1,9 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "control-stock",
+      "url": "http://localhost:8787"
+    }
+  ]
+}

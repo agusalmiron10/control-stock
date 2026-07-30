@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { api } from "../api";
 import { pesos, numero, fecha } from "../format";
 import { Cargando, Error, Vacio, useCarga } from "../components/ui";
 import { waRecordatorioDeuda } from "../lib/whatsapp";
 import { navegar } from "../lib/router";
+import { CampanaRecordatorios } from "../components/CampanaRecordatorios";
 
 function claseTramo(tramo: string): string {
   if (tramo === "+90") return "impaga";
@@ -12,6 +14,7 @@ function claseTramo(tramo: string): string {
 
 export function Cobranzas() {
   const { data, error, cargando } = useCarga<any>(() => api.get("/api/reportes/cobranzas"), []);
+  const [campana, setCampana] = useState(false);
 
   if (cargando) return <Cargando />;
   if (error) return <Error msg={error} />;
@@ -19,7 +22,12 @@ export function Cobranzas() {
 
   return (
     <div>
-      <div className="encabezado-seccion"><h1>Cobranzas</h1></div>
+      <div className="encabezado-seccion">
+        <h1>Cobranzas</h1>
+        {data.clientes.length > 0 && (
+          <button className="btn wa" onClick={() => setCampana(true)}>📤 Recordar a todos</button>
+        )}
+      </div>
 
       <div className="grid-kpi">
         <div className="kpi"><div className="rot">Total a cobrar</div><div className="val debe">{pesos(data.total_a_cobrar)}</div>
@@ -35,7 +43,7 @@ export function Cobranzas() {
       ) : (
         <div className="card">
           <h2>A quién cobrarle (deuda más vieja primero)</h2>
-          <div className="tabla-wrap">
+          <div className="tabla-wrap solo-escritorio">
             <table className="tabla">
               <thead>
                 <tr>
@@ -65,8 +73,32 @@ export function Cobranzas() {
               </tbody>
             </table>
           </div>
+
+          <div className="card-body solo-movil lista-tarjetas">
+            {data.clientes.map((c: any) => (
+              <div className="tarjeta-fila" key={c.cliente_id}>
+                <div className="tf-titulo">
+                  <a href={`#/clientes/${c.cliente_id}`}>{c.nombre}</a>
+                  {c.localidad && <span className="mut" style={{ fontWeight: 400 }}> · {c.localidad}</span>}
+                </div>
+                <div className="tf-datos">
+                  <span className="num debe">{pesos(c.saldo)}</span>
+                  <span className={`badge ${claseTramo(c.tramo)}`}>{c.tramo} días</span>
+                  <span className="mut">Debe desde {fecha(c.deuda_desde)}</span>
+                </div>
+                <div className="tf-datos" style={{ marginTop: 8 }}>
+                  <button className="btn chico wa" onClick={() => waRecordatorioDeuda(c, c.saldo)} disabled={!c.telefono}>
+                    Recordar
+                  </button>
+                  <button className="btn chico" onClick={() => navegar(`/clientes/${c.cliente_id}`)}>Ficha</button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
+
+      {campana && <CampanaRecordatorios deudores={data.clientes} onCerrar={() => setCampana(false)} />}
     </div>
   );
 }

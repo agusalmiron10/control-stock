@@ -14,12 +14,12 @@ export function FormPago({
   pago,
   onCerrar,
 }: {
-  clienteFijo?: { id: number; nombre: string };
+  clienteFijo?: { id: string; nombre: string };
   pago?: any;
   onCerrar: (msg?: string) => void;
 }) {
   const editar = !!pago;
-  const [clienteId, setClienteId] = useState<number | "">(clienteFijo?.id ?? pago?.cliente_id ?? "");
+  const [clienteId, setClienteId] = useState<string>(clienteFijo?.id ?? pago?.cliente_id ?? "");
   const [clientes, setClientes] = useState<any[]>([]);
   const [ventas, setVentas] = useState<any[]>([]);
   const [ventaId, setVentaId] = useState<string>(pago?.venta_id ? String(pago.venta_id) : "");
@@ -47,8 +47,8 @@ export function FormPago({
     if (!clienteId) { setError("Elegí un cliente."); return; }
     setGuardando(true);
     const body = {
-      cliente_id: Number(clienteId),
-      venta_id: ventaId ? Number(ventaId) : null,
+      cliente_id: clienteId,
+      venta_id: ventaId || null,
       fecha, monto: aCentavos(monto), medio, nota,
     };
     try {
@@ -68,7 +68,7 @@ export function FormPago({
           <p className="mut">Cliente: <b>{clienteFijo.nombre}</b></p>
         ) : (
           <Campo label="Cliente">
-            <select value={clienteId} onChange={(e) => { setClienteId(e.target.value ? Number(e.target.value) : ""); setVentaId(""); }} disabled={editar}>
+            <select value={clienteId} onChange={(e) => { setClienteId(e.target.value); setVentaId(""); }} disabled={editar}>
               <option value="">Elegí un cliente…</option>
               {clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
             </select>

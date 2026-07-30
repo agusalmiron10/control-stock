@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Env, Variables, Pago } from "../types";
-import { HttpError, texto, entero, fechaISO, enumerado } from "../validate";
+import { HttpError, texto, entero, fechaISO, enumerado, uuid, uuidOpt } from "../validate";
+import { auditar } from "../auditoria";
 
 export const pagos = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -11,14 +12,14 @@ function hoy(): string {
 }
 
 /** Valida que, si el pago apunta a una venta, esa venta sea del cliente y no esté anulada. */
-async function validarVenta(env: Env, clienteId: number, ventaId: number | null): Promise<number | null> {
+async function validarVenta(env: Env, clienteId: string, ventaId: string | null): Promise<string | null> {
   if (ventaId == null) return null;
-  const v = await env.DB.prepare(`SELECT cliente_id, anulada FROM ventas WHERE id = ?`)
+  const v = await env.DB.prepare(`SELECT cliente_id, estado FROM ventas WHERE id = ?`)
     .bind(ventaId)
-    .first<{ cliente_id: number; anulada: number }>();
+    .first<{ cliente_id: string; estado: string }>();
   if (!v) throw new HttpError(404, "La venta indicada no existe.");
   if (v.cliente_id !== clienteId) throw new HttpError(400, "La venta no pertenece a ese cliente.");
-  if (v.anulada) throw new HttpError(400, "No se puede imputar un pago a una venta anulada.");
+  if (v.estado === "anulada") throw new HttpError(400, "No se puede imputar un pago a una venta anulada.");
   return ventaId;
 }
 
@@ -31,7 +32,7 @@ pagos.get("/", async (c) => {
   const args: unknown[] = [];
   if (desde) { cond.push("p.fecha >= ?"); args.push(desde); }
   if (hasta) { cond.push("p.fecha <= ?"); args.push(hasta); }
-  if (clienteId) { cond.push("p.cliente_id = ?"); args.push(Number(clienteId)); }
+  if (clienteId) { cond.push("p.cliente_id = ?"); args.push(clienteId); }
   const where = cond.length ? `WHERE ${cond.join(" AND ")}` : "";
 
   const rows = await c.env.DB.prepare(
@@ -46,27 +47,53 @@ pagos.get("/", async (c) => {
   return c.json({ pagos: rows.results ?? [] });
 });
 
+/**
+ * Registrar pago. Acepta id + idempotency_key opcionales (pago cargado
+ * offline desde el celular). Si la clave ya se procesó, devuelve el mismo
+ * resultado sin insertar de nuevo.
+ */
 pagos.post("/", async (c) => {
   const b = await c.req.json().catch(() => ({}));
-  const clienteId = entero(b.cliente_id, "cliente", { min: 1 });
+  const idempotencyKey = uuidOpt(b.idempotency_key, "idempotency_key");
+
+  if (idempotencyKey) {
+    const previa = await c.env.DB.prepare(`SELECT resultado FROM operaciones WHERE idempotency_key = ?`)
+      .bind(idempotencyKey)
+      .first<{ resultado: string }>();
+    if (previa) return c.json(JSON.parse(previa.resultado));
+  }
+
+  const clienteId = uuid(b.cliente_id, "cliente");
   const monto = entero(b.monto, "monto", { min: 1 });
   const fecha = b.fecha ? fechaISO(b.fecha, "fecha") : hoy();
   const medio = enumerado(b.medio ?? "efectivo", "medio de pago", MEDIOS);
-  const ventaId = await validarVenta(c.env, clienteId, b.venta_id != null ? Number(b.venta_id) : null);
+  const ventaId = await validarVenta(c.env, clienteId, b.venta_id ? uuid(b.venta_id, "venta") : null);
 
   const cliente = await c.env.DB.prepare(`SELECT id FROM clientes WHERE id = ?`).bind(clienteId).first();
   if (!cliente) throw new HttpError(404, "El cliente no existe.");
 
-  const res = await c.env.DB.prepare(
-    `INSERT INTO pagos (cliente_id, venta_id, fecha, monto, medio, nota) VALUES (?, ?, ?, ?, ?, ?)`
-  )
-    .bind(clienteId, ventaId, fecha, monto, medio, texto(b.nota, "nota", { requerido: false }))
-    .run();
-  return c.json({ id: Number(res.meta.last_row_id) });
+  const id = uuidOpt(b.id, "id") ?? crypto.randomUUID();
+  const stmts: D1PreparedStatement[] = [
+    c.env.DB.prepare(
+      `INSERT INTO pagos (id, cliente_id, venta_id, fecha, monto, medio, nota) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id, clienteId, ventaId, fecha, monto, medio, texto(b.nota, "nota", { requerido: false })),
+  ];
+
+  const resultado = { id };
+  if (idempotencyKey) {
+    stmts.push(
+      c.env.DB.prepare(
+        `INSERT INTO operaciones (idempotency_key, tipo, entidad_id, resultado) VALUES (?, 'pago', ?, ?)`
+      ).bind(idempotencyKey, id, JSON.stringify(resultado))
+    );
+  }
+
+  await c.env.DB.batch(stmts);
+  return c.json(resultado);
 });
 
 pagos.put("/:id", async (c) => {
-  const id = Number(c.req.param("id"));
+  const id = c.req.param("id");
   const b = await c.req.json().catch(() => ({}));
   const pago = await c.env.DB.prepare(`SELECT * FROM pagos WHERE id = ?`).bind(id).first<Pago>();
   if (!pago) throw new HttpError(404, "Pago no encontrado.");
@@ -77,7 +104,7 @@ pagos.put("/:id", async (c) => {
   const ventaId = await validarVenta(
     c.env,
     pago.cliente_id,
-    b.venta_id !== undefined ? (b.venta_id != null ? Number(b.venta_id) : null) : pago.venta_id
+    b.venta_id !== undefined ? (b.venta_id ? uuid(b.venta_id, "venta") : null) : pago.venta_id
   );
 
   await c.env.DB.prepare(`UPDATE pagos SET venta_id=?, fecha=?, monto=?, medio=?, nota=? WHERE id=?`)
@@ -87,9 +114,12 @@ pagos.put("/:id", async (c) => {
 });
 
 pagos.delete("/:id", async (c) => {
-  const id = Number(c.req.param("id"));
-  const pago = await c.env.DB.prepare(`SELECT id FROM pagos WHERE id = ?`).bind(id).first();
+  const id = c.req.param("id");
+  const pago = await c.env.DB.prepare(`SELECT id, monto, cliente_id FROM pagos WHERE id = ?`).bind(id).first<{ id: string; monto: number; cliente_id: string }>();
   if (!pago) throw new HttpError(404, "Pago no encontrado.");
-  await c.env.DB.prepare(`DELETE FROM pagos WHERE id = ?`).bind(id).run();
+  await c.env.DB.batch([
+    c.env.DB.prepare(`DELETE FROM pagos WHERE id = ?`).bind(id),
+    auditar(c.env, c.get("usuario").usuario, "borrar_pago", "pago", id, `Monto $${(pago.monto / 100).toFixed(2)}`),
+  ]);
   return c.json({ ok: true });
 });

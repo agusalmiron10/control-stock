@@ -2,10 +2,9 @@ import { api } from "../api";
 import { pesos, fecha, numero } from "../format";
 import { NEGOCIO } from "../lib/negocio";
 import { Cargando, Error, useCarga } from "./ui";
-import { QRCode } from "./QRCode";
 
 /** Comprobante / remito imprimible de una venta. Botón imprime → "Guardar como PDF". */
-export function Comprobante({ ventaId, onCerrar }: { ventaId: number; onCerrar: () => void }) {
+export function Comprobante({ ventaId, onCerrar }: { ventaId: string; onCerrar: () => void }) {
   const { data, error, cargando } = useCarga<any>(() => api.get(`/api/ventas/${ventaId}`), [ventaId]);
 
   const estados: Record<string, string> = {
@@ -70,16 +69,13 @@ export function Comprobante({ ventaId, onCerrar }: { ventaId: number; onCerrar: 
               <div><span>Pagado</span><span className="num">{pesos(data.venta.pagado)}</span></div>
               <div className="comp-saldo">
                 <span>Saldo</span>
-                <span className="num">{pesos(data.venta.saldo)} — {estados[data.venta.estado] ?? data.venta.estado}</span>
+                <span className="num">
+                  {pesos(data.venta.saldo)} — {data.venta.estado === "anulada" ? estados.anulada : estados[data.venta.estado_pago] ?? data.venta.estado_pago}
+                </span>
               </div>
             </div>
 
             {data.venta.nota && <div className="comp-nota"><b>Nota:</b> {data.venta.nota}</div>}
-
-            <div className="comp-qr">
-              <QRCode value={`${window.location.origin}/#/ventas/${data.venta.id}`} />
-              <div className="comp-qr-txt">Escaneá para<br />ver esta venta<br />en el sistema</div>
-            </div>
 
             <div className="comp-pie">¡Gracias por su compra! — {NEGOCIO.nombre}</div>
           </div>

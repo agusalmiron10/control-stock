@@ -32,10 +32,10 @@ reportes.get("/cobranzas", async (c) => {
   const clientesMap = new Map((clientesRows.results ?? []).map((cl) => [cl.id, cl]));
 
   const ventasRows = await c.env.DB.prepare(
-    `SELECT id, cliente_id, fecha, numero FROM ventas WHERE anulada = 0 ORDER BY fecha ASC, numero ASC`
+    `SELECT id, cliente_id, fecha, numero FROM ventas WHERE estado IN ('sincronizada','confirmada') ORDER BY fecha ASC, numero ASC`
   ).all<Pick<Venta, "id" | "cliente_id" | "fecha" | "numero">>();
 
-  const ventasPorCliente = new Map<number, typeof ventasRows.results>();
+  const ventasPorCliente = new Map<string, typeof ventasRows.results>();
   for (const v of ventasRows.results ?? []) {
     const arr = ventasPorCliente.get(v.cliente_id) ?? [];
     arr!.push(v);
@@ -86,7 +86,7 @@ reportes.get("/rentabilidad", requireDueno, async (c) => {
   const desde = c.req.query("desde") || undefined;
   const hasta = c.req.query("hasta") || undefined;
 
-  const cond: string[] = ["v.anulada = 0"];
+  const cond: string[] = ["v.estado IN ('sincronizada','confirmada')"];
   const args: string[] = [];
   if (desde) { cond.push("v.fecha >= ?"); args.push(desde); }
   if (hasta) { cond.push("v.fecha <= ?"); args.push(hasta); }
@@ -95,7 +95,7 @@ reportes.get("/rentabilidad", requireDueno, async (c) => {
     `SELECT vi.herramienta_id AS hid, SUM(vi.cantidad) AS unidades, SUM(vi.subtotal) AS vendido
      FROM venta_items vi JOIN ventas v ON v.id = vi.venta_id
      WHERE ${cond.join(" AND ")} GROUP BY vi.herramienta_id`
-  ).bind(...args).all<{ hid: number; unidades: number; vendido: number }>();
+  ).bind(...args).all<{ hid: string; unidades: number; vendido: number }>();
   const vmap = new Map((vendidas.results ?? []).map((r) => [r.hid, r]));
 
   const herr = await c.env.DB.prepare(`SELECT * FROM herramientas`).all<Herramienta>();
@@ -153,12 +153,12 @@ reportes.get("/produccion", async (c) => {
 
   const v30 = await c.env.DB.prepare(
     `SELECT vi.herramienta_id AS hid, SUM(vi.cantidad) AS u FROM venta_items vi
-     JOIN ventas v ON v.id = vi.venta_id WHERE v.anulada = 0 AND v.fecha >= ? GROUP BY vi.herramienta_id`
-  ).bind(hace30).all<{ hid: number; u: number }>();
+     JOIN ventas v ON v.id = vi.venta_id WHERE v.estado IN ('sincronizada','confirmada') AND v.fecha >= ? GROUP BY vi.herramienta_id`
+  ).bind(hace30).all<{ hid: string; u: number }>();
   const v60 = await c.env.DB.prepare(
     `SELECT vi.herramienta_id AS hid, SUM(vi.cantidad) AS u FROM venta_items vi
-     JOIN ventas v ON v.id = vi.venta_id WHERE v.anulada = 0 AND v.fecha >= ? GROUP BY vi.herramienta_id`
-  ).bind(hace60).all<{ hid: number; u: number }>();
+     JOIN ventas v ON v.id = vi.venta_id WHERE v.estado IN ('sincronizada','confirmada') AND v.fecha >= ? GROUP BY vi.herramienta_id`
+  ).bind(hace60).all<{ hid: string; u: number }>();
   const map30 = new Map((v30.results ?? []).map((r) => [r.hid, r.u]));
   const map60 = new Map((v60.results ?? []).map((r) => [r.hid, r.u]));
 
@@ -190,7 +190,7 @@ reportes.get("/caja", async (c) => {
   const fecha = c.req.query("fecha") || hoyISO();
 
   const ventasDia = await c.env.DB.prepare(
-    `SELECT COALESCE(SUM(total),0) AS total, COUNT(*) AS cant FROM ventas WHERE anulada = 0 AND fecha = ?`
+    `SELECT COALESCE(SUM(total),0) AS total, COUNT(*) AS cant FROM ventas WHERE estado IN ('sincronizada','confirmada') AND fecha = ?`
   ).bind(fecha).first<{ total: number; cant: number }>();
 
   const porMedio = await c.env.DB.prepare(
@@ -225,7 +225,7 @@ reportes.get("/evolucion", async (c) => {
 
   const ventasPorMes = await c.env.DB.prepare(
     `SELECT substr(fecha,1,7) AS mes, COALESCE(SUM(total),0) AS total, COUNT(*) AS cant
-     FROM ventas WHERE anulada = 0 AND fecha >= ? GROUP BY mes ORDER BY mes`
+     FROM ventas WHERE estado IN ('sincronizada','confirmada') AND fecha >= ? GROUP BY mes ORDER BY mes`
   ).bind(desdeStr).all<{ mes: string; total: number; cant: number }>();
 
   const cobranzasPorMes = await c.env.DB.prepare(
@@ -269,11 +269,11 @@ reportes.get("/ventas-detalle", async (c) => {
   const hasta = c.req.query("hasta");
   const clienteId = c.req.query("cliente_id");
 
-  const cond: string[] = ["v.anulada = 0"];
+  const cond: string[] = ["v.estado IN ('sincronizada','confirmada')"];
   const args: unknown[] = [];
   if (desde) { cond.push("v.fecha >= ?"); args.push(desde); }
   if (hasta) { cond.push("v.fecha <= ?"); args.push(hasta); }
-  if (clienteId) { cond.push("v.cliente_id = ?"); args.push(Number(clienteId)); }
+  if (clienteId) { cond.push("v.cliente_id = ?"); args.push(clienteId); }
 
   const rows = await c.env.DB.prepare(
     `SELECT v.fecha, v.numero, v.total AS venta_total, cl.id AS cliente_id, cl.nombre AS cliente_nombre,
@@ -292,7 +292,7 @@ reportes.get("/ventas-detalle", async (c) => {
   return c.json({
     desde: desde ?? null,
     hasta: hasta ?? null,
-    cliente_id: clienteId ? Number(clienteId) : null,
+    cliente_id: clienteId ?? null,
     items,
     total_vendido: totalVendido,
     cantidad_ventas: ventasUnicas,
@@ -315,7 +315,7 @@ reportes.get("/resumen-diario", async (c) => {
  */
 export async function calcularResumenDia(env: Env, fecha: string) {
   const ventasDia = await env.DB.prepare(
-    `SELECT COALESCE(SUM(total),0) AS total, COUNT(*) AS cant FROM ventas WHERE anulada = 0 AND fecha = ?`
+    `SELECT COALESCE(SUM(total),0) AS total, COUNT(*) AS cant FROM ventas WHERE estado IN ('sincronizada','confirmada') AND fecha = ?`
   ).bind(fecha).first<{ total: number; cant: number }>();
 
   const cobranzasDia = await env.DB.prepare(

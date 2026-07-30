@@ -50,7 +50,7 @@ export function Pagos() {
           accion={<button className="btn primario" onClick={() => setNuevo(true)}>Registrar el primero</button>} />
       ) : (
         <div className="card">
-          <div className="tabla-wrap">
+          <div className="tabla-wrap solo-escritorio">
             <table className="tabla">
               <thead>
                 <tr><th>Fecha</th><th>Cliente</th><th className="num">Monto</th><th>Medio</th><th>Aplicado a</th><th>Nota</th><th></th></tr>
@@ -74,6 +74,25 @@ export function Pagos() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          <div className="card-body solo-movil lista-tarjetas">
+            {data.pagos.map((p: any) => (
+              <div className="tarjeta-fila" key={p.id}>
+                <div className="tf-titulo">
+                  <a href={`#/clientes/${p.cliente_id}`}>{p.cliente_nombre}</a>
+                  <span className="mut" style={{ fontWeight: 400 }}> · {fecha(p.fecha)} · {p.medio}</span>
+                </div>
+                <div className="tf-datos">
+                  <span className="num saldado">{pesos(p.monto)}</span>
+                  <span className="mut">{p.venta_numero ? `Venta #${p.venta_numero}` : "A cuenta"}{p.nota ? ` · ${p.nota}` : ""}</span>
+                </div>
+                <div className="tf-datos" style={{ marginTop: 8 }}>
+                  <button className="btn chico" onClick={() => setEditar(p)}>Editar</button>
+                  <button className="btn chico peligro" onClick={() => setBorrar(p)}>Borrar</button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

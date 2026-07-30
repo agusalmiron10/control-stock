@@ -1,6 +1,7 @@
 :root {
   --bg: #f3f4f6;
   --panel: #ffffff;
+  --superficie: #f9fafb;
   --borde: #d1d5db;
   --borde-fuerte: #9ca3af;
   --texto: #111827;
@@ -19,6 +20,52 @@
   --mono: ui-monospace, "SFMono-Regular", "Menlo", "Consolas", monospace;
 }
 
+/* Oscuro: automático si el sistema lo pide (salvo que el usuario haya
+   forzado claro), o siempre que el usuario lo haya elegido a mano — el
+   toggle de la sidebar guarda la preferencia y pisa data-theme en <html>. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --superficie: #253449;
+    --borde: #334155;
+    --borde-fuerte: #475569;
+    --texto: #e5e7eb;
+    --texto-suave: #94a3b8;
+    --barra: #0b1220;
+    --barra-activo: #1e293b;
+    --acento: #3b82f6;
+    --acento-hover: #60a5fa;
+    --rojo: #f87171;
+    --rojo-bg: #450a0a;
+    --verde: #4ade80;
+    --verde-bg: #052e16;
+    --ambar: #fbbf24;
+    --ambar-bg: #451a03;
+    --sombra: 0 1px 3px rgba(0, 0, 0, 0.5);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f172a;
+  --panel: #1e293b;
+  --superficie: #253449;
+  --borde: #334155;
+  --borde-fuerte: #475569;
+  --texto: #e5e7eb;
+  --texto-suave: #94a3b8;
+  --barra: #0b1220;
+  --barra-activo: #1e293b;
+  --acento: #3b82f6;
+  --acento-hover: #60a5fa;
+  --rojo: #f87171;
+  --rojo-bg: #450a0a;
+  --verde: #4ade80;
+  --verde-bg: #052e16;
+  --ambar: #fbbf24;
+  --ambar-bg: #451a03;
+  --sombra: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -34,44 +81,93 @@ html, body {
 a { color: var(--acento); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
-/* ── Layout ─────────────────────────────────────────── */
-.app { min-height: 100vh; display: flex; flex-direction: column; }
+/* ── Layout: sidebar fija a la izquierda (escritorio y celular) ────── */
+.app { min-height: 100vh; display: flex; }
 
-.topbar {
+.sidebar {
   background: var(--barra);
   color: #fff;
+  width: 230px;
+  flex: none;
   display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 12px;
+  flex-direction: column;
   position: sticky;
   top: 0;
+  height: 100vh;
+  overflow-y: auto;
   z-index: 20;
-  flex-wrap: wrap;
 }
-.topbar .marca { font-weight: 700; margin-right: 12px; padding: 10px 0; white-space: nowrap; }
-.topbar nav { display: flex; gap: 2px; flex: 1; flex-wrap: wrap; }
-.topbar nav a {
+.sidebar-marca { font-weight: 700; padding: 16px 16px 8px; white-space: nowrap; }
+.sidebar nav { display: flex; flex-direction: column; gap: 2px; padding: 8px; flex: 1; }
+.sidebar nav a {
   color: #d1d5db;
   padding: 10px 12px;
-  border-radius: 6px 6px 0 0;
+  border-radius: 6px;
   font-weight: 500;
 }
-.topbar nav a:hover { background: var(--barra-activo); color: #fff; text-decoration: none; }
-.topbar nav a.activo { background: var(--panel); color: var(--texto); }
-.topbar .usuario { color: #9ca3af; font-size: 13px; }
-.topbar .usuario button {
+.sidebar nav a:hover { background: var(--barra-activo); color: #fff; text-decoration: none; }
+.sidebar nav a.activo { background: var(--acento); color: #fff; }
+.sidebar-pie { padding: 12px 16px; border-top: 1px solid #374151; }
+.sidebar .usuario { color: #9ca3af; font-size: 13px; display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+.sidebar .usuario button {
   background: transparent; color: #d1d5db; border: 1px solid #4b5563;
   padding: 4px 8px; border-radius: 6px; margin-left: 8px; cursor: pointer;
 }
-.topbar .usuario button:hover { background: var(--barra-activo); color: #fff; }
-.topbar .menu-toggle {
-  display: none; background: transparent; border: 1px solid #4b5563; color: #fff;
+.sidebar .usuario button:hover { background: var(--barra-activo); color: #fff; }
+.sidebar .sync-indicador { margin: 0; width: 100%; }
+.sidebar .sync-chip { width: 100%; justify-content: flex-start; }
+.sidebar .sync-panel { left: 0; right: auto; width: 100%; }
+.btn-tema {
+  display: block; width: 100%; margin-top: 8px; text-align: left;
+  background: transparent; color: #d1d5db; border: 1px solid #4b5563;
+  padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 13px;
+}
+.btn-tema:hover { background: var(--barra-activo); color: #fff; }
+
+.topbar-movil {
+  display: none;
+  background: var(--barra);
+  color: #fff;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  height: 48px;
+  position: sticky;
+  top: 0;
+  z-index: 25;
+}
+.topbar-movil .marca { font-weight: 700; flex: 1; white-space: nowrap; }
+.menu-toggle {
+  background: transparent; border: 1px solid #4b5563; color: #fff;
   font-size: 18px; line-height: 1; padding: 6px 10px; border-radius: 6px; cursor: pointer;
 }
-.nav-salir-movil { display: none; }
 
-.contenido { padding: 16px; max-width: 1200px; width: 100%; margin: 0 auto; }
+/* ── Indicador de sincronización ───────────────────────── */
+.sync-indicador { position: relative; margin: 0 4px; }
+.sync-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid #4b5563; background: transparent; color: #d1d5db;
+  padding: 6px 10px; border-radius: 999px; font-size: 12.5px; cursor: pointer;
+  white-space: nowrap;
+}
+.sync-chip:hover { background: var(--barra-activo); }
+.sync-punto { width: 8px; height: 8px; border-radius: 50%; background: var(--verde); flex: none; }
+.sync-off .sync-punto { background: var(--texto-suave); }
+.sync-sync .sync-punto { background: var(--acento); animation: sync-pulso 1s infinite; }
+.sync-alerta .sync-punto { background: var(--rojo); }
+.sync-pendiente .sync-punto { background: var(--ambar); }
+@keyframes sync-pulso { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+.sync-fondo { position: fixed; inset: 0; z-index: 29; }
+.sync-panel {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 30;
+  background: var(--panel); color: var(--texto); border: 1px solid var(--borde);
+  border-radius: 8px; box-shadow: var(--sombra); padding: 12px 14px; width: 260px;
+}
+.sync-panel p { margin: 0 0 8px; font-size: 13px; }
+.sync-panel .sync-conflictivas { color: var(--rojo); }
+.sync-panel button { width: 100%; }
+
+.contenido { flex: 1; min-width: 0; padding: 16px; max-width: 1200px; width: 100%; margin: 0 auto; }
 
 .encabezado-seccion {
   display: flex; align-items: center; justify-content: space-between;
@@ -98,18 +194,104 @@ a:hover { text-decoration: underline; }
 .kpi .rot { font-size: 12px; color: var(--texto-suave); text-transform: uppercase; letter-spacing: .04em; }
 .kpi .val { font-family: var(--mono); font-size: 22px; font-weight: 600; margin-top: 4px; }
 
+/* ── Listas de "una persona por fila" (2 líneas: identidad arriba, datos +
+   acción abajo) — para rankings/listados simples donde una tabla angosta
+   quedaría apretada. ─────────────────────────────────── */
+.lista-tarjetas { display: flex; flex-direction: column; }
+.tarjeta-fila { padding: 10px 0; border-bottom: 1px solid var(--borde); }
+.tarjeta-fila:last-child { border-bottom: none; }
+.tf-titulo { font-weight: 600; margin-bottom: 6px; }
+.tf-datos { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.tf-datos .num { font-family: var(--mono); }
+
+/* Utilidades: mostrar una vista en escritorio (tabla completa) y otra en
+   celular (tarjetas de 2 líneas), para las listas donde la tabla es la
+   mejor opción en pantallas anchas pero queda apretada en un celular. */
+.solo-movil { display: none; }
+@media (max-width: 640px) {
+  .solo-escritorio { display: none; }
+  .solo-movil { display: block; }
+}
+
+/* ── Buscador de cliente (Nueva venta, Nuevo presupuesto) ──── */
+.bc { position: relative; }
+.bc input {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--borde-fuerte);
+  border-radius: 6px; font-size: 14px;
+}
+.bc-elegido {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 10px; border: 1px solid var(--borde-fuerte); border-radius: 6px;
+}
+.bc-fondo { position: fixed; inset: 0; z-index: 29; }
+.bc-lista {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30;
+  background: var(--panel); border: 1px solid var(--borde); border-radius: 8px;
+  box-shadow: var(--sombra); max-height: 260px; overflow-y: auto;
+}
+.bc-opcion {
+  display: block; width: 100%; text-align: left; padding: 8px 12px; border: none;
+  border-bottom: 1px solid var(--borde); background: var(--panel); cursor: pointer; font-size: 14px;
+}
+.bc-opcion:last-child { border-bottom: none; }
+.bc-opcion:hover { background: var(--bg); }
+.bc-opcion.bc-nuevo { color: var(--acento); font-weight: 500; }
+.bc-vacio { padding: 8px 12px; margin: 0; }
+
+/* ── Buscador global (sidebar) ────────────────────────── */
+.bg-buscador { position: relative; padding: 8px; }
+.bg-buscador input {
+  width: 100%; padding: 8px 10px; border: 1px solid #4b5563; border-radius: 6px;
+  font-size: 13px; background: var(--barra-activo); color: #fff;
+}
+.bg-buscador input::placeholder { color: #9ca3af; }
+.bg-fondo { position: fixed; inset: 0; z-index: 39; }
+.bg-lista {
+  position: absolute; top: calc(100% + 2px); left: 8px; right: 8px; z-index: 40;
+  background: var(--panel); border: 1px solid var(--borde); border-radius: 8px;
+  box-shadow: var(--sombra); max-height: 340px; overflow-y: auto;
+}
+.bg-grupo {
+  padding: 6px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--texto-suave); background: var(--superficie);
+}
+.bg-opcion {
+  display: block; width: 100%; text-align: left; padding: 8px 12px; border: none;
+  border-bottom: 1px solid var(--borde); background: var(--panel); color: var(--texto);
+  cursor: pointer; font-size: 13.5px;
+}
+.bg-opcion:hover { background: var(--superficie); }
+.bg-vacio { padding: 10px 12px; margin: 0; }
+
 /* ── Tablas ─────────────────────────────────────────── */
-.tabla-wrap { overflow-x: auto; }
+.tabla-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 table.tabla { width: 100%; border-collapse: collapse; }
 table.tabla th, table.tabla td { padding: 7px 10px; border-bottom: 1px solid var(--borde); text-align: left; }
 table.tabla th {
-  background: #f9fafb; font-size: 12px; text-transform: uppercase; letter-spacing: .03em;
+  background: var(--superficie); font-size: 12px; text-transform: uppercase; letter-spacing: .03em;
   color: var(--texto-suave); position: sticky; top: 0; white-space: nowrap;
 }
-table.tabla tbody tr:hover { background: #f9fafb; }
+table.tabla tbody tr:hover { background: var(--superficie); }
 table.tabla td.num, table.tabla th.num { text-align: right; font-family: var(--mono); white-space: nowrap; }
 table.tabla td.acc { text-align: right; white-space: nowrap; }
 table.tabla tr.archivado { color: var(--texto-suave); font-style: italic; }
+
+/* Columna de acciones (última, siempre vacía en el header) fijada al borde
+   derecho: en celular, con la tabla angosta y muchas columnas, los botones
+   de Confirmar/Anular/Editar/Borrar quedaban tapados fuera de pantalla y
+   solo se veían deslizando — ahora quedan siempre alcanzables. */
+@media (max-width: 640px) {
+  table.tabla td.acc {
+    position: sticky; right: 0; background: var(--panel);
+    box-shadow: -6px 0 6px -6px rgba(0, 0, 0, 0.25);
+  }
+  table.tabla tbody tr:hover td.acc { background: var(--superficie); }
+  table.tabla tr.archivado td.acc { background: var(--panel); }
+  table.tabla th:last-child:empty {
+    position: sticky; right: 0; z-index: 2;
+    box-shadow: -6px 0 6px -6px rgba(0, 0, 0, 0.25);
+  }
+}
 
 /* ── Estados / colores ──────────────────────────────── */
 .debe { color: var(--rojo); font-weight: 600; }
@@ -118,7 +300,7 @@ table.tabla tr.archivado { color: var(--texto-suave); font-style: italic; }
 .badge.pagada { background: var(--verde-bg); color: var(--verde); }
 .badge.parcial { background: var(--ambar-bg); color: var(--ambar); }
 .badge.impaga { background: var(--rojo-bg); color: var(--rojo); }
-.badge.anulada { background: #e5e7eb; color: var(--texto-suave); }
+.badge.anulada { background: var(--borde); color: var(--texto-suave); }
 .stock-bajo { color: var(--ambar); font-weight: 600; }
 .stock-cero { color: var(--rojo); font-weight: 700; }
 .pill-alerta { background: var(--ambar-bg); color: var(--ambar); border: 1px solid #fcd34d; padding: 8px 12px; border-radius: 8px; margin-bottom: 12px; }
@@ -130,7 +312,7 @@ table.tabla tr.archivado { color: var(--texto-suave); font-style: italic; }
   background: var(--panel); color: var(--texto); border: 1px solid var(--borde-fuerte);
   padding: 7px 12px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500;
 }
-.btn:hover { background: #f3f4f6; }
+.btn:hover { background: var(--superficie); }
 .btn.primario { background: var(--acento); color: #fff; border-color: var(--acento); }
 .btn.primario:hover { background: var(--acento-hover); }
 .btn.peligro { background: var(--rojo); color: #fff; border-color: var(--rojo); }
@@ -144,7 +326,7 @@ table.tabla tr.archivado { color: var(--texto-suave); font-style: italic; }
 .campo label { font-size: 13px; color: var(--texto-suave); font-weight: 500; }
 input, select, textarea {
   font: inherit; padding: 8px 10px; border: 1px solid var(--borde-fuerte);
-  border-radius: 6px; background: #fff; color: var(--texto); width: 100%;
+  border-radius: 6px; background: var(--panel); color: var(--texto); width: 100%;
 }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--acento); outline-offset: -1px; }
 input.num { text-align: right; font-family: var(--mono); }
@@ -185,7 +367,7 @@ input.num { text-align: right; font-family: var(--mono); }
 .dt-list dd { margin: 0; font-family: var(--mono); }
 
 /* ── Barra mini (rentabilidad) ───────────────────────── */
-.barra-mini { background: #e5e7eb; border-radius: 4px; height: 10px; width: 100%; overflow: hidden; }
+.barra-mini { background: var(--borde); border-radius: 4px; height: 10px; width: 100%; overflow: hidden; }
 .barra-mini-fill { background: var(--verde); height: 100%; border-radius: 4px; }
 
 /* ── WhatsApp ────────────────────────────────────────── */
@@ -221,8 +403,6 @@ table.comp-tabla { width: 100%; border-collapse: collapse; margin-bottom: 12px; 
 .comp-total { border-top: 1px solid #111827; border-bottom: 1px solid #111827; font-weight: 800; font-size: 16px; padding: 6px 0 !important; margin: 4px 0; }
 .comp-saldo { font-weight: 700; }
 .comp-nota { margin-top: 14px; font-size: 13px; }
-.comp-qr { margin-top: 16px; display: flex; align-items: center; gap: 10px; }
-.comp-qr-txt { font-size: 11px; color: #6b7280; line-height: 1.3; }
 .comp-pie { margin-top: 18px; text-align: center; color: #6b7280; font-size: 12px; border-top: 1px dashed #d1d5db; padding-top: 10px; }
 
 @media print {
@@ -241,36 +421,85 @@ table.tabla td.acc .btn-grupo { flex-wrap: nowrap; }
 @media (max-width: 640px) {
   .contenido { padding: 10px; }
 
-  /* Menú hamburguesa: la navegación pasa a desplegable, una sola fila arriba.
-     .topbar ya es position:sticky (ver arriba), que también sirve de contenedor
-     de posicionamiento para el <nav> absolute — no hay que pisarlo con relative. */
-  .topbar { flex-wrap: nowrap; justify-content: space-between; }
-  .topbar .marca { font-size: 15px; margin-right: 0; }
-  .topbar .menu-toggle { display: inline-flex; }
-  .topbar .usuario { display: none; }
-  .topbar nav {
-    display: none;
-    position: absolute; top: 100%; left: 0; right: 0;
-    flex-direction: column; gap: 0; background: var(--barra);
-    padding: 6px 10px 10px; box-shadow: 0 8px 20px rgba(0, 0, 0, 0.35);
-    max-height: calc(100vh - 48px); overflow-y: auto; z-index: 30;
+  /* Sidebar pasa a cajón deslizable desde la izquierda; la barrita de
+     arriba (marca + hamburguesa + sync) queda fija para poder abrirlo.
+     .app pasa a columna: .sidebar sale del flujo (position:fixed) pero
+     .topbar-movil es un ítem flex normal — sin esto quedaba al lado de
+     .contenido en la misma fila en vez de arriba. */
+  .app { flex-direction: column; }
+  .topbar-movil { display: flex; }
+  .sidebar {
+    position: fixed; top: 0; left: 0; bottom: 0; height: 100vh;
+    width: 250px; transform: translateX(-100%);
+    transition: transform 0.2s ease; box-shadow: 4px 0 20px rgba(0, 0, 0, 0.35);
+    z-index: 35;
   }
-  .topbar nav.abierta { display: flex; }
-  .topbar nav a { padding: 12px 10px; border-radius: 6px; font-size: 15px; }
-  .topbar nav a.activo { background: var(--barra-activo); color: #fff; border-radius: 6px; }
-  .nav-salir-movil {
-    display: block; margin-top: 6px; padding-top: 12px !important;
-    border-top: 1px solid #4b5563; color: #fca5a5 !important; cursor: pointer;
-  }
-  /* z-index 15 (no 25): .topbar tiene z-index:20 y genera su propio contexto de
-     apilamiento, así que el <nav> (z-index:30) queda atrapado adentro — un fondo
-     con z-index mayor a 20 quedaría por encima de todo el topbar y se comería los
-     clics de los links en vez del propio fondo. Con 15 queda debajo del topbar
-     pero por encima del contenido normal de la página. */
-  .menu-fondo { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 15; }
+  .sidebar.abierta { transform: translateX(0); }
+  .sidebar-marca { display: none; }
+  .sidebar nav a { padding: 12px 10px; font-size: 15px; }
+  .menu-fondo { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 30; }
 
   /* Ajustes → Seguridad: dos formularios lado a lado se apilan en celular. */
   .fila-apilable { flex-direction: column; }
 
   table.tabla th, table.tabla td { padding: 8px 8px; }
+
+  /* Barra de filtros (Ventas, Herramientas, etc.): cada campo a lo ancho en
+     vez de pelearse por el espacio de una fila angosta — evita que la
+     etiqueta se corte en 2-3 líneas y el input quede diminuto. */
+  .barra-filtros { flex-direction: column; align-items: stretch; }
+  .barra-filtros .campo { min-width: 0; }
+
+  /* Los números en mono de los KPI son anchos ("$ 7.047.554,00") — a 2
+     columnas quedan pegados al borde y se pisan con la tarjeta de al lado. */
+  .grid-kpi { grid-template-columns: 1fr; }
 }
+
+/* ── Venta rápida (celular) ────────────────────────────── */
+.venta-rapida { padding-bottom: 90px; max-width: 480px; margin: 0 auto; }
+.venta-rapida .card-body { padding: 12px; }
+.vr-buscar {
+  width: 100%; font-size: 16px; padding: 12px; border: 1px solid var(--borde);
+  border-radius: 8px; margin-bottom: 8px;
+}
+.vr-fila-buscar { display: flex; gap: 8px; }
+.vr-fila-buscar .vr-buscar { flex: 1; }
+.vr-btn-qr { padding: 0 14px; font-size: 15px; white-space: nowrap; }
+.vr-lista-clientes { display: flex; flex-direction: column; gap: 6px; }
+.vr-fila-cliente {
+  text-align: left; padding: 12px; border: 1px solid var(--borde); border-radius: 8px;
+  background: var(--panel); font-size: 15px; cursor: pointer;
+}
+.vr-fila-cliente:hover { background: var(--bg); }
+.vr-fila-cliente.vr-nuevo { color: var(--acento); border-style: dashed; }
+.vr-cliente-elegido { display: flex; align-items: center; justify-content: space-between; font-size: 16px; }
+.vr-grid-herr { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.vr-tarjeta-herr {
+  border: 1px solid var(--borde); border-radius: 10px; padding: 12px; text-align: left;
+  background: var(--panel); cursor: pointer; min-height: 64px;
+}
+.vr-tarjeta-herr:hover { border-color: var(--acento); }
+.vr-tarjeta-herr.vr-en-carrito { background: #eff6ff; border-color: var(--acento); cursor: default; }
+.vr-nombre-herr { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+.vr-stepper { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+.vr-stepper button {
+  width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--borde-fuerte);
+  background: var(--panel); font-size: 18px; line-height: 1; cursor: pointer;
+}
+.vr-stepper span { font-size: 16px; font-weight: 700; min-width: 20px; text-align: center; }
+.vr-precio { width: 100%; padding: 6px; font-size: 14px; }
+.vr-cobre-botones { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.vr-cobre-botones .btn { padding: 10px 4px; font-size: 13px; }
+.vr-barra-guardar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 25;
+  background: var(--panel); border-top: 1px solid var(--borde); box-shadow: 0 -2px 10px rgba(0,0,0,0.08);
+  padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.vr-barra-guardar .btn { font-size: 16px; padding: 12px 22px; }
+
+.qr-escaner-overlay {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); z-index: 40;
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+}
+.qr-escaner-caja { display: flex; flex-direction: column; align-items: center; gap: 14px; width: 100%; max-width: 420px; }
+.qr-escaner-video { width: 100%; border-radius: 10px; background: #000; }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api } from "../api";
 import { pesos, fecha } from "../format";
 import { Cargando, Error, Vacio, Confirmar, useCarga } from "../components/ui";
@@ -7,20 +7,15 @@ import { DetalleVentaModal } from "../components/DetalleVentaModal";
 import { ReporteVentasPDF } from "../components/ReporteVentasPDF";
 import { navegar } from "../lib/router";
 
-/** aperturaInicial: viene del link permanente #/ventas/:id (ej. el QR del comprobante) y abre el detalle solo. */
-export function Ventas({ aperturaInicial }: { aperturaInicial?: number } = {}) {
+export function Ventas() {
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
   const [clienteId, setClienteId] = useState("");
   const [anular, setAnular] = useState<any | null>(null);
-  const [comprobante, setComprobante] = useState<number | null>(null);
-  const [detalle, setDetalle] = useState<number | null>(aperturaInicial ?? null);
+  const [comprobante, setComprobante] = useState<string | null>(null);
+  const [detalle, setDetalle] = useState<string | null>(null);
   const [mostrarPDF, setMostrarPDF] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (aperturaInicial) setDetalle(aperturaInicial);
-  }, [aperturaInicial]);
 
   const qs = new URLSearchParams();
   if (desde) qs.set("desde", desde);
@@ -76,7 +71,7 @@ export function Ventas({ aperturaInicial }: { aperturaInicial?: number } = {}) {
           accion={<button className="btn primario" onClick={() => navegar("/ventas/nueva")}>Cargar la primera venta</button>} />
       ) : (
         <div className="card">
-          <div className="tabla-wrap">
+          <div className="tabla-wrap solo-escritorio">
             <table className="tabla">
               <thead>
                 <tr><th className="num">N°</th><th>Fecha</th><th>Cliente</th>
@@ -103,6 +98,27 @@ export function Ventas({ aperturaInicial }: { aperturaInicial?: number } = {}) {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          <div className="card-body solo-movil lista-tarjetas">
+            {data.ventas.map((v: any) => (
+              <div className="tarjeta-fila" key={v.id}>
+                <div className="tf-titulo">
+                  #{v.numero} — <a href={`#/clientes/${v.cliente_id}`}>{v.cliente_nombre}</a>
+                  <span className="mut" style={{ fontWeight: 400 }}> · {fecha(v.fecha)}</span>
+                </div>
+                <div className="tf-datos">
+                  <span className="num">{pesos(v.total)}</span>
+                  <span className={`badge ${v.estado}`}>{v.estado}</span>
+                  {v.saldo > 0 && <span className="num debe">Debe {pesos(v.saldo)}</span>}
+                </div>
+                <div className="tf-datos" style={{ marginTop: 8 }}>
+                  <button className="btn chico" onClick={() => setDetalle(v.id)}>Detalle</button>
+                  <button className="btn chico" onClick={() => setComprobante(v.id)}>Comprobante</button>
+                  {v.estado !== "anulada" && <button className="btn chico peligro" onClick={() => setAnular(v)}>Anular</button>}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

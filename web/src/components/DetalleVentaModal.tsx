@@ -3,7 +3,7 @@ import { pesos, fecha, numero } from "../format";
 import { Cargando, Error, Modal, useCarga } from "./ui";
 
 /** Ventana emergente liviana: qué compró un cliente en una venta puntual. */
-export function DetalleVentaModal({ ventaId, onCerrar }: { ventaId: number; onCerrar: () => void }) {
+export function DetalleVentaModal({ ventaId, onCerrar }: { ventaId: string; onCerrar: () => void }) {
   const { data, error, cargando } = useCarga<any>(() => api.get(`/api/ventas/${ventaId}`), [ventaId]);
 
   return (
@@ -20,7 +20,7 @@ export function DetalleVentaModal({ ventaId, onCerrar }: { ventaId: number; onCe
             Fecha: <b>{fecha(data.venta.fecha)}</b>
             {data.venta.estado === "anulada" && <span className="comp-anulada"> — ANULADA</span>}
           </p>
-          <div className="tabla-wrap">
+          <div className="tabla-wrap solo-escritorio">
             <table className="tabla">
               <thead>
                 <tr><th>Producto</th><th className="num">Cantidad</th><th className="num">Precio unit.</th><th className="num">Subtotal</th></tr>
@@ -36,6 +36,17 @@ export function DetalleVentaModal({ ventaId, onCerrar }: { ventaId: number; onCe
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className="solo-movil lista-tarjetas">
+            {data.items.map((it: any) => (
+              <div className="tarjeta-fila" key={it.id}>
+                <div className="tf-titulo">{it.nombre_herramienta}</div>
+                <div className="tf-datos">
+                  <span>{numero(it.cantidad)} x {pesos(it.precio_unitario)}</span>
+                  <span className="num">{pesos(it.subtotal)}</span>
+                </div>
+              </div>
+            ))}
           </div>
           <dl className="dt-list" style={{ gridTemplateColumns: "auto auto", marginLeft: "auto", width: 240, marginTop: 12 }}>
             {data.venta.descuento > 0 && <><dt>Subtotal</dt><dd>{pesos(data.venta.subtotal)}</dd></>}

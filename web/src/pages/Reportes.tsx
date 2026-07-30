@@ -78,7 +78,7 @@ function Rentabilidad() {
           ) : (
             <div className="card">
               <h2>Por producto (más ganancia primero)</h2>
-              <div className="tabla-wrap">
+              <div className="tabla-wrap solo-escritorio">
                 <table className="tabla">
                   <thead>
                     <tr>
@@ -106,6 +106,22 @@ function Rentabilidad() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+
+              <div className="card-body solo-movil lista-tarjetas">
+                {conVentas.map((p) => (
+                  <div className="tarjeta-fila" key={p.id}>
+                    <div className="tf-titulo">{p.nombre} <span className="mut" style={{ fontWeight: 400 }}>· {p.rubro || "—"}</span></div>
+                    <div className="tf-datos">
+                      <span>{numero(p.unidades_vendidas)} u.</span>
+                      <span className="num">{pesos(p.vendido)}</span>
+                      <span className={`num ${p.ganancia >= 0 ? "saldado" : "debe"}`}>{pesos(p.ganancia)} ({p.margen_pct}%)</span>
+                    </div>
+                    <div className="barra-mini" style={{ marginTop: 6 }}>
+                      <div className="barra-mini-fill" style={{ width: `${Math.max(2, (p.ganancia / maxGanancia) * 100)}%` }} />
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -190,7 +206,7 @@ function CajaDia() {
 
           <div className="card">
             <h2>Pagos del día</h2>
-            <div className="tabla-wrap">
+            <div className="tabla-wrap solo-escritorio">
               {data.pagos.length === 0 ? (
                 <Vacio mensaje="No hay pagos registrados este día." />
               ) : (
@@ -209,6 +225,22 @@ function CajaDia() {
                 </table>
               )}
             </div>
+            {data.pagos.length === 0 ? (
+              <div className="solo-movil"><Vacio mensaje="No hay pagos registrados este día." /></div>
+            ) : (
+              <div className="card-body solo-movil lista-tarjetas">
+                {data.pagos.map((p: any) => (
+                  <div className="tarjeta-fila" key={p.id}>
+                    <div className="tf-titulo"><a href={`#/clientes/${p.cliente_id}`}>{p.cliente_nombre}</a></div>
+                    <div className="tf-datos">
+                      <span className="num saldado">{pesos(p.monto)}</span>
+                      <span>{MEDIO_LABEL[p.medio] ?? p.medio}</span>
+                      <span className="mut">{p.venta_numero ? `Venta #${p.venta_numero}` : "A cuenta"}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </>
       )}

@@ -1,22 +1,24 @@
 import { useState } from "react";
 import { api } from "../api";
 import { pesos, fecha } from "../format";
-import { Cargando, Error, Vacio, Confirmar, useCarga } from "../components/ui";
+import { Cargando, Error, Vacio, Confirmar, Modal, useCarga } from "../components/ui";
 import { FormCliente } from "./Clientes";
 import { FormPago } from "../components/FormPago";
 import { Comprobante } from "../components/Comprobante";
 import { exportarCliente } from "../excel";
 import { waEstadoDeCuenta, waRecordatorioDeuda } from "../lib/whatsapp";
 import { navegar } from "../lib/router";
+import { qrClienteSvg } from "../lib/qr";
 
-export function ClienteFicha({ id }: { id: number }) {
+export function ClienteFicha({ id }: { id: string }) {
   const [editar, setEditar] = useState(false);
   const [pagoNuevo, setPagoNuevo] = useState(false);
   const [pagoEditar, setPagoEditar] = useState<any | null>(null);
   const [pagoBorrar, setPagoBorrar] = useState<any | null>(null);
   const [ventaAnular, setVentaAnular] = useState<any | null>(null);
-  const [comprobante, setComprobante] = useState<number | null>(null);
+  const [comprobante, setComprobante] = useState<string | null>(null);
   const [archivar, setArchivar] = useState(false);
+  const [verQr, setVerQr] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
 
   const { data, error, cargando, recargar } = useCarga<any>(() => api.get(`/api/clientes/${id}`), [id]);
@@ -70,6 +72,7 @@ export function ClienteFicha({ id }: { id: number }) {
             <button className="btn wa" onClick={() => waRecordatorioDeuda(c, data.saldo)}>Recordar deuda</button>
           )}
           <button className="btn" onClick={() => exportarCliente(id).catch((e) => setAviso(e.message))}>⬇ Excel</button>
+          <button className="btn" onClick={() => setVerQr(true)}>QR del cliente</button>
           <button className="btn" onClick={() => setEditar(true)}>Editar</button>
           <button className="btn" onClick={() => setArchivar(true)}>{c.activo ? "Archivar" : "Reactivar"}</button>
           <button className="btn primario" onClick={() => setPagoNuevo(true)}>+ Registrar pago</button>
@@ -104,7 +107,7 @@ export function ClienteFicha({ id }: { id: number }) {
 
       <div className="card">
         <h2>Ventas</h2>
-        <div className="tabla-wrap">
+        <div className="tabla-wrap solo-escritorio">
           {data.ventas.length === 0 ? (
             <Vacio mensaje="Este cliente todavía no tiene ventas."
               accion={<button className="btn primario" onClick={() => navegar("/ventas/nueva")}>Cargar una venta</button>} />
@@ -137,11 +140,34 @@ export function ClienteFicha({ id }: { id: number }) {
             </table>
           )}
         </div>
+        {data.ventas.length === 0 ? (
+          <div className="solo-movil"><Vacio mensaje="Este cliente todavía no tiene ventas."
+            accion={<button className="btn primario" onClick={() => navegar("/ventas/nueva")}>Cargar una venta</button>} /></div>
+        ) : (
+          <div className="card-body solo-movil lista-tarjetas">
+            {data.ventas.map((v: any) => (
+              <div className="tarjeta-fila" key={v.id}>
+                <div className="tf-titulo">#{v.numero} <span className="mut" style={{ fontWeight: 400 }}>· {fecha(v.fecha)}</span></div>
+                <div className="tf-datos">
+                  <span className="num">{pesos(v.total)}</span>
+                  <span className={`badge ${v.estado}`}>{v.estado}</span>
+                  {v.saldo > 0 && <span className="num debe">Debe {pesos(v.saldo)}</span>}
+                </div>
+                <div className="tf-datos" style={{ marginTop: 8 }}>
+                  <button className="btn chico" onClick={() => setComprobante(v.id)}>Comprobante</button>
+                  {v.estado !== "anulada" && (
+                    <button className="btn chico peligro" onClick={() => setVentaAnular(v)}>Anular</button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="card">
         <h2>Pagos</h2>
-        <div className="tabla-wrap">
+        <div className="tabla-wrap solo-escritorio">
           {data.pagos.length === 0 ? (
             <Vacio mensaje="Todavía no registraste pagos de este cliente." />
           ) : (
@@ -169,6 +195,24 @@ export function ClienteFicha({ id }: { id: number }) {
             </table>
           )}
         </div>
+        {data.pagos.length === 0 ? (
+          <div className="solo-movil"><Vacio mensaje="Todavía no registraste pagos de este cliente." /></div>
+        ) : (
+          <div className="card-body solo-movil lista-tarjetas">
+            {data.pagos.map((p: any) => (
+              <div className="tarjeta-fila" key={p.id}>
+                <div className="tf-titulo">{pesos(p.monto)} <span className="mut" style={{ fontWeight: 400 }}>· {fecha(p.fecha)} · {p.medio}</span></div>
+                <div className="tf-datos">
+                  <span className="mut">{p.venta_numero ? `Venta #${p.venta_numero}` : "A cuenta"}{p.nota ? ` · ${p.nota}` : ""}</span>
+                </div>
+                <div className="tf-datos" style={{ marginTop: 8 }}>
+                  <button className="btn chico" onClick={() => setPagoEditar(p)}>Editar</button>
+                  <button className="btn chico peligro" onClick={() => setPagoBorrar(p)}>Borrar</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {editar && <FormCliente cliente={c} onCerrar={(m) => { setEditar(false); actualizar(m); }} />}
@@ -188,6 +232,15 @@ export function ClienteFicha({ id }: { id: number }) {
         <Confirmar mensaje={c.activo ? `¿Archivar a ${c.nombre}?` : `¿Reactivar a ${c.nombre}?`}
           textoConfirmar={c.activo ? "Archivar" : "Reactivar"} peligro={!!c.activo}
           onSi={hacerArchivar} onNo={() => setArchivar(false)} />
+      )}
+
+      {verQr && (
+        <Modal titulo={`QR de ${c.nombre}`} onCerrar={() => setVerQr(false)} pie={<button className="btn" onClick={() => setVerQr(false)}>Cerrar</button>}>
+          <p className="mut" style={{ marginTop: 0 }}>
+            Imprimilo o guardalo. Escaneado desde "Venta rápida" en el celular elige a este cliente al toque, sin señal.
+          </p>
+          <div style={{ maxWidth: 260, margin: "0 auto" }} dangerouslySetInnerHTML={{ __html: qrClienteSvg(id) }} />
+        </Modal>
       )}
     </div>
   );

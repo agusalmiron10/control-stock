@@ -12,6 +12,8 @@ import { panel } from "./routes/panel";
 import { reportes } from "./routes/reportes";
 import { exportar } from "./routes/export";
 import { backup } from "./routes/backup";
+import { buscar } from "./routes/buscar";
+import { auditoriaRoutes } from "./routes/auditoria";
 import { scheduled } from "./scheduled";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -38,6 +40,8 @@ api.route("/panel", panel);
 api.route("/reportes", reportes);
 api.route("/export", exportar);
 api.route("/backup", backup);
+api.route("/buscar", buscar);
+api.route("/auditoria", auditoriaRoutes);
 app.route("/api", api);
 
 // Cualquier otra ruta /api que no exista.
