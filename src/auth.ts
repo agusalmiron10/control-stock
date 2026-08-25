@@ -5,7 +5,7 @@
  */
 import type { MiddlewareHandler } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
-import type { Env, Variables, Rol } from "./types";
+import { esDuenoOSoporte, type Env, type Variables, type Rol } from "./types";
 
 const PBKDF2_ITERS = 100_000;
 const COOKIE = "sesion";
@@ -78,6 +78,8 @@ interface SessionPayload {
   uid: number;
   usuario: string;
   rol: Rol;
+  /** Negocio de esta sesión. null = super admin que todavía no entró a ninguno. */
+  neg: string | null;
   exp: number; // epoch segundos
 }
 
@@ -114,9 +116,11 @@ function esHttps(c: { req: { url: string } }): boolean {
   }
 }
 
-export async function crearSesion(c: any, uid: number, usuario: string, rol: Rol): Promise<void> {
+export async function crearSesion(
+  c: any, uid: number, usuario: string, rol: Rol, negocioId: string | null
+): Promise<void> {
   const exp = Math.floor(Date.now() / 1000) + SESSION_TTL_S;
-  const token = await signToken({ uid, usuario, rol, exp }, c.env.SESSION_SECRET);
+  const token = await signToken({ uid, usuario, rol, neg: negocioId, exp }, c.env.SESSION_SECRET);
   setCookie(c, COOKIE, token, {
     httpOnly: true,
     secure: esHttps(c),
@@ -131,11 +135,13 @@ export function cerrarSesion(c: any): void {
 }
 
 /** Lee la sesión si existe y es válida; si no, devuelve null. No corta la request. */
-export async function leerSesionOpcional(c: any): Promise<{ uid: number; usuario: string; rol: Rol } | null> {
+export async function leerSesionOpcional(
+  c: any
+): Promise<{ uid: number; usuario: string; rol: Rol; negocioId: string | null } | null> {
   const token = getCookie(c, COOKIE);
   if (!token) return null;
-  const payload = await verifyToken(token, c.env.SESSION_SECRET);
-  return payload ? { uid: payload.uid, usuario: payload.usuario, rol: payload.rol } : null;
+  const p = await verifyToken(token, c.env.SESSION_SECRET);
+  return p ? { uid: p.uid, usuario: p.usuario, rol: p.rol, negocioId: p.neg ?? null } : null;
 }
 
 /** Middleware: exige sesión válida en todas las rutas de datos. */
@@ -144,13 +150,38 @@ export const requireAuth: MiddlewareHandler<{ Bindings: Env; Variables: Variable
   if (!token) return c.json({ error: "No autenticado. Iniciá sesión." }, 401);
   const payload = await verifyToken(token, c.env.SESSION_SECRET);
   if (!payload) return c.json({ error: "Sesión vencida. Volvé a iniciar sesión." }, 401);
-  c.set("usuario", { uid: payload.uid, usuario: payload.usuario, rol: payload.rol ?? "dueño" });
+  c.set("usuario", {
+    uid: payload.uid,
+    usuario: payload.usuario,
+    rol: payload.rol ?? "dueño",
+    negocioId: payload.neg ?? null,
+  });
+  await next();
+};
+
+/**
+ * Middleware: además de sesión, exige estar dentro de un negocio. Lo usan
+ * todas las rutas de datos — sin negocio no hay nada que mostrar. Un super
+ * admin tiene que "entrar" a un negocio primero.
+ */
+export const requireNegocio: MiddlewareHandler<{ Bindings: Env; Variables: Variables }> = async (c, next) => {
+  if (!c.get("usuario").negocioId) {
+    return c.json({ error: "Elegí un negocio para entrar." }, 409);
+  }
+  await next();
+};
+
+/** Middleware: sólo el proveedor del sistema. */
+export const requireSuper: MiddlewareHandler<{ Bindings: Env; Variables: Variables }> = async (c, next) => {
+  if (c.get("usuario").rol !== "super") {
+    return c.json({ error: "No tenés permiso para esto." }, 403);
+  }
   await next();
 };
 
 /** Middleware: exige rol "dueño". Usar después de requireAuth. */
 export const requireDueno: MiddlewareHandler<{ Bindings: Env; Variables: Variables }> = async (c, next) => {
-  if (c.get("usuario").rol !== "dueño") {
+  if (!esDuenoOSoporte(c.get("usuario").rol)) {
     return c.json({ error: "Esta información es solo para el dueño de la cuenta." }, 403);
   }
   await next();

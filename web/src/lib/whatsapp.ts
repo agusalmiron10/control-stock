@@ -1,6 +1,6 @@
 // Armado de enlaces de WhatsApp (wa.me) con mensajes pre-cargados.
 import { pesos, fecha } from "../format";
-import { NEGOCIO } from "./negocio";
+import { negocio } from "./negocio";
 
 /**
  * Normaliza un teléfono argentino a formato internacional para wa.me.
@@ -30,7 +30,7 @@ function abrir(numero: string | null, texto: string) {
 /** Mensaje de estado de cuenta para un cliente. */
 export function waEstadoDeCuenta(cliente: any, saldo: number, totalComprado: number, totalPagado: number) {
   const l: string[] = [];
-  l.push(`Hola ${cliente.nombre}, te paso tu estado de cuenta en ${NEGOCIO.nombre}:`);
+  l.push(`Hola ${cliente.nombre}, te paso tu estado de cuenta en ${negocio().nombre}:`);
   l.push("");
   l.push(`Total comprado: ${pesos(totalComprado)}`);
   l.push(`Total pagado: ${pesos(totalPagado)}`);
@@ -38,14 +38,14 @@ export function waEstadoDeCuenta(cliente: any, saldo: number, totalComprado: num
   else if (saldo < 0) l.push(`*Saldo a favor: ${pesos(-saldo)}*`);
   else l.push(`*Estás al día. ¡Gracias!*`);
   l.push("");
-  l.push(`Cualquier duda, avisame. ${NEGOCIO.telefono}`);
+  l.push(`Cualquier duda, avisame. ${negocio().telefono}`);
   abrir(telefonoWa(cliente.telefono), l.join("\n"));
 }
 
 /** Recordatorio de deuda. */
 export function waRecordatorioDeuda(cliente: any, saldo: number) {
   const l: string[] = [];
-  l.push(`Hola ${cliente.nombre}, ¿cómo va? Te escribo de ${NEGOCIO.nombre}.`);
+  l.push(`Hola ${cliente.nombre}, ¿cómo va? Te escribo de ${negocio().nombre}.`);
   l.push(`Te recuerdo que tenés un saldo pendiente de *${pesos(saldo)}*.`);
   l.push(`Cuando puedas, coordinamos. ¡Gracias!`);
   abrir(telefonoWa(cliente.telefono), l.join("\n"));
@@ -54,7 +54,7 @@ export function waRecordatorioDeuda(cliente: any, saldo: number) {
 /** Manda un presupuesto (cotización) a un cliente. */
 export function waPresupuesto(cliente: any, presupuesto: any, items: any[]) {
   const l: string[] = [];
-  l.push(`Hola ${cliente.nombre}, te paso el presupuesto de ${NEGOCIO.nombre}:`);
+  l.push(`Hola ${cliente.nombre}, te paso el presupuesto de ${negocio().nombre}:`);
   l.push("");
   for (const it of items) {
     l.push(`${it.cantidad} x ${it.nombre_herramienta} — ${pesos(it.subtotal)}`);
@@ -65,7 +65,7 @@ export function waPresupuesto(cliente: any, presupuesto: any, items: any[]) {
   l.push(`*Total: ${pesos(presupuesto.total)}*`);
   if (presupuesto.valido_hasta) l.push(`Válido hasta el ${fecha(presupuesto.valido_hasta)}.`);
   l.push("");
-  l.push(`Cualquier consulta, avisame. ${NEGOCIO.telefono}`);
+  l.push(`Cualquier consulta, avisame. ${negocio().telefono}`);
   abrir(telefonoWa(cliente.telefono), l.join("\n"));
 }
 
@@ -73,7 +73,7 @@ export function waPresupuesto(cliente: any, presupuesto: any, items: any[]) {
 export function waRecordatorioPresupuesto(cliente: any, presupuesto: any) {
   const l: string[] = [];
   l.push(`Hola ${cliente.nombre}, ¿pudiste ver el presupuesto que te mandé por ${pesos(presupuesto.total)}?`);
-  l.push(`Cualquier cosa quedo atento. ${NEGOCIO.telefono}`);
+  l.push(`Cualquier cosa quedo atento. ${negocio().telefono}`);
   abrir(telefonoWa(cliente.telefono), l.join("\n"));
 }
 
@@ -81,7 +81,7 @@ export function waRecordatorioPresupuesto(cliente: any, presupuesto: any) {
  * sincronizada todavía, así que no tiene número de venta). */
 export function waVenta(cliente: any, items: { nombre: string; cantidad: number; subtotal: number }[], total: number, pagado: number) {
   const l: string[] = [];
-  l.push(`Hola ${cliente.nombre}, te paso el resumen de tu compra en ${NEGOCIO.nombre}:`);
+  l.push(`Hola ${cliente.nombre}, te paso el resumen de tu compra en ${negocio().nombre}:`);
   l.push("");
   for (const it of items) l.push(`${it.cantidad} x ${it.nombre} — ${pesos(it.subtotal)}`);
   l.push("");
@@ -90,14 +90,14 @@ export function waVenta(cliente: any, items: { nombre: string; cantidad: number;
   const saldo = total - pagado;
   if (saldo > 0) l.push(`Queda pendiente: ${pesos(saldo)}`);
   l.push("");
-  l.push(`¡Gracias! ${NEGOCIO.telefono}`);
+  l.push(`¡Gracias! ${negocio().telefono}`);
   abrir(telefonoWa(cliente.telefono), l.join("\n"));
 }
 
 /** Comparte el resumen del día anterior (generado por el Cron automático). */
 export function waResumenDiario(r: any) {
   const l: string[] = [];
-  l.push(`*${NEGOCIO.nombre} — Resumen del ${fecha(r.fecha)}*`);
+  l.push(`*${negocio().nombre} — Resumen del ${fecha(r.fecha)}*`);
   l.push("");
   l.push(`Ventas: ${pesos(r.ventas_total)} (${r.ventas_cant})`);
   l.push(`Cobrado: ${pesos(r.cobranzas_total)} (${r.cobranzas_cant})`);
@@ -110,7 +110,7 @@ export function waResumenDiario(r: any) {
 export function waListaDePrecios(herramientas: any[], tipo: "minorista" | "mayorista") {
   const conPrecio = herramientas.filter((h) => (tipo === "mayorista" ? h.precio_mayor : h.precio) > 0);
   const l: string[] = [];
-  l.push(`*${NEGOCIO.nombre} — Lista de precios (${tipo})*`);
+  l.push(`*${negocio().nombre} — Lista de precios (${tipo})*`);
   l.push(`${fecha(new Date().toISOString().slice(0, 10))}`);
   l.push("");
   for (const h of conPrecio) {
@@ -118,6 +118,6 @@ export function waListaDePrecios(herramientas: any[], tipo: "minorista" | "mayor
   }
   if (conPrecio.length === 0) l.push("(Todavía no hay precios cargados)");
   l.push("");
-  l.push(`Consultas: ${NEGOCIO.telefono} — ${NEGOCIO.instagram}`);
+  l.push(`Consultas: ${negocio().telefono} — ${negocio().instagram}`);
   abrir(null, l.join("\n"));
 }

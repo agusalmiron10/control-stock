@@ -6,6 +6,7 @@ import { exportarPrecios } from "../excel";
 import { waListaDePrecios } from "../lib/whatsapp";
 import { FormProduccion } from "../components/FormProduccion";
 import { useRol, esDueno } from "../lib/rol";
+import { useModulo, useVocab } from "../lib/config";
 
 type Modo =
   | { t: "cerrado" }
@@ -25,6 +26,9 @@ export function Herramientas() {
   const [aviso, setAviso] = useState<string | null>(null);
   const [pagina, setPagina] = useState(1);
   const LIMITE = 20;
+  const hayProduccion = useModulo("produccion");
+  const hayMayorista = useModulo("precio_mayorista");
+  const vocab = useVocab();
 
   const qs = new URLSearchParams();
   if (buscar) qs.set("buscar", buscar);
@@ -60,7 +64,7 @@ export function Herramientas() {
     <div>
       <div className="encabezado-seccion">
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          <h1>Herramientas</h1>
+          <h1>{vocab.plural}</h1>
           <span style={{ background: "var(--acento)", color: "white", padding: "4px 12px", borderRadius: "20px", fontSize: "1.2rem", fontWeight: "bold" }}>
             {totalProductos} {totalProductos === 1 ? "producto" : "productos"}
           </span>
@@ -102,7 +106,7 @@ export function Herramientas() {
         <Cargando />
       ) : lista.length === 0 ? (
         <Vacio
-          mensaje="No hay herramientas que coincidan."
+          mensaje={`No hay ${vocab.plural.toLowerCase()} que coincidan.`}
           accion={<button className="btn primario" onClick={() => setModo({ t: "nueva" })}>Crear la primera</button>}
         />
       ) : (
@@ -111,8 +115,8 @@ export function Herramientas() {
             <table className="tabla">
               <thead>
                 <tr>
-                  <th>Código</th><th>Herramienta</th><th>Rubro</th>
-                  <th className="num">Minorista</th><th className="num">Mayorista</th>
+                  <th>Código</th><th>{vocab.singular}</th><th>Rubro</th>
+                  <th className="num">Minorista</th>{hayMayorista && <th className="num">Mayorista</th>}
                   <th className="num">Stock</th><th className="num">Mín.</th><th></th>
                 </tr>
               </thead>
@@ -126,12 +130,12 @@ export function Herramientas() {
                       <td><a href={`#/herramientas/${h.id}`}>{h.nombre}</a>{!h.activo && " (archivada)"}</td>
                       <td>{h.rubro ?? "—"}</td>
                       <td className="num">{pesos(h.precio)}</td>
-                      <td className="num">{pesos(h.precio_mayor)}</td>
+                      {hayMayorista && <td className="num">{pesos(h.precio_mayor)}</td>}
                       <td className={`num ${cero ? "stock-cero" : bajo ? "stock-bajo" : ""}`}>{numero(h.stock)}</td>
                       <td className="num">{numero(h.stock_minimo)}</td>
                       <td className="acc">
                         <div className="btn-grupo" style={{ justifyContent: "flex-end" }}>
-                          <button className="btn chico" onClick={() => setModo({ t: "produccion", h })}>Producir</button>
+                          {hayProduccion && <button className="btn chico" onClick={() => setModo({ t: "produccion", h })}>Producir</button>}
                           <button className="btn chico" onClick={() => setModo({ t: "ajuste", h })}>Ajustar</button>
                           <button className="btn chico" onClick={() => setModo({ t: "precio", h })}>Precio</button>
                           <button className="btn chico" onClick={() => setModo({ t: "editar", h })}>Editar</button>
@@ -157,12 +161,12 @@ export function Herramientas() {
                   </div>
                   <div className="tf-datos">
                     <span className="num">Min. {pesos(h.precio)}</span>
-                    <span className="num">May. {pesos(h.precio_mayor)}</span>
+                    {hayMayorista && <span className="num">May. {pesos(h.precio_mayor)}</span>}
                     <span className={`num ${cero ? "stock-cero" : bajo ? "stock-bajo" : ""}`}>Stock {numero(h.stock)}</span>
                   </div>
                   <div className="tf-datos" style={{ marginTop: 8 }}>
                     <div className="btn-grupo">
-                      <button className="btn chico" onClick={() => setModo({ t: "produccion", h })}>Producir</button>
+                      {hayProduccion && <button className="btn chico" onClick={() => setModo({ t: "produccion", h })}>Producir</button>}
                       <button className="btn chico" onClick={() => setModo({ t: "ajuste", h })}>Ajustar</button>
                       <button className="btn chico" onClick={() => setModo({ t: "precio", h })}>Precio</button>
                       <button className="btn chico" onClick={() => setModo({ t: "editar", h })}>Editar</button>
@@ -323,7 +327,7 @@ function FormAjuste({ h, onCerrar }: { h: any; onCerrar: (m?: string) => void })
           </Campo>
           <Campo label="Fecha"><input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></Campo>
         </div>
-        <Campo label="Motivo (obligatorio)">
+        <Campo label="Motivo (opcional)">
           <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej: 2 rotas en depósito" />
         </Campo>
       </form>

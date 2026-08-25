@@ -26,20 +26,22 @@ function ayer(): string {
   return d.toISOString().slice(0, 10);
 }
 
-async function guardarResumenDeAyer(env: Env): Promise<void> {
+/** Un resumen por negocio activo. */
+async function guardarResumenDeAyer(env: Env, negocioId: string): Promise<void> {
   const fecha = ayer();
-  const r = await calcularResumenDia(env, fecha);
+  const r = await calcularResumenDia(env, negocioId, fecha);
   await env.DB.prepare(
     `INSERT INTO resumenes_diarios
-       (fecha, ventas_total, ventas_cant, cobranzas_total, cobranzas_cant, saldo_pendiente, clientes_con_deuda, stock_bajo_cant)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(fecha) DO UPDATE SET
+       (negocio_id, fecha, ventas_total, ventas_cant, cobranzas_total, cobranzas_cant, saldo_pendiente, clientes_con_deuda, stock_bajo_cant)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(negocio_id, fecha) DO UPDATE SET
        ventas_total=excluded.ventas_total, ventas_cant=excluded.ventas_cant,
        cobranzas_total=excluded.cobranzas_total, cobranzas_cant=excluded.cobranzas_cant,
        saldo_pendiente=excluded.saldo_pendiente, clientes_con_deuda=excluded.clientes_con_deuda,
        stock_bajo_cant=excluded.stock_bajo_cant, generado_en=datetime('now')`
   )
     .bind(
+      negocioId,
       r.fecha,
       r.ventas_total,
       r.ventas_cant,
@@ -76,7 +78,16 @@ async function backupAR2(env: Env): Promise<void> {
 export async function scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
   ctx.waitUntil(
     (async () => {
-      await guardarResumenDeAyer(env);
+      // El resumen diario es por negocio: uno por cada cliente activo.
+      const negocios = await env.DB
+        .prepare(`SELECT id FROM negocios WHERE estado IN ('prueba','activo')`)
+        .all<{ id: string }>();
+      for (const n of negocios.results ?? []) {
+        // Que un negocio falle no debe frenar a los demás.
+        await guardarResumenDeAyer(env, n.id).catch((e) =>
+          console.error(`No se pudo calcular el resumen de ${n.id}:`, e)
+        );
+      }
       await backupAR2(env);
     })()
   );

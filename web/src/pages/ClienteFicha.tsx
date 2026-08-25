@@ -9,6 +9,7 @@ import { exportarCliente } from "../excel";
 import { waEstadoDeCuenta, waRecordatorioDeuda } from "../lib/whatsapp";
 import { navegar } from "../lib/router";
 import { qrClienteSvg } from "../lib/qr";
+import { useModulo } from "../lib/config";
 
 export function ClienteFicha({ id }: { id: string }) {
   const [editar, setEditar] = useState(false);
@@ -19,6 +20,7 @@ export function ClienteFicha({ id }: { id: string }) {
   const [comprobante, setComprobante] = useState<string | null>(null);
   const [archivar, setArchivar] = useState(false);
   const [verQr, setVerQr] = useState(false);
+  const hayVentaRapida = useModulo("venta_rapida");
   const [aviso, setAviso] = useState<string | null>(null);
 
   const { data, error, cargando, recargar } = useCarga<any>(() => api.get(`/api/clientes/${id}`), [id]);
@@ -72,7 +74,7 @@ export function ClienteFicha({ id }: { id: string }) {
             <button className="btn wa" onClick={() => waRecordatorioDeuda(c, data.saldo)}>Recordar deuda</button>
           )}
           <button className="btn" onClick={() => exportarCliente(id).catch((e) => setAviso(e.message))}>⬇ Excel</button>
-          <button className="btn" onClick={() => setVerQr(true)}>QR del cliente</button>
+          {hayVentaRapida && <button className="btn" onClick={() => setVerQr(true)}>QR del cliente</button>}
           <button className="btn" onClick={() => setEditar(true)}>Editar</button>
           <button className="btn" onClick={() => setArchivar(true)}>{c.activo ? "Archivar" : "Reactivar"}</button>
           <button className="btn primario" onClick={() => setPagoNuevo(true)}>+ Registrar pago</button>

@@ -3,6 +3,7 @@ import type { Env, Variables, Cliente, Venta, Pago } from "../types";
 import { HttpError, texto, boolOpt, uuidOpt, decimalOpt } from "../validate";
 import { estadoDeCuenta, estadoDeCuentaTodos } from "../cuenta";
 import { auditar } from "../auditoria";
+import { negocioDe } from "../types";
 
 export const clientes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -13,13 +14,14 @@ clientes.get("/", async (c) => {
   const soloDeben = boolOpt(c.req.query("soloDeben"));
   const incluirArchivados = boolOpt(c.req.query("incluirArchivados"));
 
+  const neg = negocioDe(c);
   const rows = await c.env.DB.prepare(
-    `SELECT * FROM clientes WHERE (? = 1 OR activo = 1) ORDER BY nombre COLLATE NOCASE`
+    `SELECT * FROM clientes WHERE negocio_id = ? AND (? = 1 OR activo = 1) ORDER BY nombre COLLATE NOCASE`
   )
-    .bind(incluirArchivados ? 1 : 0)
+    .bind(neg, incluirArchivados ? 1 : 0)
     .all<Cliente>();
 
-  const cuentas = await estadoDeCuentaTodos(c.env);
+  const cuentas = await estadoDeCuentaTodos(c.env, neg);
 
   let lista = (rows.results ?? []).map((cl) => {
     const cta = cuentas.get(cl.id);
@@ -41,8 +43,9 @@ clientes.get("/", async (c) => {
 /** Localidades distintas (para el filtro). */
 clientes.get("/localidades", async (c) => {
   const rows = await c.env.DB.prepare(
-    `SELECT DISTINCT localidad FROM clientes WHERE localidad IS NOT NULL AND localidad != '' ORDER BY localidad`
-  ).all<{ localidad: string }>();
+    `SELECT DISTINCT localidad FROM clientes
+     WHERE negocio_id = ? AND localidad IS NOT NULL AND localidad != '' ORDER BY localidad`
+  ).bind(negocioDe(c)).all<{ localidad: string }>();
   return c.json({ localidades: (rows.results ?? []).map((r) => r.localidad) });
 });
 
@@ -56,8 +59,9 @@ clientes.post("/", async (c) => {
   const idempotencyKey = uuidOpt(b.idempotency_key, "idempotency_key");
 
   if (idempotencyKey) {
-    const previa = await c.env.DB.prepare(`SELECT resultado FROM operaciones WHERE idempotency_key = ?`)
-      .bind(idempotencyKey)
+    const previa = await c.env.DB
+      .prepare(`SELECT resultado FROM operaciones WHERE negocio_id = ? AND idempotency_key = ?`)
+      .bind(negocioDe(c), idempotencyKey)
       .first<{ resultado: string }>();
     if (previa) return c.json(JSON.parse(previa.resultado));
   }
@@ -65,11 +69,14 @@ clientes.post("/", async (c) => {
   const nombre = texto(b.nombre, "nombre", { max: 120 })!;
   const id = uuidOpt(b.id, "id") ?? crypto.randomUUID();
 
+  const neg = negocioDe(c);
   const stmts: D1PreparedStatement[] = [
     c.env.DB.prepare(
-      `INSERT INTO clientes (id, nombre, localidad, direccion, telefono, email, notas, latitud, longitud) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO clientes (id, negocio_id, nombre, localidad, direccion, telefono, email, notas, latitud, longitud)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       id,
+      neg,
       nombre,
       texto(b.localidad, "localidad", { requerido: false }),
       texto(b.direccion, "dirección", { requerido: false }),
@@ -85,8 +92,9 @@ clientes.post("/", async (c) => {
   if (idempotencyKey) {
     stmts.push(
       c.env.DB.prepare(
-        `INSERT INTO operaciones (idempotency_key, tipo, entidad_id, resultado) VALUES (?, 'cliente', ?, ?)`
-      ).bind(idempotencyKey, id, JSON.stringify(resultado))
+        `INSERT INTO operaciones (negocio_id, idempotency_key, tipo, entidad_id, resultado)
+         VALUES (?, ?, 'cliente', ?, ?)`
+      ).bind(neg, idempotencyKey, id, JSON.stringify(resultado))
     );
   }
 
@@ -97,15 +105,18 @@ clientes.post("/", async (c) => {
 /** Ficha completa. */
 clientes.get("/:id", async (c) => {
   const id = c.req.param("id");
-  const cliente = await c.env.DB.prepare(`SELECT * FROM clientes WHERE id = ?`).bind(id).first<Cliente>();
+  const neg = negocioDe(c);
+  const cliente = await c.env.DB.prepare(`SELECT * FROM clientes WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, id)
+    .first<Cliente>();
   if (!cliente) throw new HttpError(404, "Cliente no encontrado.");
 
-  const cta = await estadoDeCuenta(c.env, id);
+  const cta = await estadoDeCuenta(c.env, neg, id);
 
   const ventasRows = await c.env.DB.prepare(
-    `SELECT * FROM ventas WHERE cliente_id = ? ORDER BY fecha DESC, numero DESC`
+    `SELECT * FROM ventas WHERE negocio_id = ? AND cliente_id = ? ORDER BY fecha DESC, numero DESC`
   )
-    .bind(id)
+    .bind(neg, id)
     .all<Venta>();
 
   const ventas = (ventasRows.results ?? []).map((v) => {
@@ -122,9 +133,9 @@ clientes.get("/:id", async (c) => {
   const pagosRows = await c.env.DB.prepare(
     `SELECT p.*, v.numero AS venta_numero FROM pagos p
      LEFT JOIN ventas v ON v.id = p.venta_id
-     WHERE p.cliente_id = ? ORDER BY p.fecha DESC, p.id DESC`
+     WHERE p.negocio_id = ? AND p.cliente_id = ? ORDER BY p.fecha DESC, p.id DESC`
   )
-    .bind(id)
+    .bind(neg, id)
     .all<Pago & { venta_numero: number | null }>();
 
   return c.json({
@@ -141,10 +152,14 @@ clientes.get("/:id", async (c) => {
 clientes.put("/:id", async (c) => {
   const id = c.req.param("id");
   const b = await c.req.json().catch(() => ({}));
-  const existe = await c.env.DB.prepare(`SELECT id FROM clientes WHERE id = ?`).bind(id).first();
+  const neg = negocioDe(c);
+  const existe = await c.env.DB.prepare(`SELECT id FROM clientes WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, id)
+    .first();
   if (!existe) throw new HttpError(404, "Cliente no encontrado.");
   await c.env.DB.prepare(
-    `UPDATE clientes SET nombre=?, localidad=?, direccion=?, telefono=?, email=?, notas=?, latitud=?, longitud=? WHERE id=?`
+    `UPDATE clientes SET nombre=?, localidad=?, direccion=?, telefono=?, email=?, notas=?, latitud=?, longitud=?
+     WHERE negocio_id=? AND id=?`
   )
     .bind(
       texto(b.nombre, "nombre", { max: 120 }),
@@ -155,6 +170,7 @@ clientes.put("/:id", async (c) => {
       texto(b.notas, "notas", { requerido: false, max: 1000 }),
       decimalOpt(b.latitud, "latitud"),
       decimalOpt(b.longitud, "longitud"),
+      neg,
       id
     )
     .run();
@@ -166,9 +182,10 @@ clientes.post("/:id/archivar", async (c) => {
   const id = c.req.param("id");
   const b = await c.req.json().catch(() => ({}));
   const activo = boolOpt(b.activar) ? 1 : 0;
+  const neg = negocioDe(c);
   await c.env.DB.batch([
-    c.env.DB.prepare(`UPDATE clientes SET activo = ? WHERE id = ?`).bind(activo, id),
-    auditar(c.env, c.get("usuario").usuario, activo ? "reactivar_cliente" : "archivar_cliente", "cliente", id),
+    c.env.DB.prepare(`UPDATE clientes SET activo = ? WHERE negocio_id = ? AND id = ?`).bind(activo, neg, id),
+    auditar(c.env, neg, c.get("usuario").usuario, activo ? "reactivar_cliente" : "archivar_cliente", "cliente", id),
   ]);
   return c.json({ ok: true });
 });

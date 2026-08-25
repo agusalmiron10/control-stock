@@ -8,11 +8,42 @@ export interface Env {
   BACKUPS: R2Bucket;
 }
 
-export type Rol = "dueño" | "empleado";
+export type Rol = "super" | "dueño" | "empleado" | "soporte";
+
+/**
+ * "soporte" es la cuenta del proveedor del sistema dentro de un negocio:
+ * necesita el mismo acceso que el dueño para poder resolver problemas. No
+ * aparece en el listado de usuarios, pero todo lo que hace queda en la
+ * Auditoría. "super" es el proveedor a nivel sistema: no pertenece a ningún
+ * negocio y puede entrar a cualquiera.
+ */
+export function esDuenoOSoporte(rol: Rol): boolean {
+  return rol === "dueño" || rol === "soporte" || rol === "super";
+}
 
 /** Variables que la sesión deja disponibles en el contexto de Hono. */
 export interface Variables {
-  usuario: { uid: number; usuario: string; rol: Rol };
+  usuario: {
+    uid: number;
+    usuario: string;
+    rol: Rol;
+    /**
+     * Negocio al que pertenecen los datos de esta sesión. Un super admin que
+     * todavía no entró a ningún negocio lo tiene en null; en ese caso sólo
+     * puede usar las rutas de /api/super.
+     */
+     negocioId: string | null;
+  };
+}
+
+/**
+ * El negocio de la sesión actual. TODA consulta a datos de negocio tiene que
+ * filtrar por esto — es lo único que separa a un cliente de otro.
+ */
+export function negocioDe(c: { get: (k: "usuario") => Variables["usuario"] }): string {
+  const n = c.get("usuario").negocioId;
+  if (!n) throw new Error("La sesión no tiene negocio asignado.");
+  return n;
 }
 
 export type AppContext = Context<{ Bindings: Env; Variables: Variables }>;

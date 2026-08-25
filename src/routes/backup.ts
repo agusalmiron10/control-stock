@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Env, Variables } from "../types";
 import { HttpError } from "../validate";
 import { requireDueno } from "../auth";
+import { negocioDe } from "../types";
 
 export const backup = new Hono<{ Bindings: Env; Variables: Variables }>();
 backup.use("*", requireDueno);
@@ -21,9 +22,11 @@ const TABLAS = [
 
 /** Descarga toda la base (menos usuarios) como JSON. */
 backup.get("/", async (c) => {
+  // Sólo los datos de ESTE negocio: un cliente nunca se lleva los de otro.
+  const neg = negocioDe(c);
   const data: Record<string, unknown[]> = {};
   for (const t of TABLAS) {
-    const rows = await c.env.DB.prepare(`SELECT * FROM ${t}`).all();
+    const rows = await c.env.DB.prepare(`SELECT * FROM ${t} WHERE negocio_id = ?`).bind(neg).all();
     data[t] = rows.results ?? [];
   }
   const dump = {
@@ -43,26 +46,25 @@ backup.post("/restore", async (c) => {
 
   const stmts: D1PreparedStatement[] = [];
 
-  // Borrar en orden inverso por las claves foráneas.
+  // Borrar en orden inverso por las claves foráneas — sólo de este negocio.
+  const neg = negocioDe(c);
   for (const t of [...TABLAS].reverse()) {
-    stmts.push(c.env.DB.prepare(`DELETE FROM ${t}`));
+    stmts.push(c.env.DB.prepare(`DELETE FROM ${t} WHERE negocio_id = ?`).bind(neg));
   }
-  stmts.push(
-    c.env.DB.prepare(
-      `DELETE FROM sqlite_sequence WHERE name IN (${TABLAS.map(() => "?").join(",")})`
-    ).bind(...TABLAS)
-  );
 
   // Reinsertar en orden directo.
   for (const t of TABLAS) {
     const filas = Array.isArray((body as any)[t]) ? ((body as any)[t] as Record<string, unknown>[]) : [];
     for (const fila of filas) {
-      const cols = Object.keys(fila);
+      // El negocio se fuerza al de la sesión: un respaldo de otro cliente
+      // no puede escribir datos dentro de éste.
+      const datos: Record<string, unknown> = { ...fila, negocio_id: neg };
+      const cols = Object.keys(datos);
       if (cols.length === 0) continue;
       const placeholders = cols.map(() => "?").join(",");
       stmts.push(
         c.env.DB.prepare(`INSERT INTO ${t} (${cols.join(",")}) VALUES (${placeholders})`).bind(
-          ...cols.map((k) => fila[k] as any)
+          ...cols.map((k) => datos[k] as any)
         )
       );
     }

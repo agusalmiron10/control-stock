@@ -1,9 +1,10 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { hoyISO, fecha } from "../format";
 import { Campo, Error, Confirmar, useCarga } from "../components/ui";
 import { exportarGeneral } from "../excel";
 import { useRol, esDueno } from "../lib/rol";
+import { useConfig, MODULOS, INFO_MODULOS, type ConfigNegocio, type Modulo } from "../lib/config";
 
 export function Ajustes() {
   const rol = useRol();
@@ -61,6 +62,9 @@ export function Ajustes() {
 
       {esDueno(rol) && (
         <>
+          <ConfigNegocioForm onOk={setAviso} onError={setError} />
+          <ConexionPanel onOk={setAviso} onError={setError} />
+
           <div className="card">
             <h2>Exportar a Excel</h2>
             <div className="card-body">
@@ -103,6 +107,123 @@ export function Ajustes() {
           textoConfirmar="Restaurar y reemplazar" peligro onSi={restaurar} onNo={() => setRestaurarData(null)} />
       )}
     </div>
+  );
+}
+
+/**
+ * Conexión con el panel del proveedor: una vez por noche esta instalación le
+ * manda un resumen (totales, nada de datos de clientes ni ventas) para que
+ * pueda ver que el sistema está funcionando.
+ */
+function ConexionPanel({ onOk, onError }: { onOk: (m: string) => void; onError: (m: string | null) => void }) {
+  const { data, recargar } = useCarga<any>(() => api.get("/api/config/panel"), []);
+  const [url, setUrl] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+
+  const u = url ?? data?.url ?? "";
+  const t = token ?? data?.token ?? "";
+
+  async function guardar(e: React.FormEvent) {
+    e.preventDefault();
+    onError(null);
+    setGuardando(true);
+    try {
+      await api.put("/api/config/panel", { url: u, token: t });
+      onOk(u ? "Conexión con el panel guardada." : "Conexión con el panel desactivada.");
+      recargar();
+    } catch (err: any) { onError(err.message); } finally { setGuardando(false); }
+  }
+
+  return (
+    <form className="card" onSubmit={guardar}>
+      <h2>Conexión con el panel de soporte</h2>
+      <div className="card-body">
+        <p className="mut" style={{ marginTop: 0 }}>
+          Opcional. Si se completa, cada noche se envía un resumen (total vendido en el mes, cantidad de
+          clientes y de productos) a quien te dio el sistema. <b>No se envían datos de tus clientes ni el
+          detalle de tus ventas.</b> Dejalo vacío para no enviar nada.
+        </p>
+        <Campo label="URL del panel"><input value={u} onChange={(e) => setUrl(e.target.value)} placeholder="https://..." /></Campo>
+        <Campo label="Token"><input value={t} onChange={(e) => setToken(e.target.value)} /></Campo>
+        <button className="btn primario" disabled={guardando}>{guardando ? "Guardando…" : "Guardar conexión"}</button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * Identidad del negocio y módulos activos. Esto es lo que hace que la misma
+ * app sirva para una fábrica, una ferretería o un kiosko.
+ */
+function ConfigNegocioForm({ onOk, onError }: { onOk: (m: string) => void; onError: (m: string | null) => void }) {
+  const cfg = useConfig();
+  const [f, setF] = useState<ConfigNegocio | null>(null);
+  const [guardando, setGuardando] = useState(false);
+
+  // La config llega de forma asíncrona: en cuanto está, se copia al formulario.
+  useEffect(() => { setF(cfg); }, [cfg]);
+  if (!f) return null;
+
+  const setNegocio = (k: string, v: string) => setF({ ...f, negocio: { ...f.negocio, [k]: v } });
+  const setVocab = (k: string, v: string) => setF({ ...f, vocabulario: { ...f.vocabulario, [k]: v } });
+  const toggle = (m: Modulo) => setF({ ...f, modulos: { ...f.modulos, [m]: !f.modulos[m] } });
+
+  async function guardar(e: React.FormEvent) {
+    e.preventDefault();
+    onError(null);
+    setGuardando(true);
+    try {
+      await api.put("/api/config", f);
+      window.dispatchEvent(new CustomEvent("config-cambiada"));
+      onOk("Configuración guardada.");
+    } catch (err: any) { onError(err.message); } finally { setGuardando(false); }
+  }
+
+  return (
+    <form className="card" onSubmit={guardar}>
+      <h2>El negocio</h2>
+      <div className="card-body">
+        <p className="mut" style={{ marginTop: 0 }}>
+          Estos datos aparecen en los comprobantes, los PDF y los mensajes de WhatsApp.
+        </p>
+        <div className="fila">
+          <Campo label="Nombre"><input value={f.negocio.nombre} onChange={(e) => setNegocio("nombre", e.target.value)} /></Campo>
+          <Campo label="Rubro"><input value={f.negocio.rubro} onChange={(e) => setNegocio("rubro", e.target.value)} placeholder="Ej: Ferretería y sanitarios" /></Campo>
+        </div>
+        <div className="fila">
+          <Campo label="Teléfono"><input value={f.negocio.telefono} onChange={(e) => setNegocio("telefono", e.target.value)} /></Campo>
+          <Campo label="Instagram"><input value={f.negocio.instagram} onChange={(e) => setNegocio("instagram", e.target.value)} /></Campo>
+        </div>
+
+        <h3 style={{ fontSize: 14, marginBottom: 4 }}>¿Cómo le decís a lo que vendés?</h3>
+        <p className="mut" style={{ marginTop: 0 }}>Cambia el nombre de la sección y los textos de toda la app.</p>
+        <div className="fila">
+          <Campo label="En singular"><input value={f.vocabulario.producto_singular} onChange={(e) => setVocab("producto_singular", e.target.value)} placeholder="Herramienta / Artículo / Producto" /></Campo>
+          <Campo label="En plural"><input value={f.vocabulario.producto_plural} onChange={(e) => setVocab("producto_plural", e.target.value)} placeholder="Herramientas / Artículos / Productos" /></Campo>
+        </div>
+
+        <h3 style={{ fontSize: 14, marginBottom: 4 }}>Módulos</h3>
+        <p className="mut" style={{ marginTop: 0 }}>
+          Prendé solo lo que usa este negocio. Lo que apagues desaparece del menú — los datos no se borran.
+        </p>
+        <div className="lista-tarjetas">
+          {MODULOS.map((m) => (
+            <label className="tarjeta-fila modulo-fila" key={m}>
+              <input type="checkbox" checked={f.modulos[m]} onChange={() => toggle(m)} />
+              <span>
+                <span className="tf-titulo" style={{ marginBottom: 2 }}>{INFO_MODULOS[m].titulo}</span>
+                <span className="mut">{INFO_MODULOS[m].detalle}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+
+        <button className="btn primario" style={{ marginTop: 12 }} disabled={guardando}>
+          {guardando ? "Guardando…" : "Guardar configuración"}
+        </button>
+      </div>
+    </form>
   );
 }
 

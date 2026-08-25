@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import type { Env, Variables, Herramienta, MovimientoStock, PrecioHistorial } from "../types";
 import { HttpError, texto, entero, fechaISO, enumerado, boolOpt } from "../validate";
 import { auditar } from "../auditoria";
+import { requireModulo } from "../config";
+import { negocioDe } from "../types";
 
 export const herramientas = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -19,9 +21,9 @@ herramientas.get("/", async (c) => {
   const buscar = c.req.query("buscar")?.trim().toLowerCase() ?? "";
   const incluirArchivadas = boolOpt(c.req.query("incluirArchivadas"));
   const rows = await c.env.DB.prepare(
-    `SELECT * FROM herramientas WHERE (? = 1 OR activo = 1) ORDER BY nombre COLLATE NOCASE`
+    `SELECT * FROM herramientas WHERE negocio_id = ? AND (? = 1 OR activo = 1) ORDER BY nombre COLLATE NOCASE`
   )
-    .bind(incluirArchivadas ? 1 : 0)
+    .bind(negocioDe(c), incluirArchivadas ? 1 : 0)
     .all<Herramienta>();
   let lista = rows.results ?? [];
   if (buscar) {
@@ -44,25 +46,28 @@ herramientas.post("/", async (c) => {
   const stock = entero(b.stock ?? 0, "stock");
   const stock_minimo = entero(b.stock_minimo ?? 0, "stock mínimo", { min: 0 });
 
-  const dup = await c.env.DB.prepare(`SELECT id FROM herramientas WHERE codigo = ?`).bind(codigo).first();
+  const neg = negocioDe(c);
+  const dup = await c.env.DB.prepare(`SELECT id FROM herramientas WHERE negocio_id = ? AND codigo = ?`)
+    .bind(neg, codigo)
+    .first();
   if (dup) throw new HttpError(409, `Ya existe una herramienta con el código "${codigo}".`);
 
   const id = crypto.randomUUID();
   const fecha = hoy();
   const stmts: D1PreparedStatement[] = [
     c.env.DB.prepare(
-      `INSERT INTO herramientas (id, codigo, nombre, precio, precio_mayor, rubro, costo, stock, stock_minimo, notas)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(id, codigo, nombre, precio, precio_mayor, rubro, costo, stock, stock_minimo, texto(b.notas, "notas", { requerido: false })),
+      `INSERT INTO herramientas (id, negocio_id, codigo, nombre, precio, precio_mayor, rubro, costo, stock, stock_minimo, notas)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id, neg, codigo, nombre, precio, precio_mayor, rubro, costo, stock, stock_minimo, texto(b.notas, "notas", { requerido: false })),
   ];
 
   // Movimiento de alta con el stock inicial (si hay).
   if (stock !== 0) {
     stmts.push(
       c.env.DB.prepare(
-        `INSERT INTO movimientos_stock (herramienta_id, fecha, tipo, cantidad, stock_resultante, motivo)
-         VALUES (?, ?, 'alta', ?, ?, 'Stock inicial')`
-      ).bind(id, fecha, stock, stock)
+        `INSERT INTO movimientos_stock (negocio_id, herramienta_id, fecha, tipo, cantidad, stock_resultante, motivo)
+         VALUES (?, ?, ?, 'alta', ?, ?, 'Stock inicial')`
+      ).bind(neg, id, fecha, stock, stock)
     );
   }
   await c.env.DB.batch(stmts);
@@ -72,18 +77,22 @@ herramientas.post("/", async (c) => {
 herramientas.put("/:id", async (c) => {
   const id = c.req.param("id");
   const b = await c.req.json().catch(() => ({}));
-  const h = await c.env.DB.prepare(`SELECT * FROM herramientas WHERE id = ?`).bind(id).first<Herramienta>();
+  const neg = negocioDe(c);
+  const h = await c.env.DB.prepare(`SELECT * FROM herramientas WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, id)
+    .first<Herramienta>();
   if (!h) throw new HttpError(404, "Herramienta no encontrada.");
 
   const codigo = texto(b.codigo, "código", { max: 40 })!;
-  const dup = await c.env.DB.prepare(`SELECT id FROM herramientas WHERE codigo = ? AND id != ?`)
-    .bind(codigo, id)
+  const dup = await c.env.DB.prepare(`SELECT id FROM herramientas WHERE negocio_id = ? AND codigo = ? AND id != ?`)
+    .bind(neg, codigo, id)
     .first();
   if (dup) throw new HttpError(409, `Ya existe otra herramienta con el código "${codigo}".`);
 
   // OJO: los precios NO se cambian acá (tienen su propio endpoint con historial).
   await c.env.DB.prepare(
-    `UPDATE herramientas SET codigo=?, nombre=?, rubro=?, costo=?, stock_minimo=?, notas=? WHERE id=?`
+    `UPDATE herramientas SET codigo=?, nombre=?, rubro=?, costo=?, stock_minimo=?, notas=?
+     WHERE negocio_id=? AND id=?`
   )
     .bind(
       codigo,
@@ -92,6 +101,7 @@ herramientas.put("/:id", async (c) => {
       entero(b.costo ?? h.costo, "costo", { min: 0 }),
       entero(b.stock_minimo ?? h.stock_minimo, "stock mínimo", { min: 0 }),
       texto(b.notas, "notas", { requerido: false }),
+      neg,
       id
     )
     .run();
@@ -102,9 +112,10 @@ herramientas.post("/:id/archivar", async (c) => {
   const id = c.req.param("id");
   const b = await c.req.json().catch(() => ({}));
   const activo = boolOpt(b.activar) ? 1 : 0;
+  const neg = negocioDe(c);
   await c.env.DB.batch([
-    c.env.DB.prepare(`UPDATE herramientas SET activo = ? WHERE id = ?`).bind(activo, id),
-    auditar(c.env, c.get("usuario").usuario, activo ? "reactivar_herramienta" : "archivar_herramienta", "herramienta", id),
+    c.env.DB.prepare(`UPDATE herramientas SET activo = ? WHERE negocio_id = ? AND id = ?`).bind(activo, neg, id),
+    auditar(c.env, neg, c.get("usuario").usuario, activo ? "reactivar_herramienta" : "archivar_herramienta", "herramienta", id),
   ]);
   return c.json({ ok: true });
 });
@@ -117,13 +128,16 @@ herramientas.post("/:id/archivar", async (c) => {
  *   costo_nuevo = (stock_actual*costo_actual + cantidad*costo_unit_lote) / (stock_actual + cantidad)
  * Si el stock actual es 0 o negativo, el costo nuevo es directamente el del lote.
  */
-herramientas.post("/:id/produccion", async (c) => {
+herramientas.post("/:id/produccion", requireModulo("produccion"), async (c) => {
   const id = c.req.param("id");
   const b = await c.req.json().catch(() => ({}));
   const cantidad = entero(b.cantidad, "cantidad", { min: 1 });
   const fecha = b.fecha ? fechaISO(b.fecha, "fecha") : hoy();
 
-  const h = await c.env.DB.prepare(`SELECT stock, costo FROM herramientas WHERE id = ?`).bind(id).first<{ stock: number; costo: number }>();
+  const neg = negocioDe(c);
+  const h = await c.env.DB.prepare(`SELECT stock, costo FROM herramientas WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, id)
+    .first<{ stock: number; costo: number }>();
   if (!h) throw new HttpError(404, "Herramienta no encontrada.");
   const resultante = h.stock + cantidad;
 
@@ -139,11 +153,12 @@ herramientas.post("/:id/produccion", async (c) => {
   }
 
   await c.env.DB.batch([
-    c.env.DB.prepare(`UPDATE herramientas SET stock = ?, costo = ? WHERE id = ?`).bind(resultante, costoNuevo, id),
+    c.env.DB.prepare(`UPDATE herramientas SET stock = ?, costo = ? WHERE negocio_id = ? AND id = ?`)
+      .bind(resultante, costoNuevo, neg, id),
     c.env.DB.prepare(
-      `INSERT INTO movimientos_stock (herramienta_id, fecha, tipo, cantidad, stock_resultante, motivo, costo_unitario)
-       VALUES (?, ?, 'produccion', ?, ?, ?, ?)`
-    ).bind(id, fecha, cantidad, resultante, texto(b.motivo, "motivo", { requerido: false }), costoUnitLote),
+      `INSERT INTO movimientos_stock (negocio_id, herramienta_id, fecha, tipo, cantidad, stock_resultante, motivo, costo_unitario)
+       VALUES (?, ?, ?, 'produccion', ?, ?, ?, ?)`
+    ).bind(neg, id, fecha, cantidad, resultante, texto(b.motivo, "motivo", { requerido: false }), costoUnitLote),
   ]);
   return c.json({ ok: true, stock: resultante, costo: costoNuevo });
 });
@@ -152,10 +167,13 @@ herramientas.post("/:id/produccion", async (c) => {
 herramientas.post("/:id/ajuste", async (c) => {
   const id = c.req.param("id");
   const b = await c.req.json().catch(() => ({}));
-  const motivo = texto(b.motivo, "motivo", { max: 300 })!; // obligatorio
+  const motivo = texto(b.motivo, "motivo", { requerido: false, max: 300 });
   const fecha = b.fecha ? fechaISO(b.fecha, "fecha") : hoy();
 
-  const h = await c.env.DB.prepare(`SELECT stock FROM herramientas WHERE id = ?`).bind(id).first<{ stock: number }>();
+  const neg = negocioDe(c);
+  const h = await c.env.DB.prepare(`SELECT stock FROM herramientas WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, id)
+    .first<{ stock: number }>();
   if (!h) throw new HttpError(404, "Herramienta no encontrada.");
 
   // Dos modos: "delta" (cantidad +/-) o "nuevo" (stock final deseado).
@@ -170,12 +188,13 @@ herramientas.post("/:id/ajuste", async (c) => {
   const resultante = h.stock + cantidad;
 
   await c.env.DB.batch([
-    c.env.DB.prepare(`UPDATE herramientas SET stock = ? WHERE id = ?`).bind(resultante, id),
+    c.env.DB.prepare(`UPDATE herramientas SET stock = ? WHERE negocio_id = ? AND id = ?`)
+      .bind(resultante, neg, id),
     c.env.DB.prepare(
-      `INSERT INTO movimientos_stock (herramienta_id, fecha, tipo, cantidad, stock_resultante, motivo)
-       VALUES (?, ?, 'ajuste', ?, ?, ?)`
-    ).bind(id, fecha, cantidad, resultante, motivo),
-    auditar(c.env, c.get("usuario").usuario, "ajustar_stock", "herramienta", id, `${cantidad > 0 ? "+" : ""}${cantidad} → ${resultante}. ${motivo}`),
+      `INSERT INTO movimientos_stock (negocio_id, herramienta_id, fecha, tipo, cantidad, stock_resultante, motivo)
+       VALUES (?, ?, ?, 'ajuste', ?, ?, ?)`
+    ).bind(neg, id, fecha, cantidad, resultante, motivo),
+    auditar(c.env, neg, c.get("usuario").usuario, "ajustar_stock", "herramienta", id, `${cantidad > 0 ? "+" : ""}${cantidad} → ${resultante}. ${motivo}`),
   ]);
   return c.json({ ok: true, stock: resultante });
 });
@@ -187,9 +206,10 @@ herramientas.post("/:id/precio", async (c) => {
   const fecha = b.fecha ? fechaISO(b.fecha, "fecha") : hoy();
   const motivo = texto(b.motivo, "motivo", { requerido: false });
 
+  const neg = negocioDe(c);
   const h = await c.env.DB
-    .prepare(`SELECT precio, precio_mayor FROM herramientas WHERE id = ?`)
-    .bind(id)
+    .prepare(`SELECT precio, precio_mayor FROM herramientas WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, id)
     .first<{ precio: number; precio_mayor: number }>();
   if (!h) throw new HttpError(404, "Herramienta no encontrada.");
 
@@ -200,12 +220,13 @@ herramientas.post("/:id/precio", async (c) => {
     const nuevo = entero(b.precio_nuevo, "precio minorista nuevo", { min: 0 });
     if (nuevo !== h.precio) {
       cambio = true;
-      stmts.push(c.env.DB.prepare(`UPDATE herramientas SET precio = ? WHERE id = ?`).bind(nuevo, id));
+      stmts.push(c.env.DB.prepare(`UPDATE herramientas SET precio = ? WHERE negocio_id = ? AND id = ?`)
+        .bind(nuevo, neg, id));
       stmts.push(
         c.env.DB.prepare(
-          `INSERT INTO precios_historial (herramienta_id, fecha, precio_anterior, precio_nuevo, tipo_precio, motivo)
-           VALUES (?, ?, ?, ?, 'minorista', ?)`
-        ).bind(id, fecha, h.precio, nuevo, motivo)
+          `INSERT INTO precios_historial (negocio_id, herramienta_id, fecha, precio_anterior, precio_nuevo, tipo_precio, motivo)
+           VALUES (?, ?, ?, ?, ?, 'minorista', ?)`
+        ).bind(neg, id, fecha, h.precio, nuevo, motivo)
       );
     }
   }
@@ -213,18 +234,19 @@ herramientas.post("/:id/precio", async (c) => {
     const nuevo = entero(b.precio_mayor_nuevo, "precio mayorista nuevo", { min: 0 });
     if (nuevo !== h.precio_mayor) {
       cambio = true;
-      stmts.push(c.env.DB.prepare(`UPDATE herramientas SET precio_mayor = ? WHERE id = ?`).bind(nuevo, id));
+      stmts.push(c.env.DB.prepare(`UPDATE herramientas SET precio_mayor = ? WHERE negocio_id = ? AND id = ?`)
+        .bind(nuevo, neg, id));
       stmts.push(
         c.env.DB.prepare(
-          `INSERT INTO precios_historial (herramienta_id, fecha, precio_anterior, precio_nuevo, tipo_precio, motivo)
-           VALUES (?, ?, ?, ?, 'mayorista', ?)`
-        ).bind(id, fecha, h.precio_mayor, nuevo, motivo)
+          `INSERT INTO precios_historial (negocio_id, herramienta_id, fecha, precio_anterior, precio_nuevo, tipo_precio, motivo)
+           VALUES (?, ?, ?, ?, ?, 'mayorista', ?)`
+        ).bind(neg, id, fecha, h.precio_mayor, nuevo, motivo)
       );
     }
   }
 
   if (!cambio) throw new HttpError(400, "No hay cambios de precio para guardar.");
-  stmts.push(auditar(c.env, c.get("usuario").usuario, "cambiar_precio", "herramienta", id, motivo));
+  stmts.push(auditar(c.env, neg, c.get("usuario").usuario, "cambiar_precio", "herramienta", id, motivo));
   await c.env.DB.batch(stmts);
   return c.json({ ok: true });
 });
@@ -254,9 +276,12 @@ herramientas.post("/ajuste-masivo", async (c) => {
     return Math.max(0, n);
   };
 
-  const where = rubro ? `WHERE activo = 1 AND rubro = ?` : `WHERE activo = 1`;
+  const neg = negocioDe(c);
+  const where = rubro
+    ? `WHERE negocio_id = ? AND activo = 1 AND rubro = ?`
+    : `WHERE negocio_id = ? AND activo = 1`;
   const rows = await c.env.DB.prepare(`SELECT id, precio, precio_mayor FROM herramientas ${where}`)
-    .bind(...(rubro ? [rubro] : []))
+    .bind(...(rubro ? [neg, rubro] : [neg]))
     .all<{ id: string; precio: number; precio_mayor: number }>();
 
   const stmts: D1PreparedStatement[] = [];
@@ -267,12 +292,13 @@ herramientas.post("/ajuste-masivo", async (c) => {
       const np = nuevoPrecio(h.precio);
       if (np !== h.precio) {
         toco = true;
-        stmts.push(c.env.DB.prepare(`UPDATE herramientas SET precio = ? WHERE id = ?`).bind(np, h.id));
+        stmts.push(c.env.DB.prepare(`UPDATE herramientas SET precio = ? WHERE negocio_id = ? AND id = ?`)
+          .bind(np, neg, h.id));
         stmts.push(
           c.env.DB.prepare(
-            `INSERT INTO precios_historial (herramienta_id, fecha, precio_anterior, precio_nuevo, tipo_precio, motivo)
-             VALUES (?, ?, ?, ?, 'minorista', ?)`
-          ).bind(h.id, fecha, h.precio, np, motivo)
+            `INSERT INTO precios_historial (negocio_id, herramienta_id, fecha, precio_anterior, precio_nuevo, tipo_precio, motivo)
+             VALUES (?, ?, ?, ?, ?, 'minorista', ?)`
+          ).bind(neg, h.id, fecha, h.precio, np, motivo)
         );
       }
     }
@@ -280,12 +306,13 @@ herramientas.post("/ajuste-masivo", async (c) => {
       const nm = nuevoPrecio(h.precio_mayor);
       if (nm !== h.precio_mayor) {
         toco = true;
-        stmts.push(c.env.DB.prepare(`UPDATE herramientas SET precio_mayor = ? WHERE id = ?`).bind(nm, h.id));
+        stmts.push(c.env.DB.prepare(`UPDATE herramientas SET precio_mayor = ? WHERE negocio_id = ? AND id = ?`)
+          .bind(nm, neg, h.id));
         stmts.push(
           c.env.DB.prepare(
-            `INSERT INTO precios_historial (herramienta_id, fecha, precio_anterior, precio_nuevo, tipo_precio, motivo)
-             VALUES (?, ?, ?, ?, 'mayorista', ?)`
-          ).bind(h.id, fecha, h.precio_mayor, nm, motivo)
+            `INSERT INTO precios_historial (negocio_id, herramienta_id, fecha, precio_anterior, precio_nuevo, tipo_precio, motivo)
+             VALUES (?, ?, ?, ?, ?, 'mayorista', ?)`
+          ).bind(neg, h.id, fecha, h.precio_mayor, nm, motivo)
         );
       }
     }
@@ -302,41 +329,45 @@ herramientas.post("/ajuste-masivo", async (c) => {
 /** Rubros distintos (para filtros y ajuste masivo). */
 herramientas.get("/rubros", async (c) => {
   const rows = await c.env.DB.prepare(
-    `SELECT DISTINCT rubro FROM herramientas WHERE rubro IS NOT NULL AND rubro != '' ORDER BY rubro`
-  ).all<{ rubro: string }>();
+    `SELECT DISTINCT rubro FROM herramientas
+     WHERE negocio_id = ? AND rubro IS NOT NULL AND rubro != '' ORDER BY rubro`
+  ).bind(negocioDe(c)).all<{ rubro: string }>();
   return c.json({ rubros: (rows.results ?? []).map((r) => r.rubro) });
 });
 
 /** Ficha completa de un producto: datos, ventas, compradores, movimientos, historial de precios. */
 herramientas.get("/:id/ficha", async (c) => {
   const id = c.req.param("id");
-  const h = await c.env.DB.prepare(`SELECT * FROM herramientas WHERE id = ?`).bind(id).first<Herramienta>();
+  const neg = negocioDe(c);
+  const h = await c.env.DB.prepare(`SELECT * FROM herramientas WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, id)
+    .first<Herramienta>();
   if (!h) throw new HttpError(404, "Herramienta no encontrada.");
 
   const agg = await c.env.DB.prepare(
     `SELECT COALESCE(SUM(vi.cantidad),0) AS unidades, COALESCE(SUM(vi.subtotal),0) AS total
      FROM venta_items vi JOIN ventas v ON v.id = vi.venta_id
-     WHERE vi.herramienta_id = ? AND v.estado IN ('sincronizada','confirmada')`
-  ).bind(id).first<{ unidades: number; total: number }>();
+     WHERE vi.negocio_id = ? AND vi.herramienta_id = ? AND v.estado IN ('sincronizada','confirmada')`
+  ).bind(neg, id).first<{ unidades: number; total: number }>();
 
   const compradores = await c.env.DB.prepare(
     `SELECT cl.id AS cliente_id, cl.nombre, SUM(vi.cantidad) AS unidades, SUM(vi.subtotal) AS total
      FROM venta_items vi
      JOIN ventas v ON v.id = vi.venta_id
      JOIN clientes cl ON cl.id = v.cliente_id
-     WHERE vi.herramienta_id = ? AND v.estado IN ('sincronizada','confirmada')
+     WHERE vi.negocio_id = ? AND vi.herramienta_id = ? AND v.estado IN ('sincronizada','confirmada')
      GROUP BY cl.id ORDER BY unidades DESC`
-  ).bind(id).all<{ cliente_id: string; nombre: string; unidades: number; total: number }>();
+  ).bind(neg, id).all<{ cliente_id: string; nombre: string; unidades: number; total: number }>();
 
   const movimientos = await c.env.DB.prepare(
     `SELECT m.*, v.numero AS venta_numero FROM movimientos_stock m
      LEFT JOIN ventas v ON v.id = m.venta_id
-     WHERE m.herramienta_id = ? ORDER BY m.fecha DESC, m.id DESC LIMIT 50`
-  ).bind(id).all<MovimientoStock & { venta_numero: number | null }>();
+     WHERE m.negocio_id = ? AND m.herramienta_id = ? ORDER BY m.fecha DESC, m.id DESC LIMIT 50`
+  ).bind(neg, id).all<MovimientoStock & { venta_numero: number | null }>();
 
   const precios = await c.env.DB.prepare(
-    `SELECT * FROM precios_historial WHERE herramienta_id = ? ORDER BY fecha DESC, id DESC`
-  ).bind(id).all<PrecioHistorial>();
+    `SELECT * FROM precios_historial WHERE negocio_id = ? AND herramienta_id = ? ORDER BY fecha DESC, id DESC`
+  ).bind(neg, id).all<PrecioHistorial>();
 
   const rol = c.get("usuario").rol;
   const esDueno = rol === "dueño";
@@ -357,9 +388,9 @@ herramientas.get("/:id/movimientos", async (c) => {
   const rows = await c.env.DB.prepare(
     `SELECT m.*, v.numero AS venta_numero FROM movimientos_stock m
      LEFT JOIN ventas v ON v.id = m.venta_id
-     WHERE m.herramienta_id = ? ORDER BY m.fecha DESC, m.id DESC`
+     WHERE m.negocio_id = ? AND m.herramienta_id = ? ORDER BY m.fecha DESC, m.id DESC`
   )
-    .bind(id)
+    .bind(negocioDe(c), id)
     .all<MovimientoStock & { venta_numero: number | null }>();
   return c.json({ movimientos: rows.results ?? [] });
 });
@@ -367,9 +398,9 @@ herramientas.get("/:id/movimientos", async (c) => {
 herramientas.get("/:id/precios", async (c) => {
   const id = c.req.param("id");
   const rows = await c.env.DB.prepare(
-    `SELECT * FROM precios_historial WHERE herramienta_id = ? ORDER BY fecha DESC, id DESC`
+    `SELECT * FROM precios_historial WHERE negocio_id = ? AND herramienta_id = ? ORDER BY fecha DESC, id DESC`
   )
-    .bind(id)
+    .bind(negocioDe(c), id)
     .all<PrecioHistorial>();
   return c.json({ historial: rows.results ?? [] });
 });

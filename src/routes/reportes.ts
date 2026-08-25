@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import type { Env, Variables, Cliente, Venta, Herramienta } from "../types";
 import { estadoDeCuentaTodos } from "../cuenta";
 import { requireDueno } from "../auth";
+import { requireModulo } from "../config";
+import { negocioDe } from "../types";
 
 export const reportes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -23,17 +25,19 @@ function tramoDe(dias: number): string {
  * Cobranzas: clientes que deben, ordenados por antigüedad de la deuda más vieja.
  * La "deuda más vieja" es la venta impaga/parcial más antigua (según imputación FIFO).
  */
-reportes.get("/cobranzas", async (c) => {
-  const cuentas = await estadoDeCuentaTodos(c.env);
+reportes.get("/cobranzas", requireModulo("cuenta_corriente"), async (c) => {
+  const neg = negocioDe(c);
+  const cuentas = await estadoDeCuentaTodos(c.env, neg);
 
   const clientesRows = await c.env.DB.prepare(
-    `SELECT id, nombre, telefono, localidad FROM clientes WHERE activo = 1`
-  ).all<Pick<Cliente, "id" | "nombre" | "telefono" | "localidad">>();
+    `SELECT id, nombre, telefono, localidad FROM clientes WHERE negocio_id = ? AND activo = 1`
+  ).bind(neg).all<Pick<Cliente, "id" | "nombre" | "telefono" | "localidad">>();
   const clientesMap = new Map((clientesRows.results ?? []).map((cl) => [cl.id, cl]));
 
   const ventasRows = await c.env.DB.prepare(
-    `SELECT id, cliente_id, fecha, numero FROM ventas WHERE estado IN ('sincronizada','confirmada') ORDER BY fecha ASC, numero ASC`
-  ).all<Pick<Venta, "id" | "cliente_id" | "fecha" | "numero">>();
+    `SELECT id, cliente_id, fecha, numero FROM ventas
+     WHERE negocio_id = ? AND estado IN ('sincronizada','confirmada') ORDER BY fecha ASC, numero ASC`
+  ).bind(neg).all<Pick<Venta, "id" | "cliente_id" | "fecha" | "numero">>();
 
   const ventasPorCliente = new Map<string, typeof ventasRows.results>();
   for (const v of ventasRows.results ?? []) {
@@ -86,8 +90,9 @@ reportes.get("/rentabilidad", requireDueno, async (c) => {
   const desde = c.req.query("desde") || undefined;
   const hasta = c.req.query("hasta") || undefined;
 
-  const cond: string[] = ["v.estado IN ('sincronizada','confirmada')"];
-  const args: string[] = [];
+  const neg = negocioDe(c);
+  const cond: string[] = ["vi.negocio_id = ?", "v.estado IN ('sincronizada','confirmada')"];
+  const args: string[] = [neg];
   if (desde) { cond.push("v.fecha >= ?"); args.push(desde); }
   if (hasta) { cond.push("v.fecha <= ?"); args.push(hasta); }
 
@@ -98,7 +103,7 @@ reportes.get("/rentabilidad", requireDueno, async (c) => {
   ).bind(...args).all<{ hid: string; unidades: number; vendido: number }>();
   const vmap = new Map((vendidas.results ?? []).map((r) => [r.hid, r]));
 
-  const herr = await c.env.DB.prepare(`SELECT * FROM herramientas`).all<Herramienta>();
+  const herr = await c.env.DB.prepare(`SELECT * FROM herramientas WHERE negocio_id = ?`).bind(neg).all<Herramienta>();
 
   const porProducto = (herr.results ?? []).map((h) => {
     const v = vmap.get(h.id);
@@ -143,22 +148,27 @@ reportes.get("/rentabilidad", requireDueno, async (c) => {
  * la velocidad de venta de los últimos 30 y 60 días. Sugiere una cantidad a
  * producir para volver a tener ~1 mes de stock por encima del mínimo.
  */
-reportes.get("/produccion", async (c) => {
+reportes.get("/produccion", requireModulo("produccion"), async (c) => {
   const esDueno = c.get("usuario").rol === "dueño";
   const hoy = hoyISO();
   const hace30 = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
   const hace60 = new Date(Date.now() - 60 * 86400000).toISOString().slice(0, 10);
 
-  const herr = await c.env.DB.prepare(`SELECT * FROM herramientas WHERE activo = 1`).all<Herramienta>();
+  const neg = negocioDe(c);
+  const herr = await c.env.DB.prepare(`SELECT * FROM herramientas WHERE negocio_id = ? AND activo = 1`).bind(neg).all<Herramienta>();
 
   const v30 = await c.env.DB.prepare(
     `SELECT vi.herramienta_id AS hid, SUM(vi.cantidad) AS u FROM venta_items vi
-     JOIN ventas v ON v.id = vi.venta_id WHERE v.estado IN ('sincronizada','confirmada') AND v.fecha >= ? GROUP BY vi.herramienta_id`
-  ).bind(hace30).all<{ hid: string; u: number }>();
+     JOIN ventas v ON v.id = vi.venta_id
+     WHERE vi.negocio_id = ? AND v.estado IN ('sincronizada','confirmada') AND v.fecha >= ?
+     GROUP BY vi.herramienta_id`
+  ).bind(neg, hace30).all<{ hid: string; u: number }>();
   const v60 = await c.env.DB.prepare(
     `SELECT vi.herramienta_id AS hid, SUM(vi.cantidad) AS u FROM venta_items vi
-     JOIN ventas v ON v.id = vi.venta_id WHERE v.estado IN ('sincronizada','confirmada') AND v.fecha >= ? GROUP BY vi.herramienta_id`
-  ).bind(hace60).all<{ hid: string; u: number }>();
+     JOIN ventas v ON v.id = vi.venta_id
+     WHERE vi.negocio_id = ? AND v.estado IN ('sincronizada','confirmada') AND v.fecha >= ?
+     GROUP BY vi.herramienta_id`
+  ).bind(neg, hace60).all<{ hid: string; u: number }>();
   const map30 = new Map((v30.results ?? []).map((r) => [r.hid, r.u]));
   const map60 = new Map((v60.results ?? []).map((r) => [r.hid, r.u]));
 
@@ -188,20 +198,23 @@ reportes.get("/produccion", async (c) => {
 /** Caja del día: ventas y cobranzas de hoy (o de la fecha pedida), por medio de pago. */
 reportes.get("/caja", async (c) => {
   const fecha = c.req.query("fecha") || hoyISO();
+  const neg = negocioDe(c);
 
   const ventasDia = await c.env.DB.prepare(
-    `SELECT COALESCE(SUM(total),0) AS total, COUNT(*) AS cant FROM ventas WHERE estado IN ('sincronizada','confirmada') AND fecha = ?`
-  ).bind(fecha).first<{ total: number; cant: number }>();
+    `SELECT COALESCE(SUM(total),0) AS total, COUNT(*) AS cant FROM ventas
+     WHERE negocio_id = ? AND estado IN ('sincronizada','confirmada') AND fecha = ?`
+  ).bind(neg, fecha).first<{ total: number; cant: number }>();
 
   const porMedio = await c.env.DB.prepare(
-    `SELECT medio, COALESCE(SUM(monto),0) AS total, COUNT(*) AS cant FROM pagos WHERE fecha = ? GROUP BY medio`
-  ).bind(fecha).all<{ medio: string; total: number; cant: number }>();
+    `SELECT medio, COALESCE(SUM(monto),0) AS total, COUNT(*) AS cant FROM pagos
+     WHERE negocio_id = ? AND fecha = ? GROUP BY medio`
+  ).bind(neg, fecha).all<{ medio: string; total: number; cant: number }>();
 
   const pagosRows = await c.env.DB.prepare(
     `SELECT p.*, cl.nombre AS cliente_nombre, v.numero AS venta_numero FROM pagos p
      JOIN clientes cl ON cl.id = p.cliente_id LEFT JOIN ventas v ON v.id = p.venta_id
-     WHERE p.fecha = ? ORDER BY p.id`
-  ).bind(fecha).all();
+     WHERE p.negocio_id = ? AND p.fecha = ? ORDER BY p.id`
+  ).bind(neg, fecha).all();
 
   const totalCobrado = (porMedio.results ?? []).reduce((a, m) => a + m.total, 0);
 
@@ -221,17 +234,19 @@ reportes.get("/evolucion", async (c) => {
   const desde = new Date();
   desde.setUTCDate(1);
   desde.setUTCMonth(desde.getUTCMonth() - (meses - 1));
+  const neg = negocioDe(c);
   const desdeStr = desde.toISOString().slice(0, 10);
 
   const ventasPorMes = await c.env.DB.prepare(
     `SELECT substr(fecha,1,7) AS mes, COALESCE(SUM(total),0) AS total, COUNT(*) AS cant
-     FROM ventas WHERE estado IN ('sincronizada','confirmada') AND fecha >= ? GROUP BY mes ORDER BY mes`
-  ).bind(desdeStr).all<{ mes: string; total: number; cant: number }>();
+     FROM ventas WHERE negocio_id = ? AND estado IN ('sincronizada','confirmada') AND fecha >= ?
+     GROUP BY mes ORDER BY mes`
+  ).bind(neg, desdeStr).all<{ mes: string; total: number; cant: number }>();
 
   const cobranzasPorMes = await c.env.DB.prepare(
     `SELECT substr(fecha,1,7) AS mes, COALESCE(SUM(monto),0) AS total, COUNT(*) AS cant
-     FROM pagos WHERE fecha >= ? GROUP BY mes ORDER BY mes`
-  ).bind(desdeStr).all<{ mes: string; total: number; cant: number }>();
+     FROM pagos WHERE negocio_id = ? AND fecha >= ? GROUP BY mes ORDER BY mes`
+  ).bind(neg, desdeStr).all<{ mes: string; total: number; cant: number }>();
 
   // Completar meses sin datos con 0, para que el gráfico no tenga huecos.
   const claves: string[] = [];
@@ -253,8 +268,8 @@ reportes.get("/evolucion", async (c) => {
 
   // Deuda pendiente en el tiempo: usamos los resúmenes diarios del cron (si ya hay historial).
   const deuda = await c.env.DB.prepare(
-    `SELECT fecha, saldo_pendiente FROM resumenes_diarios WHERE fecha >= ? ORDER BY fecha`
-  ).bind(desdeStr).all<{ fecha: string; saldo_pendiente: number }>();
+    `SELECT fecha, saldo_pendiente FROM resumenes_diarios WHERE negocio_id = ? AND fecha >= ? ORDER BY fecha`
+  ).bind(neg, desdeStr).all<{ fecha: string; saldo_pendiente: number }>();
 
   return c.json({ evolucion, deuda_diaria: deuda.results ?? [] });
 });
@@ -269,8 +284,8 @@ reportes.get("/ventas-detalle", async (c) => {
   const hasta = c.req.query("hasta");
   const clienteId = c.req.query("cliente_id");
 
-  const cond: string[] = ["v.estado IN ('sincronizada','confirmada')"];
-  const args: unknown[] = [];
+  const cond: string[] = ["vi.negocio_id = ?", "v.estado IN ('sincronizada','confirmada')"];
+  const args: unknown[] = [negocioDe(c)];
   if (desde) { cond.push("v.fecha >= ?"); args.push(desde); }
   if (hasta) { cond.push("v.fecha <= ?"); args.push(hasta); }
   if (clienteId) { cond.push("v.cliente_id = ?"); args.push(clienteId); }
@@ -303,8 +318,10 @@ reportes.get("/ventas-detalle", async (c) => {
 reportes.get("/resumen-diario", async (c) => {
   const fecha = c.req.query("fecha");
   const row = fecha
-    ? await c.env.DB.prepare(`SELECT * FROM resumenes_diarios WHERE fecha = ?`).bind(fecha).first()
-    : await c.env.DB.prepare(`SELECT * FROM resumenes_diarios ORDER BY fecha DESC LIMIT 1`).first();
+    ? await c.env.DB.prepare(`SELECT * FROM resumenes_diarios WHERE negocio_id = ? AND fecha = ?`)
+        .bind(negocioDe(c), fecha).first()
+    : await c.env.DB.prepare(`SELECT * FROM resumenes_diarios WHERE negocio_id = ? ORDER BY fecha DESC LIMIT 1`)
+        .bind(negocioDe(c)).first();
   return c.json({ resumen: row ?? null });
 });
 
@@ -313,16 +330,18 @@ reportes.get("/resumen-diario", async (c) => {
  * La usa el Cron Trigger (src/scheduled.ts) para guardar el snapshot diario.
  * Exportada para poder testearla o llamarla manualmente si hace falta.
  */
-export async function calcularResumenDia(env: Env, fecha: string) {
+export async function calcularResumenDia(env: Env, negocioId: string, fecha: string) {
   const ventasDia = await env.DB.prepare(
-    `SELECT COALESCE(SUM(total),0) AS total, COUNT(*) AS cant FROM ventas WHERE estado IN ('sincronizada','confirmada') AND fecha = ?`
-  ).bind(fecha).first<{ total: number; cant: number }>();
+    `SELECT COALESCE(SUM(total),0) AS total, COUNT(*) AS cant FROM ventas
+     WHERE negocio_id = ? AND estado IN ('sincronizada','confirmada') AND fecha = ?`
+  ).bind(negocioId, fecha).first<{ total: number; cant: number }>();
 
   const cobranzasDia = await env.DB.prepare(
-    `SELECT COALESCE(SUM(monto),0) AS total, COUNT(*) AS cant FROM pagos WHERE fecha = ?`
-  ).bind(fecha).first<{ total: number; cant: number }>();
+    `SELECT COALESCE(SUM(monto),0) AS total, COUNT(*) AS cant FROM pagos
+     WHERE negocio_id = ? AND fecha = ?`
+  ).bind(negocioId, fecha).first<{ total: number; cant: number }>();
 
-  const cuentas = await estadoDeCuentaTodos(env);
+  const cuentas = await estadoDeCuentaTodos(env, negocioId);
   let saldoPendiente = 0;
   let clientesConDeuda = 0;
   for (const cta of cuentas.values()) {
@@ -333,8 +352,8 @@ export async function calcularResumenDia(env: Env, fecha: string) {
   }
 
   const stockBajo = await env.DB.prepare(
-    `SELECT COUNT(*) AS n FROM herramientas WHERE activo = 1 AND stock <= stock_minimo`
-  ).first<{ n: number }>();
+    `SELECT COUNT(*) AS n FROM herramientas WHERE negocio_id = ? AND activo = 1 AND stock <= stock_minimo`
+  ).bind(negocioId).first<{ n: number }>();
 
   return {
     fecha,

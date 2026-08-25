@@ -9,37 +9,39 @@ import { imputar, type VentaImput, type PagoImput, type ResultadoImputacion } fr
 /** Ventas que cuentan como deuda activa: llegaron al servidor (sincronizada) o ya se revisaron (confirmada). */
 const ESTADOS_ACTIVOS = `('sincronizada', 'confirmada')`;
 
-/** Estado de cuenta de un cliente puntual. */
-export async function estadoDeCuenta(env: Env, clienteId: string): Promise<ResultadoImputacion> {
+/** Estado de cuenta de un cliente puntual, dentro de su negocio. */
+export async function estadoDeCuenta(env: Env, negocioId: string, clienteId: string): Promise<ResultadoImputacion> {
   const ventas = await env.DB.prepare(
-    `SELECT id, numero, fecha, total FROM ventas WHERE cliente_id = ? AND estado IN ${ESTADOS_ACTIVOS}`
+    `SELECT id, numero, fecha, total FROM ventas
+     WHERE negocio_id = ? AND cliente_id = ? AND estado IN ${ESTADOS_ACTIVOS}`
   )
-    .bind(clienteId)
+    .bind(negocioId, clienteId)
     .all<VentaImput>();
 
   const pagos = await env.DB.prepare(
-    `SELECT id, venta_id, monto FROM pagos WHERE cliente_id = ?`
+    `SELECT id, venta_id, monto FROM pagos WHERE negocio_id = ? AND cliente_id = ?`
   )
-    .bind(clienteId)
+    .bind(negocioId, clienteId)
     .all<PagoImput>();
 
   return imputar(ventas.results ?? [], pagos.results ?? []);
 }
 
 /**
- * Estado de cuenta de TODOS los clientes de una sola pasada.
+ * Estado de cuenta de todos los clientes de UN negocio, de una sola pasada.
  * Devuelve un Map<cliente_id, ResultadoImputacion>. Evita N+1 en el panel
  * y en el listado de clientes.
  */
-export async function estadoDeCuentaTodos(env: Env): Promise<Map<string, ResultadoImputacion>> {
+export async function estadoDeCuentaTodos(env: Env, negocioId: string): Promise<Map<string, ResultadoImputacion>> {
   const [ventasRes, pagosRes] = await Promise.all([
     env.DB.prepare(
-      `SELECT id, numero, fecha, total, cliente_id FROM ventas WHERE estado IN ${ESTADOS_ACTIVOS}`
-    ).all<VentaImput & { cliente_id: string }>(),
-    
+      `SELECT id, numero, fecha, total, cliente_id FROM ventas
+       WHERE negocio_id = ? AND estado IN ${ESTADOS_ACTIVOS}`
+    ).bind(negocioId).all<VentaImput & { cliente_id: string }>(),
+
     env.DB.prepare(
-      `SELECT id, venta_id, monto, cliente_id FROM pagos`
-    ).all<PagoImput & { cliente_id: string }>()
+      `SELECT id, venta_id, monto, cliente_id FROM pagos WHERE negocio_id = ?`
+    ).bind(negocioId).all<PagoImput & { cliente_id: string }>()
   ]);
 
   const ventasPorCliente = new Map<string, VentaImput[]>();

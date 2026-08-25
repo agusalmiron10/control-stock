@@ -3,6 +3,7 @@ import type { Env, Variables, Venta, VentaItem, Herramienta } from "../types";
 import { HttpError, texto, entero, fechaISO, enumerado, boolOpt, uuid, uuidOpt } from "../validate";
 import { estadoDeCuenta, estadoDeCuentaTodos } from "../cuenta";
 import { auditar } from "../auditoria";
+import { negocioDe } from "../types";
 
 export const ventas = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -27,18 +28,20 @@ ventas.get("/", async (c) => {
   if (desde) { cond.push("v.fecha >= ?"); args.push(desde); }
   if (hasta) { cond.push("v.fecha <= ?"); args.push(hasta); }
   if (clienteId) { cond.push("v.cliente_id = ?"); args.push(clienteId); }
-  const where = cond.length ? `WHERE ${cond.join(" AND ")}` : "";
 
+  const neg = negocioDe(c);
+  cond.unshift("v.negocio_id = ?");
+  args.unshift(neg);
   const rows = await c.env.DB.prepare(
     `SELECT v.*, cl.nombre AS cliente_nombre FROM ventas v
      JOIN clientes cl ON cl.id = v.cliente_id
-     ${where} ORDER BY v.fecha DESC, v.numero DESC`
+     WHERE ${cond.join(" AND ")} ORDER BY v.fecha DESC, v.numero DESC`
   )
     .bind(...args)
     .all<Venta & { cliente_nombre: string }>();
 
   // Estado de pago: batch en 2 queries (evita N+1).
-  const cuentas = await estadoDeCuentaTodos(c.env);
+  const cuentas = await estadoDeCuentaTodos(c.env, neg);
 
   const lista = (rows.results ?? []).map((v) => {
     const activa = v.estado === "sincronizada" || v.estado === "confirmada";
@@ -58,27 +61,28 @@ ventas.get("/pendientes", async (c) => {
   const rows = await c.env.DB.prepare(
     `SELECT v.*, cl.nombre AS cliente_nombre FROM ventas v
      JOIN clientes cl ON cl.id = v.cliente_id
-     WHERE v.estado = 'sincronizada' OR v.necesita_revision = 1
+     WHERE v.negocio_id = ? AND (v.estado = 'sincronizada' OR v.necesita_revision = 1)
      ORDER BY v.creado_en ASC`
-  ).all<Venta & { cliente_nombre: string }>();
+  ).bind(negocioDe(c)).all<Venta & { cliente_nombre: string }>();
   return c.json({ ventas: rows.results ?? [] });
 });
 
 ventas.get("/:id", async (c) => {
   const id = c.req.param("id");
   const venta = await c.env.DB.prepare(
-    `SELECT v.*, cl.nombre AS cliente_nombre FROM ventas v JOIN clientes cl ON cl.id = v.cliente_id WHERE v.id = ?`
+    `SELECT v.*, cl.nombre AS cliente_nombre FROM ventas v JOIN clientes cl ON cl.id = v.cliente_id
+     WHERE v.negocio_id = ? AND v.id = ?`
   )
-    .bind(id)
+    .bind(negocioDe(c), id)
     .first<Venta & { cliente_nombre: string }>();
   if (!venta) throw new HttpError(404, "Venta no encontrada.");
 
-  const items = await c.env.DB.prepare(`SELECT * FROM venta_items WHERE venta_id = ? ORDER BY id`)
-    .bind(id)
+  const items = await c.env.DB.prepare(`SELECT * FROM venta_items WHERE negocio_id = ? AND venta_id = ? ORDER BY id`)
+    .bind(negocioDe(c), id)
     .all<VentaItem>();
 
   const activa = venta.estado === "sincronizada" || venta.estado === "confirmada";
-  const cta = activa ? await estadoDeCuenta(c.env, venta.cliente_id) : null;
+  const cta = activa ? await estadoDeCuenta(c.env, negocioDe(c), venta.cliente_id) : null;
   const r = cta?.porVenta.get(id);
 
   return c.json({
@@ -117,8 +121,9 @@ ventas.post("/", async (c) => {
   const idempotencyKey = uuidOpt(b.idempotency_key, "idempotency_key");
 
   if (idempotencyKey) {
-    const previa = await c.env.DB.prepare(`SELECT resultado FROM operaciones WHERE idempotency_key = ?`)
-      .bind(idempotencyKey)
+    const previa = await c.env.DB
+      .prepare(`SELECT resultado FROM operaciones WHERE negocio_id = ? AND idempotency_key = ?`)
+      .bind(negocioDe(c), idempotencyKey)
       .first<{ resultado: string }>();
     if (previa) return c.json(JSON.parse(previa.resultado));
   }
@@ -130,8 +135,9 @@ ventas.post("/", async (c) => {
   // El celular nunca se bloquea por stock: siempre se permite, y se marca para revisar.
   const permitirNegativo = boolOpt(b.permitir_stock_negativo) || origen === "celular";
 
-  const cliente = await c.env.DB.prepare(`SELECT id, activo FROM clientes WHERE id = ?`)
-    .bind(clienteId)
+  const neg = negocioDe(c);
+  const cliente = await c.env.DB.prepare(`SELECT id, activo FROM clientes WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, clienteId)
     .first<{ id: string; activo: number }>();
   if (!cliente) throw new HttpError(404, "El cliente no existe.");
 
@@ -147,8 +153,9 @@ ventas.post("/", async (c) => {
   // Traer las herramientas involucradas.
   const ids = [...new Set(items.map((i) => i.herramienta_id))];
   const placeholders = ids.map(() => "?").join(",");
-  const hRows = await c.env.DB.prepare(`SELECT * FROM herramientas WHERE id IN (${placeholders})`)
-    .bind(...ids)
+  const hRows = await c.env.DB
+    .prepare(`SELECT * FROM herramientas WHERE negocio_id = ? AND id IN (${placeholders})`)
+    .bind(neg, ...ids)
     .all<Herramienta>();
   const hMap = new Map((hRows.results ?? []).map((h) => [h.id, h]));
   for (const it of items) {
@@ -187,7 +194,11 @@ ventas.post("/", async (c) => {
   const total = subtotal - descuento;
 
   const ventaId = uuidOpt(b.id, "id") ?? crypto.randomUUID();
-  const maxRow = await c.env.DB.prepare(`SELECT COALESCE(MAX(numero), 0) AS mnum FROM ventas`).first<{ mnum: number }>();
+  // La numeración es propia de cada negocio: cada uno arranca en su #1.
+  const maxRow = await c.env.DB
+    .prepare(`SELECT COALESCE(MAX(numero), 0) AS mnum FROM ventas WHERE negocio_id = ?`)
+    .bind(neg)
+    .first<{ mnum: number }>();
   const numero = (maxRow?.mnum ?? 0) + 1;
   const creadoEn = texto(b.creado_en, "creado_en", { requerido: false }) ?? ahoraSQL();
   const estado = origen === "celular" ? "sincronizada" : "confirmada";
@@ -196,18 +207,18 @@ ventas.post("/", async (c) => {
   const stmts: D1PreparedStatement[] = [];
   stmts.push(
     c.env.DB.prepare(
-      `INSERT INTO ventas (id, numero, cliente_id, fecha, subtotal, descuento, total, nota, estado, origen, necesita_revision, motivo_revision, creado_en, sincronizado_en)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(ventaId, numero, clienteId, fecha, subtotal, descuento, total, nota, estado, origen, necesitaRevision ? 1 : 0, motivoRevision, creadoEn, ahoraSQL())
+      `INSERT INTO ventas (id, negocio_id, numero, cliente_id, fecha, subtotal, descuento, total, nota, estado, origen, necesita_revision, motivo_revision, creado_en, sincronizado_en)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(ventaId, neg, numero, clienteId, fecha, subtotal, descuento, total, nota, estado, origen, necesitaRevision ? 1 : 0, motivoRevision, creadoEn, ahoraSQL())
   );
 
   for (const it of items) {
     const h = hMap.get(it.herramienta_id)!;
     stmts.push(
       c.env.DB.prepare(
-        `INSERT INTO venta_items (venta_id, herramienta_id, nombre_herramienta, cantidad, precio_unitario, subtotal)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      ).bind(ventaId, it.herramienta_id, h.nombre, it.cantidad, it.precio_unitario, it.cantidad * it.precio_unitario)
+        `INSERT INTO venta_items (negocio_id, venta_id, herramienta_id, nombre_herramienta, cantidad, precio_unitario, subtotal)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).bind(neg, ventaId, it.herramienta_id, h.nombre, it.cantidad, it.precio_unitario, it.cantidad * it.precio_unitario)
     );
   }
 
@@ -215,12 +226,13 @@ ventas.post("/", async (c) => {
   for (const [hid, cant] of pedidoPorH) {
     const h = hMap.get(hid)!;
     const resultante = h.stock - cant;
-    stmts.push(c.env.DB.prepare(`UPDATE herramientas SET stock = ? WHERE id = ?`).bind(resultante, hid));
+    stmts.push(c.env.DB.prepare(`UPDATE herramientas SET stock = ? WHERE negocio_id = ? AND id = ?`)
+      .bind(resultante, neg, hid));
     stmts.push(
       c.env.DB.prepare(
-        `INSERT INTO movimientos_stock (herramienta_id, fecha, tipo, cantidad, stock_resultante, venta_id, motivo)
-         VALUES (?, ?, 'venta', ?, ?, ?, NULL)`
-      ).bind(hid, fecha, -cant, resultante, ventaId)
+        `INSERT INTO movimientos_stock (negocio_id, herramienta_id, fecha, tipo, cantidad, stock_resultante, venta_id, motivo)
+         VALUES (?, ?, ?, 'venta', ?, ?, ?, NULL)`
+      ).bind(neg, hid, fecha, -cant, resultante, ventaId)
     );
   }
 
@@ -232,9 +244,9 @@ ventas.post("/", async (c) => {
     pagoId = uuidOpt(b.pago_inicial.id, "id del pago") ?? crypto.randomUUID();
     stmts.push(
       c.env.DB.prepare(
-        `INSERT INTO pagos (id, cliente_id, venta_id, fecha, monto, medio, nota, creado_en)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      ).bind(pagoId, clienteId, ventaId, fecha, monto, medio, texto(b.pago_inicial.nota, "nota del pago", { requerido: false }), creadoEn)
+        `INSERT INTO pagos (id, negocio_id, cliente_id, venta_id, fecha, monto, medio, nota, creado_en)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(pagoId, neg, clienteId, ventaId, fecha, monto, medio, texto(b.pago_inicial.nota, "nota del pago", { requerido: false }), creadoEn)
     );
   }
 
@@ -242,8 +254,8 @@ ventas.post("/", async (c) => {
   if (idempotencyKey) {
     stmts.push(
       c.env.DB.prepare(
-        `INSERT INTO operaciones (idempotency_key, tipo, entidad_id, resultado) VALUES (?, 'venta', ?, ?)`
-      ).bind(idempotencyKey, ventaId, JSON.stringify(resultado))
+        `INSERT INTO operaciones (negocio_id, idempotency_key, tipo, entidad_id, resultado) VALUES (?, ?, 'venta', ?, ?)`
+      ).bind(neg, idempotencyKey, ventaId, JSON.stringify(resultado))
     );
   }
 
@@ -254,12 +266,16 @@ ventas.post("/", async (c) => {
 /** El dueño revisó la venta (llegada del celular, o marcada para revisar) y le da el ok. */
 ventas.post("/:id/confirmar", async (c) => {
   const id = c.req.param("id");
-  const venta = await c.env.DB.prepare(`SELECT id, estado FROM ventas WHERE id = ?`).bind(id).first<{ id: string; estado: string }>();
+  const neg = negocioDe(c);
+  const venta = await c.env.DB.prepare(`SELECT id, estado FROM ventas WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, id)
+    .first<{ id: string; estado: string }>();
   if (!venta) throw new HttpError(404, "Venta no encontrada.");
   if (venta.estado === "anulada") throw new HttpError(400, "La venta está anulada.");
   await c.env.DB.batch([
-    c.env.DB.prepare(`UPDATE ventas SET estado = 'confirmada', necesita_revision = 0, motivo_revision = NULL WHERE id = ?`).bind(id),
-    auditar(c.env, c.get("usuario").usuario, "confirmar_venta", "venta", id),
+    c.env.DB.prepare(`UPDATE ventas SET estado = 'confirmada', necesita_revision = 0, motivo_revision = NULL
+                      WHERE negocio_id = ? AND id = ?`).bind(neg, id),
+    auditar(c.env, neg, c.get("usuario").usuario, "confirmar_venta", "venta", id),
   ]);
   return c.json({ ok: true });
 });
@@ -267,12 +283,15 @@ ventas.post("/:id/confirmar", async (c) => {
 /** Anular: devuelve stock, registra la anulación y libera los pagos imputados. */
 ventas.post("/:id/anular", async (c) => {
   const id = c.req.param("id");
-  const venta = await c.env.DB.prepare(`SELECT * FROM ventas WHERE id = ?`).bind(id).first<Venta>();
+  const neg = negocioDe(c);
+  const venta = await c.env.DB.prepare(`SELECT * FROM ventas WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, id)
+    .first<Venta>();
   if (!venta) throw new HttpError(404, "Venta no encontrada.");
   if (venta.estado === "anulada") throw new HttpError(400, "La venta ya está anulada.");
 
-  const items = await c.env.DB.prepare(`SELECT * FROM venta_items WHERE venta_id = ?`)
-    .bind(id)
+  const items = await c.env.DB.prepare(`SELECT * FROM venta_items WHERE negocio_id = ? AND venta_id = ?`)
+    .bind(neg, id)
     .all<VentaItem>();
 
   const fecha = hoy();
@@ -285,24 +304,29 @@ ventas.post("/:id/anular", async (c) => {
 
   const stmts: D1PreparedStatement[] = [];
   stmts.push(
-    c.env.DB.prepare(`UPDATE ventas SET estado = 'anulada', necesita_revision = 0, motivo_revision = NULL WHERE id = ?`).bind(id)
+    c.env.DB.prepare(`UPDATE ventas SET estado = 'anulada', necesita_revision = 0, motivo_revision = NULL
+                      WHERE negocio_id = ? AND id = ?`).bind(neg, id)
   );
 
   for (const [hid, cant] of devolverPorH) {
-    const h = await c.env.DB.prepare(`SELECT stock FROM herramientas WHERE id = ?`).bind(hid).first<{ stock: number }>();
+    const h = await c.env.DB.prepare(`SELECT stock FROM herramientas WHERE negocio_id = ? AND id = ?`)
+      .bind(neg, hid)
+      .first<{ stock: number }>();
     const resultante = (h?.stock ?? 0) + cant;
-    stmts.push(c.env.DB.prepare(`UPDATE herramientas SET stock = ? WHERE id = ?`).bind(resultante, hid));
+    stmts.push(c.env.DB.prepare(`UPDATE herramientas SET stock = ? WHERE negocio_id = ? AND id = ?`)
+      .bind(resultante, neg, hid));
     stmts.push(
       c.env.DB.prepare(
-        `INSERT INTO movimientos_stock (herramienta_id, fecha, tipo, cantidad, stock_resultante, venta_id, motivo)
-         VALUES (?, ?, 'anulacion', ?, ?, ?, 'Anulación de venta')`
-      ).bind(hid, fecha, cant, resultante, id)
+        `INSERT INTO movimientos_stock (negocio_id, herramienta_id, fecha, tipo, cantidad, stock_resultante, venta_id, motivo)
+         VALUES (?, ?, ?, 'anulacion', ?, ?, ?, 'Anulación de venta')`
+      ).bind(neg, hid, fecha, cant, resultante, id)
     );
   }
 
   // Liberar los pagos que estaban imputados a esta venta (pasan a cuenta → reimputan solos).
-  stmts.push(c.env.DB.prepare(`UPDATE pagos SET venta_id = NULL WHERE venta_id = ?`).bind(id));
-  stmts.push(auditar(c.env, c.get("usuario").usuario, "anular_venta", "venta", id, `Venta #${venta.numero} por $${(venta.total / 100).toFixed(2)}`));
+  stmts.push(c.env.DB.prepare(`UPDATE pagos SET venta_id = NULL WHERE negocio_id = ? AND venta_id = ?`)
+    .bind(neg, id));
+  stmts.push(auditar(c.env, neg, c.get("usuario").usuario, "anular_venta", "venta", id, `Venta #${venta.numero} por $${(venta.total / 100).toFixed(2)}`));
 
   await c.env.DB.batch(stmts);
   return c.json({ ok: true });

@@ -1,8 +1,11 @@
 import { Hono } from "hono";
 import type { Env, Variables, Presupuesto, PresupuestoItem, Herramienta } from "../types";
 import { HttpError, texto, entero, fechaISO, enumerado, uuid } from "../validate";
+import { requireModulo } from "../config";
+import { negocioDe } from "../types";
 
 export const presupuestos = new Hono<{ Bindings: Env; Variables: Variables }>();
+presupuestos.use("*", requireModulo("presupuestos"));
 
 const ESTADOS = ["pendiente", "aceptado", "rechazado", "vencido"] as const;
 const MEDIOS = ["efectivo", "transferencia", "cheque", "otro"] as const;
@@ -20,7 +23,9 @@ presupuestos.get("/", async (c) => {
   const cond: string[] = [];
   const args: unknown[] = [];
   if (estado) { cond.push("p.estado = ?"); args.push(estado); }
-  const where = cond.length ? `WHERE ${cond.join(" AND ")}` : "";
+  cond.unshift("p.negocio_id = ?");
+  args.unshift(negocioDe(c));
+  const where = `WHERE ${cond.join(" AND ")}`;
 
   const rows = await c.env.DB.prepare(
     `SELECT p.*, cl.nombre AS cliente_nombre FROM presupuestos p
@@ -39,14 +44,15 @@ presupuestos.get("/:id", async (c) => {
      FROM presupuestos p
      JOIN clientes cl ON cl.id = p.cliente_id
      LEFT JOIN ventas v ON v.id = p.venta_id
-     WHERE p.id = ?`
+     WHERE p.negocio_id = ? AND p.id = ?`
   )
-    .bind(id)
+    .bind(negocioDe(c), id)
     .first<Presupuesto & { cliente_nombre: string; cliente_telefono: string | null; venta_numero: number | null }>();
   if (!p) throw new HttpError(404, "Presupuesto no encontrado.");
 
-  const items = await c.env.DB.prepare(`SELECT * FROM presupuesto_items WHERE presupuesto_id = ? ORDER BY id`)
-    .bind(id)
+  const items = await c.env.DB
+    .prepare(`SELECT * FROM presupuesto_items WHERE negocio_id = ? AND presupuesto_id = ? ORDER BY id`)
+    .bind(negocioDe(c), id)
     .all<PresupuestoItem>();
 
   return c.json({ presupuesto: p, items: items.results ?? [] });
@@ -65,7 +71,10 @@ presupuestos.post("/", async (c) => {
   const validoHasta = b.valido_hasta ? fechaISO(b.valido_hasta, "válido hasta") : null;
   const nota = texto(b.nota, "nota", { requerido: false, max: 1000 });
 
-  const cliente = await c.env.DB.prepare(`SELECT id FROM clientes WHERE id = ?`).bind(clienteId).first();
+  const neg = negocioDe(c);
+  const cliente = await c.env.DB.prepare(`SELECT id FROM clientes WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, clienteId)
+    .first();
   if (!cliente) throw new HttpError(404, "El cliente no existe.");
 
   const itemsIn = Array.isArray(b.items) ? (b.items as any[]) : [];
@@ -79,8 +88,9 @@ presupuestos.post("/", async (c) => {
 
   const ids = [...new Set(items.map((i) => i.herramienta_id))];
   const placeholders = ids.map(() => "?").join(",");
-  const hRows = await c.env.DB.prepare(`SELECT * FROM herramientas WHERE id IN (${placeholders})`)
-    .bind(...ids)
+  const hRows = await c.env.DB
+    .prepare(`SELECT * FROM herramientas WHERE negocio_id = ? AND id IN (${placeholders})`)
+    .bind(neg, ...ids)
     .all<Herramienta>();
   const hMap = new Map((hRows.results ?? []).map((h) => [h.id, h]));
   for (const it of items) {
@@ -99,7 +109,9 @@ presupuestos.post("/", async (c) => {
   const total = subtotal - descuento;
 
   const maxRow = await c.env.DB
-    .prepare(`SELECT COALESCE(MAX(id), 0) AS mid, COALESCE(MAX(numero), 0) AS mnum FROM presupuestos`)
+    .prepare(`SELECT COALESCE(MAX(id), 0) AS mid, COALESCE(MAX(numero), 0) AS mnum FROM presupuestos
+              WHERE negocio_id = ?`)
+    .bind(neg)
     .first<{ mid: number; mnum: number }>();
   const presupuestoId = (maxRow?.mid ?? 0) + 1;
   const numero = (maxRow?.mnum ?? 0) + 1;
@@ -107,17 +119,17 @@ presupuestos.post("/", async (c) => {
   const stmts: D1PreparedStatement[] = [];
   stmts.push(
     c.env.DB.prepare(
-      `INSERT INTO presupuestos (id, numero, cliente_id, fecha, subtotal, descuento, total, estado, valido_hasta, nota)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pendiente', ?, ?)`
-    ).bind(presupuestoId, numero, clienteId, fecha, subtotal, descuento, total, validoHasta, nota)
+      `INSERT INTO presupuestos (id, negocio_id, numero, cliente_id, fecha, subtotal, descuento, total, estado, valido_hasta, nota)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', ?, ?)`
+    ).bind(presupuestoId, neg, numero, clienteId, fecha, subtotal, descuento, total, validoHasta, nota)
   );
   for (const it of items) {
     const h = hMap.get(it.herramienta_id)!;
     stmts.push(
       c.env.DB.prepare(
-        `INSERT INTO presupuesto_items (presupuesto_id, herramienta_id, nombre_herramienta, cantidad, precio_unitario, subtotal)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      ).bind(presupuestoId, it.herramienta_id, h.nombre, it.cantidad, it.precio_unitario, it.cantidad * it.precio_unitario)
+        `INSERT INTO presupuesto_items (negocio_id, presupuesto_id, herramienta_id, nombre_herramienta, cantidad, precio_unitario, subtotal)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).bind(neg, presupuestoId, it.herramienta_id, h.nombre, it.cantidad, it.precio_unitario, it.cantidad * it.precio_unitario)
     );
   }
 
@@ -131,11 +143,16 @@ presupuestos.post("/:id/estado", async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const estado = enumerado(b.estado, "estado", ESTADOS);
 
-  const p = await c.env.DB.prepare(`SELECT * FROM presupuestos WHERE id = ?`).bind(id).first<Presupuesto>();
+  const neg = negocioDe(c);
+  const p = await c.env.DB.prepare(`SELECT * FROM presupuestos WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, id)
+    .first<Presupuesto>();
   if (!p) throw new HttpError(404, "Presupuesto no encontrado.");
   if (p.venta_id) throw new HttpError(400, "Este presupuesto ya se convirtió en venta.");
 
-  await c.env.DB.prepare(`UPDATE presupuestos SET estado = ? WHERE id = ?`).bind(estado, id).run();
+  await c.env.DB.prepare(`UPDATE presupuestos SET estado = ? WHERE negocio_id = ? AND id = ?`)
+    .bind(estado, neg, id)
+    .run();
   return c.json({ ok: true });
 });
 
@@ -148,13 +165,17 @@ presupuestos.post("/:id/estado", async (c) => {
 presupuestos.post("/:id/convertir", async (c) => {
   const id = Number(c.req.param("id"));
   const b = await c.req.json().catch(() => ({}));
-  const p = await c.env.DB.prepare(`SELECT * FROM presupuestos WHERE id = ?`).bind(id).first<Presupuesto>();
+  const neg = negocioDe(c);
+  const p = await c.env.DB.prepare(`SELECT * FROM presupuestos WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, id)
+    .first<Presupuesto>();
   if (!p) throw new HttpError(404, "Presupuesto no encontrado.");
   if (p.venta_id) throw new HttpError(400, "Este presupuesto ya se convirtió en venta.");
   if (p.estado === "rechazado") throw new HttpError(400, "Este presupuesto está rechazado.");
 
-  const itemsRows = await c.env.DB.prepare(`SELECT * FROM presupuesto_items WHERE presupuesto_id = ?`)
-    .bind(id)
+  const itemsRows = await c.env.DB
+    .prepare(`SELECT * FROM presupuesto_items WHERE negocio_id = ? AND presupuesto_id = ?`)
+    .bind(neg, id)
     .all<PresupuestoItem>();
   const items = itemsRows.results ?? [];
   if (items.length === 0) throw new HttpError(400, "El presupuesto no tiene renglones.");
@@ -164,8 +185,9 @@ presupuestos.post("/:id/convertir", async (c) => {
 
   const ids = [...new Set(items.map((i) => i.herramienta_id))];
   const placeholders = ids.map(() => "?").join(",");
-  const hRows = await c.env.DB.prepare(`SELECT * FROM herramientas WHERE id IN (${placeholders})`)
-    .bind(...ids)
+  const hRows = await c.env.DB
+    .prepare(`SELECT * FROM herramientas WHERE negocio_id = ? AND id IN (${placeholders})`)
+    .bind(neg, ...ids)
     .all<Herramienta>();
   const hMap = new Map((hRows.results ?? []).map((h) => [h.id, h]));
 
@@ -187,34 +209,38 @@ presupuestos.post("/:id/convertir", async (c) => {
   const motivoRevision = necesitaRevision ? `Stock insuficiente: ${faltantes.join("; ")}` : null;
 
   const ventaId = crypto.randomUUID();
-  const maxRow = await c.env.DB.prepare(`SELECT COALESCE(MAX(numero), 0) AS mnum FROM ventas`).first<{ mnum: number }>();
+  const maxRow = await c.env.DB
+    .prepare(`SELECT COALESCE(MAX(numero), 0) AS mnum FROM ventas WHERE negocio_id = ?`)
+    .bind(neg)
+    .first<{ mnum: number }>();
   const numero = (maxRow?.mnum ?? 0) + 1;
   const ahora = ahoraSQL();
 
   const stmts: D1PreparedStatement[] = [];
   stmts.push(
     c.env.DB.prepare(
-      `INSERT INTO ventas (id, numero, cliente_id, fecha, subtotal, descuento, total, nota, estado, origen, necesita_revision, motivo_revision, creado_en, sincronizado_en)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'confirmada', 'escritorio', ?, ?, ?, ?)`
-    ).bind(ventaId, numero, p.cliente_id, fecha, p.subtotal, p.descuento, p.total, `Presupuesto #${p.numero}`, necesitaRevision ? 1 : 0, motivoRevision, ahora, ahora)
+      `INSERT INTO ventas (id, negocio_id, numero, cliente_id, fecha, subtotal, descuento, total, nota, estado, origen, necesita_revision, motivo_revision, creado_en, sincronizado_en)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmada', 'escritorio', ?, ?, ?, ?)`
+    ).bind(ventaId, neg, numero, p.cliente_id, fecha, p.subtotal, p.descuento, p.total, `Presupuesto #${p.numero}`, necesitaRevision ? 1 : 0, motivoRevision, ahora, ahora)
   );
   for (const it of items) {
     stmts.push(
       c.env.DB.prepare(
-        `INSERT INTO venta_items (venta_id, herramienta_id, nombre_herramienta, cantidad, precio_unitario, subtotal)
-         VALUES (?, ?, ?, ?, ?, ?)`
-      ).bind(ventaId, it.herramienta_id, it.nombre_herramienta, it.cantidad, it.precio_unitario, it.subtotal)
+        `INSERT INTO venta_items (negocio_id, venta_id, herramienta_id, nombre_herramienta, cantidad, precio_unitario, subtotal)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).bind(neg, ventaId, it.herramienta_id, it.nombre_herramienta, it.cantidad, it.precio_unitario, it.subtotal)
     );
   }
   for (const [hid, cant] of pedidoPorH) {
     const h = hMap.get(hid)!;
     const resultante = h.stock - cant;
-    stmts.push(c.env.DB.prepare(`UPDATE herramientas SET stock = ? WHERE id = ?`).bind(resultante, hid));
+    stmts.push(c.env.DB.prepare(`UPDATE herramientas SET stock = ? WHERE negocio_id = ? AND id = ?`)
+      .bind(resultante, neg, hid));
     stmts.push(
       c.env.DB.prepare(
-        `INSERT INTO movimientos_stock (herramienta_id, fecha, tipo, cantidad, stock_resultante, venta_id, motivo)
-         VALUES (?, ?, 'venta', ?, ?, ?, NULL)`
-      ).bind(hid, fecha, -cant, resultante, ventaId)
+        `INSERT INTO movimientos_stock (negocio_id, herramienta_id, fecha, tipo, cantidad, stock_resultante, venta_id, motivo)
+         VALUES (?, ?, ?, 'venta', ?, ?, ?, NULL)`
+      ).bind(neg, hid, fecha, -cant, resultante, ventaId)
     );
   }
   if (b.pago_inicial && Number(b.pago_inicial.monto) > 0) {
@@ -222,12 +248,14 @@ presupuestos.post("/:id/convertir", async (c) => {
     const medio = enumerado(b.pago_inicial.medio ?? "efectivo", "medio de pago", MEDIOS);
     stmts.push(
       c.env.DB.prepare(
-        `INSERT INTO pagos (id, cliente_id, venta_id, fecha, monto, medio, nota) VALUES (?, ?, ?, ?, ?, ?, ?)`
-      ).bind(crypto.randomUUID(), p.cliente_id, ventaId, fecha, monto, medio, "Pago al convertir presupuesto")
+        `INSERT INTO pagos (id, negocio_id, cliente_id, venta_id, fecha, monto, medio, nota)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(crypto.randomUUID(), neg, p.cliente_id, ventaId, fecha, monto, medio, "Pago al convertir presupuesto")
     );
   }
   stmts.push(
-    c.env.DB.prepare(`UPDATE presupuestos SET estado = 'aceptado', venta_id = ? WHERE id = ?`).bind(ventaId, id)
+    c.env.DB.prepare(`UPDATE presupuestos SET estado = 'aceptado', venta_id = ? WHERE negocio_id = ? AND id = ?`)
+      .bind(ventaId, neg, id)
   );
 
   await c.env.DB.batch(stmts);
@@ -237,13 +265,16 @@ presupuestos.post("/:id/convertir", async (c) => {
 /** Eliminar presupuesto (solo si no fue convertido a venta). */
 presupuestos.delete("/:id", async (c) => {
   const id = Number(c.req.param("id"));
-  const p = await c.env.DB.prepare(`SELECT * FROM presupuestos WHERE id = ?`).bind(id).first<Presupuesto>();
+  const neg = negocioDe(c);
+  const p = await c.env.DB.prepare(`SELECT * FROM presupuestos WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, id)
+    .first<Presupuesto>();
   if (!p) throw new HttpError(404, "Presupuesto no encontrado.");
   if (p.venta_id) throw new HttpError(400, "No se puede eliminar un presupuesto que ya se convirtió en venta.");
 
   await c.env.DB.batch([
-    c.env.DB.prepare(`DELETE FROM presupuesto_items WHERE presupuesto_id = ?`).bind(id),
-    c.env.DB.prepare(`DELETE FROM presupuestos WHERE id = ?`).bind(id),
+    c.env.DB.prepare(`DELETE FROM presupuesto_items WHERE negocio_id = ? AND presupuesto_id = ?`).bind(neg, id),
+    c.env.DB.prepare(`DELETE FROM presupuestos WHERE negocio_id = ? AND id = ?`).bind(neg, id),
   ]);
   return c.json({ ok: true });
 });

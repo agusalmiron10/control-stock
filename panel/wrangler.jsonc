@@ -1,0 +1,25 @@
+{
+  // Panel de clientes: Worker aparte, con su propia base de datos.
+  // Acá NO viven los datos de los negocios — cada instalación tiene la suya.
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "control-stock-panel",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-12-18",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "control-stock-panel",
+      "database_id": "54c4a5df-254b-4dc8-aa78-f0bd4422509f",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "observability": {
+    "enabled": true
+  }
+
+  // El secreto de sesión NO va acá. Se carga con:
+  //   npx wrangler secret put SESSION_SECRET --config panel/wrangler.jsonc
+}

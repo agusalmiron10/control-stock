@@ -2,15 +2,38 @@
 // funcione con cero señal (búsqueda de cliente, lista de herramientas y
 // precios). Se refresca cada vez que /api/clientes o /api/herramientas
 // responden online; se lee de acá cuando no hay red.
-import { STORE_CLIENTES, STORE_HERRAMIENTAS, STORE_META, obtenerTodos, putMuchos, put, obtener } from "./db";
+import { STORE_CLIENTES, STORE_HERRAMIENTAS, STORE_META, obtenerTodos, putMuchos, put, obtener, limpiar } from "./db";
 
 const CLAVE_ULTIMA_ACTUALIZACION = "cache_actualizada_en";
 const CLAVE_RECIENTES = "clientes_recientes";
 const CLAVE_SESION = "sesion_cacheada";
+const CLAVE_NEGOCIO_CACHE = "negocio_de_la_cache";
+
+/**
+ * La caché vive en un solo IndexedDB del navegador, así que si cambia el
+ * negocio hay que vaciarla: si no, los clientes y precios del negocio
+ * anterior se seguirían viendo. Pasa cuando el proveedor entra a dar soporte
+ * a dos clientes distintos desde la misma computadora.
+ */
+export async function asegurarCacheDelNegocio(negocioId: string | null): Promise<void> {
+  const meta = await obtener<{ clave: string; valor: string | null }>(STORE_META, CLAVE_NEGOCIO_CACHE);
+  const guardado = meta?.valor ?? null;
+  if (guardado === negocioId) return;
+  if (guardado !== null) {
+    await limpiar(STORE_CLIENTES);
+    await limpiar(STORE_HERRAMIENTAS);
+    await put(STORE_META, { clave: CLAVE_RECIENTES, valor: [] });
+    await put(STORE_META, { clave: CLAVE_ULTIMA_ACTUALIZACION, valor: null });
+  }
+  await put(STORE_META, { clave: CLAVE_NEGOCIO_CACHE, valor: negocioId });
+}
 
 export interface SesionCacheada {
   usuario: string;
-  rol: "dueño" | "empleado";
+  rol: "dueño" | "empleado" | "soporte" | "super";
+  /** En qué negocio estaba: sin esto, al volver sin señal no se sabe de quién
+   *  son los datos que quedaron en la caché. */
+  negocio: { id: string; nombre: string; codigo: string } | null;
 }
 
 /** Última sesión autenticada conocida — para poder entrar a la app sin

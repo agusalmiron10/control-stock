@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import type { Env, Variables } from "./types";
 import { HttpError } from "./validate";
-import { requireAuth } from "./auth";
+import { requireAuth, requireNegocio } from "./auth";
+import { superAdmin } from "./routes/super";
 import { auth } from "./routes/auth";
 import { clientes } from "./routes/clientes";
 import { herramientas } from "./routes/herramientas";
@@ -14,6 +15,7 @@ import { exportar } from "./routes/export";
 import { backup } from "./routes/backup";
 import { buscar } from "./routes/buscar";
 import { auditoriaRoutes } from "./routes/auditoria";
+import { config } from "./routes/config";
 import { scheduled } from "./scheduled";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -28,9 +30,19 @@ app.onError((err, c) => {
 // Rutas públicas de autenticación (login / setup / status).
 app.route("/api/auth", auth);
 
-// A partir de acá, TODAS las rutas de datos exigen sesión válida.
+// Rutas del proveedor del sistema. Van antes que las de datos porque no
+// exigen estar dentro de un negocio: justamente sirven para elegir uno.
+const sup = new Hono<{ Bindings: Env; Variables: Variables }>();
+sup.use("*", requireAuth);
+sup.route("/", superAdmin);
+app.route("/api/super", sup);
+
+// A partir de acá, TODAS las rutas de datos exigen sesión válida Y un negocio.
+// requireNegocio es la red de seguridad del multi-negocio: sin él, una sesión
+// sin negocio llegaría a las consultas y negocioDe() explotaría con un 500.
 const api = new Hono<{ Bindings: Env; Variables: Variables }>();
 api.use("*", requireAuth);
+api.use("*", requireNegocio);
 api.route("/clientes", clientes);
 api.route("/herramientas", herramientas);
 api.route("/ventas", ventas);
@@ -42,6 +54,7 @@ api.route("/export", exportar);
 api.route("/backup", backup);
 api.route("/buscar", buscar);
 api.route("/auditoria", auditoriaRoutes);
+api.route("/config", config);
 app.route("/api", api);
 
 // Cualquier otra ruta /api que no exista.

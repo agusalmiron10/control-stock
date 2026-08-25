@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { Env, Variables } from "../types";
+import { negocioDe, type Env, type Variables } from "../types";
 
 export const buscar = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -11,25 +11,29 @@ buscar.get("/", async (c) => {
   const like = `%${q}%`;
   const numero = Number(q);
 
+  const neg = negocioDe(c);
   const clientesRows = await c.env.DB.prepare(
-    `SELECT id, nombre FROM clientes WHERE activo = 1 AND nombre LIKE ? ORDER BY nombre COLLATE NOCASE LIMIT 6`
+    `SELECT id, nombre FROM clientes
+     WHERE negocio_id = ? AND activo = 1 AND nombre LIKE ? ORDER BY nombre COLLATE NOCASE LIMIT 6`
   )
-    .bind(like)
+    .bind(neg, like)
     .all<{ id: string; nombre: string }>();
 
   const herramientasRows = await c.env.DB.prepare(
-    `SELECT id, codigo, nombre FROM herramientas WHERE activo = 1 AND (nombre LIKE ? OR codigo LIKE ?) ORDER BY nombre COLLATE NOCASE LIMIT 6`
+    `SELECT id, codigo, nombre FROM herramientas
+     WHERE negocio_id = ? AND activo = 1 AND (nombre LIKE ? OR codigo LIKE ?)
+     ORDER BY nombre COLLATE NOCASE LIMIT 6`
   )
-    .bind(like, like)
+    .bind(neg, like, like)
     .all<{ id: string; codigo: string; nombre: string }>();
 
   const ventasRows = Number.isInteger(numero) && numero > 0
     ? await c.env.DB.prepare(
         `SELECT v.id, v.numero, v.total, v.cliente_id, cl.nombre AS cliente_nombre
          FROM ventas v JOIN clientes cl ON cl.id = v.cliente_id
-         WHERE v.numero = ? LIMIT 6`
+         WHERE v.negocio_id = ? AND v.numero = ? LIMIT 6`
       )
-        .bind(numero)
+        .bind(neg, numero)
         .all<{ id: string; numero: number; total: number; cliente_id: string; cliente_nombre: string }>()
     : { results: [] };
 

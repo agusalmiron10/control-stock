@@ -1,10 +1,12 @@
 import { Hono } from "hono";
 import type { Env, Variables, Cliente, Herramienta } from "../types";
 import { estadoDeCuentaTodos } from "../cuenta";
+import { negocioDe } from "../types";
 
 export const panel = new Hono<{ Bindings: Env; Variables: Variables }>();
 
 panel.get("/", async (c) => {
+  const neg = negocioDe(c);
   const now = new Date();
   const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const inicioMes = `${ym}-01`;
@@ -26,15 +28,15 @@ panel.get("/", async (c) => {
     cobranzasMesAnterior,
     ultimosMov
   ] = await Promise.all([
-    estadoDeCuentaTodos(c.env),
-    c.env.DB.prepare(`SELECT * FROM clientes WHERE activo = 1`).all<Cliente>(),
-    c.env.DB.prepare(`SELECT * FROM herramientas WHERE activo = 1 AND stock <= stock_minimo ORDER BY stock ASC, nombre`).all<Herramienta>(),
-    c.env.DB.prepare(`SELECT COUNT(*) AS n FROM ventas WHERE estado = 'sincronizada' OR necesita_revision = 1`).first<{ n: number }>(),
-    c.env.DB.prepare(`SELECT COALESCE(SUM(total),0) AS total, COUNT(*) AS cant FROM ventas WHERE estado IN ('sincronizada', 'confirmada') AND fecha >= ? AND fecha <= ?`).bind(inicioMes, finMes).first<{ total: number; cant: number }>(),
-    c.env.DB.prepare(`SELECT COALESCE(SUM(monto),0) AS total, COUNT(*) AS cant FROM pagos WHERE fecha >= ? AND fecha <= ?`).bind(inicioMes, finMes).first<{ total: number; cant: number }>(),
-    c.env.DB.prepare(`SELECT COALESCE(SUM(total),0) AS total, COUNT(*) AS cant FROM ventas WHERE estado IN ('sincronizada', 'confirmada') AND fecha >= ? AND fecha <= ?`).bind(inicioMesAnterior, finMesAnterior).first<{ total: number; cant: number }>(),
-    c.env.DB.prepare(`SELECT COALESCE(SUM(monto),0) AS total, COUNT(*) AS cant FROM pagos WHERE fecha >= ? AND fecha <= ?`).bind(inicioMesAnterior, finMesAnterior).first<{ total: number; cant: number }>(),
-    c.env.DB.prepare(`SELECT m.*, h.nombre AS herramienta_nombre, h.codigo AS herramienta_codigo FROM movimientos_stock m JOIN herramientas h ON h.id = m.herramienta_id ORDER BY m.id DESC LIMIT 12`).all()
+    estadoDeCuentaTodos(c.env, neg),
+    c.env.DB.prepare(`SELECT * FROM clientes WHERE negocio_id = ? AND activo = 1`).bind(neg).all<Cliente>(),
+    c.env.DB.prepare(`SELECT * FROM herramientas WHERE negocio_id = ? AND activo = 1 AND stock <= stock_minimo ORDER BY stock ASC, nombre`).bind(neg).all<Herramienta>(),
+    c.env.DB.prepare(`SELECT COUNT(*) AS n FROM ventas WHERE negocio_id = ? AND (estado = 'sincronizada' OR necesita_revision = 1)`).bind(neg).first<{ n: number }>(),
+    c.env.DB.prepare(`SELECT COALESCE(SUM(total),0) AS total, COUNT(*) AS cant FROM ventas WHERE negocio_id = ? AND estado IN ('sincronizada', 'confirmada') AND fecha >= ? AND fecha <= ?`).bind(neg, inicioMes, finMes).first<{ total: number; cant: number }>(),
+    c.env.DB.prepare(`SELECT COALESCE(SUM(monto),0) AS total, COUNT(*) AS cant FROM pagos WHERE negocio_id = ? AND fecha >= ? AND fecha <= ?`).bind(neg, inicioMes, finMes).first<{ total: number; cant: number }>(),
+    c.env.DB.prepare(`SELECT COALESCE(SUM(total),0) AS total, COUNT(*) AS cant FROM ventas WHERE negocio_id = ? AND estado IN ('sincronizada', 'confirmada') AND fecha >= ? AND fecha <= ?`).bind(neg, inicioMesAnterior, finMesAnterior).first<{ total: number; cant: number }>(),
+    c.env.DB.prepare(`SELECT COALESCE(SUM(monto),0) AS total, COUNT(*) AS cant FROM pagos WHERE negocio_id = ? AND fecha >= ? AND fecha <= ?`).bind(neg, inicioMesAnterior, finMesAnterior).first<{ total: number; cant: number }>(),
+    c.env.DB.prepare(`SELECT m.*, h.nombre AS herramienta_nombre, h.codigo AS herramienta_codigo FROM movimientos_stock m JOIN herramientas h ON h.id = m.herramienta_id WHERE m.negocio_id = ? ORDER BY m.id DESC LIMIT 12`).bind(neg).all()
   ]);
 
   const clientesMap = new Map((clientesRows.results ?? []).map((cl) => [cl.id, cl]));

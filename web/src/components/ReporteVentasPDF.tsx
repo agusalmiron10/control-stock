@@ -1,6 +1,6 @@
 import { api } from "../api";
 import { pesos, fecha, numero } from "../format";
-import { NEGOCIO } from "../lib/negocio";
+import { negocio } from "../lib/negocio";
 import { Cargando, Error, useCarga } from "./ui";
 
 /**
@@ -46,8 +46,8 @@ export function ReporteVentasPDF({
           <div className="comprobante reporte-imprimible">
             <div className="comp-header">
               <div>
-                <div className="comp-marca">{NEGOCIO.nombre}</div>
-                <div className="comp-sub">{NEGOCIO.rubro}</div>
+                <div className="comp-marca">{negocio().nombre}</div>
+                <div className="comp-sub">{negocio().rubro}</div>
               </div>
               <div className="comp-doc">
                 <div className="comp-doc-tit">VENTAS</div>
@@ -88,7 +88,7 @@ export function ReporteVentasPDF({
               </>
             )}
 
-            <div className="comp-pie">Generado el {fecha(new Date().toISOString().slice(0, 10))} — {NEGOCIO.nombre}</div>
+            <div className="comp-pie">Generado el {fecha(new Date().toISOString().slice(0, 10))} — {negocio().nombre}</div>
           </div>
         )}
       </div>

@@ -1,6 +1,6 @@
 import { api } from "../api";
 import { pesos } from "../format";
-import { NEGOCIO } from "../lib/negocio";
+import { negocio } from "../lib/negocio";
 import { Cargando, Error, useCarga } from "./ui";
 
 /** PDF (vía impresión del navegador) con el listado completo de clientes. */
@@ -24,8 +24,8 @@ export function ClientesPDF({ onCerrar }: { onCerrar: () => void }) {
           <div className="comprobante reporte-imprimible">
             <div className="comp-header">
               <div>
-                <div className="comp-marca">{NEGOCIO.nombre}</div>
-                <div className="comp-sub">{NEGOCIO.rubro}</div>
+                <div className="comp-marca">{negocio().nombre}</div>
+                <div className="comp-sub">{negocio().rubro}</div>
               </div>
               <div className="comp-doc">
                 <div className="comp-doc-tit">CLIENTES</div>
@@ -58,7 +58,7 @@ export function ClientesPDF({ onCerrar }: { onCerrar: () => void }) {
               </table>
             )}
 
-            <div className="comp-pie">Generado el {new Date().toLocaleDateString("es-AR")} — {NEGOCIO.nombre}</div>
+            <div className="comp-pie">Generado el {new Date().toLocaleDateString("es-AR")} — {negocio().nombre}</div>
           </div>
         )}
       </div>

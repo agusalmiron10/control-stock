@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Env, Variables, Pago } from "../types";
 import { HttpError, texto, entero, fechaISO, enumerado, uuid, uuidOpt } from "../validate";
 import { auditar } from "../auditoria";
+import { negocioDe } from "../types";
 
 export const pagos = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -12,10 +13,10 @@ function hoy(): string {
 }
 
 /** Valida que, si el pago apunta a una venta, esa venta sea del cliente y no esté anulada. */
-async function validarVenta(env: Env, clienteId: string, ventaId: string | null): Promise<string | null> {
+async function validarVenta(env: Env, negocioId: string, clienteId: string, ventaId: string | null): Promise<string | null> {
   if (ventaId == null) return null;
-  const v = await env.DB.prepare(`SELECT cliente_id, estado FROM ventas WHERE id = ?`)
-    .bind(ventaId)
+  const v = await env.DB.prepare(`SELECT cliente_id, estado FROM ventas WHERE negocio_id = ? AND id = ?`)
+    .bind(negocioId, ventaId)
     .first<{ cliente_id: string; estado: string }>();
   if (!v) throw new HttpError(404, "La venta indicada no existe.");
   if (v.cliente_id !== clienteId) throw new HttpError(400, "La venta no pertenece a ese cliente.");
@@ -33,7 +34,9 @@ pagos.get("/", async (c) => {
   if (desde) { cond.push("p.fecha >= ?"); args.push(desde); }
   if (hasta) { cond.push("p.fecha <= ?"); args.push(hasta); }
   if (clienteId) { cond.push("p.cliente_id = ?"); args.push(clienteId); }
-  const where = cond.length ? `WHERE ${cond.join(" AND ")}` : "";
+  cond.unshift("p.negocio_id = ?");
+  args.unshift(negocioDe(c));
+  const where = `WHERE ${cond.join(" AND ")}`;
 
   const rows = await c.env.DB.prepare(
     `SELECT p.*, cl.nombre AS cliente_nombre, v.numero AS venta_numero
@@ -57,8 +60,9 @@ pagos.post("/", async (c) => {
   const idempotencyKey = uuidOpt(b.idempotency_key, "idempotency_key");
 
   if (idempotencyKey) {
-    const previa = await c.env.DB.prepare(`SELECT resultado FROM operaciones WHERE idempotency_key = ?`)
-      .bind(idempotencyKey)
+    const previa = await c.env.DB
+      .prepare(`SELECT resultado FROM operaciones WHERE negocio_id = ? AND idempotency_key = ?`)
+      .bind(negocioDe(c), idempotencyKey)
       .first<{ resultado: string }>();
     if (previa) return c.json(JSON.parse(previa.resultado));
   }
@@ -67,24 +71,29 @@ pagos.post("/", async (c) => {
   const monto = entero(b.monto, "monto", { min: 1 });
   const fecha = b.fecha ? fechaISO(b.fecha, "fecha") : hoy();
   const medio = enumerado(b.medio ?? "efectivo", "medio de pago", MEDIOS);
-  const ventaId = await validarVenta(c.env, clienteId, b.venta_id ? uuid(b.venta_id, "venta") : null);
+  const neg = negocioDe(c);
+  const ventaId = await validarVenta(c.env, neg, clienteId, b.venta_id ? uuid(b.venta_id, "venta") : null);
 
-  const cliente = await c.env.DB.prepare(`SELECT id FROM clientes WHERE id = ?`).bind(clienteId).first();
+  const cliente = await c.env.DB.prepare(`SELECT id FROM clientes WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, clienteId)
+    .first();
   if (!cliente) throw new HttpError(404, "El cliente no existe.");
 
   const id = uuidOpt(b.id, "id") ?? crypto.randomUUID();
   const stmts: D1PreparedStatement[] = [
     c.env.DB.prepare(
-      `INSERT INTO pagos (id, cliente_id, venta_id, fecha, monto, medio, nota) VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).bind(id, clienteId, ventaId, fecha, monto, medio, texto(b.nota, "nota", { requerido: false })),
+      `INSERT INTO pagos (id, negocio_id, cliente_id, venta_id, fecha, monto, medio, nota)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id, neg, clienteId, ventaId, fecha, monto, medio, texto(b.nota, "nota", { requerido: false })),
   ];
 
   const resultado = { id };
   if (idempotencyKey) {
     stmts.push(
       c.env.DB.prepare(
-        `INSERT INTO operaciones (idempotency_key, tipo, entidad_id, resultado) VALUES (?, 'pago', ?, ?)`
-      ).bind(idempotencyKey, id, JSON.stringify(resultado))
+        `INSERT INTO operaciones (negocio_id, idempotency_key, tipo, entidad_id, resultado)
+         VALUES (?, ?, 'pago', ?, ?)`
+      ).bind(neg, idempotencyKey, id, JSON.stringify(resultado))
     );
   }
 
@@ -95,7 +104,10 @@ pagos.post("/", async (c) => {
 pagos.put("/:id", async (c) => {
   const id = c.req.param("id");
   const b = await c.req.json().catch(() => ({}));
-  const pago = await c.env.DB.prepare(`SELECT * FROM pagos WHERE id = ?`).bind(id).first<Pago>();
+  const neg = negocioDe(c);
+  const pago = await c.env.DB.prepare(`SELECT * FROM pagos WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, id)
+    .first<Pago>();
   if (!pago) throw new HttpError(404, "Pago no encontrado.");
 
   const monto = entero(b.monto, "monto", { min: 1 });
@@ -103,23 +115,29 @@ pagos.put("/:id", async (c) => {
   const medio = enumerado(b.medio ?? pago.medio, "medio de pago", MEDIOS);
   const ventaId = await validarVenta(
     c.env,
+    neg,
     pago.cliente_id,
     b.venta_id !== undefined ? (b.venta_id ? uuid(b.venta_id, "venta") : null) : pago.venta_id
   );
 
-  await c.env.DB.prepare(`UPDATE pagos SET venta_id=?, fecha=?, monto=?, medio=?, nota=? WHERE id=?`)
-    .bind(ventaId, fecha, monto, medio, texto(b.nota, "nota", { requerido: false }), id)
+  await c.env.DB.prepare(`UPDATE pagos SET venta_id=?, fecha=?, monto=?, medio=?, nota=?
+                          WHERE negocio_id=? AND id=?`)
+    .bind(ventaId, fecha, monto, medio, texto(b.nota, "nota", { requerido: false }), neg, id)
     .run();
   return c.json({ ok: true });
 });
 
 pagos.delete("/:id", async (c) => {
   const id = c.req.param("id");
-  const pago = await c.env.DB.prepare(`SELECT id, monto, cliente_id FROM pagos WHERE id = ?`).bind(id).first<{ id: string; monto: number; cliente_id: string }>();
+  const neg = negocioDe(c);
+  const pago = await c.env.DB
+    .prepare(`SELECT id, monto, cliente_id FROM pagos WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, id)
+    .first<{ id: string; monto: number; cliente_id: string }>();
   if (!pago) throw new HttpError(404, "Pago no encontrado.");
   await c.env.DB.batch([
-    c.env.DB.prepare(`DELETE FROM pagos WHERE id = ?`).bind(id),
-    auditar(c.env, c.get("usuario").usuario, "borrar_pago", "pago", id, `Monto $${(pago.monto / 100).toFixed(2)}`),
+    c.env.DB.prepare(`DELETE FROM pagos WHERE negocio_id = ? AND id = ?`).bind(neg, id),
+    auditar(c.env, neg, c.get("usuario").usuario, "borrar_pago", "pago", id, `Monto $${(pago.monto / 100).toFixed(2)}`),
   ]);
   return c.json({ ok: true });
 });

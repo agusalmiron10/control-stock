@@ -7,6 +7,7 @@ import type { Env } from "./types";
  */
 export function auditar(
   env: Env,
+  negocioId: string,
   usuario: string,
   accion: string,
   entidad: string,
@@ -14,6 +15,7 @@ export function auditar(
   detalle: string | null = null
 ): D1PreparedStatement {
   return env.DB.prepare(
-    `INSERT INTO auditoria (usuario, accion, entidad, entidad_id, detalle) VALUES (?, ?, ?, ?, ?)`
-  ).bind(usuario, accion, entidad, entidadId, detalle);
+    `INSERT INTO auditoria (negocio_id, usuario, accion, entidad, entidad_id, detalle)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).bind(negocioId, usuario, accion, entidad, entidadId, detalle);
 }

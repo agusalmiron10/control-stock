@@ -204,6 +204,11 @@ a:hover { text-decoration: underline; }
 .tf-datos { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .tf-datos .num { font-family: var(--mono); }
 
+/* Fila de módulo en Ajustes: casilla a la izquierda, título + explicación al lado. */
+.modulo-fila { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; }
+.modulo-fila input { width: auto; margin-top: 3px; flex: none; }
+.modulo-fila > span { display: flex; flex-direction: column; }
+
 /* Utilidades: mostrar una vista en escritorio (tabla completa) y otra en
    celular (tarjetas de 2 líneas), para las listas donde la tabla es la
    mejor opción en pantallas anchas pero queda apretada en un celular. */
@@ -503,3 +508,32 @@ table.tabla td.acc .btn-grupo { flex-wrap: nowrap; }
 }
 .qr-escaner-caja { display: flex; flex-direction: column; align-items: center; gap: 14px; width: 100%; max-width: 420px; }
 .qr-escaner-video { width: 100%; border-radius: 10px; background: #000; }
+
+/* ── Proveedor del sistema ─────────────────────────────────── */
+
+/* Aviso permanente de que estoy mirando los datos de un cliente y no los
+   míos. Va arriba de todo y no se puede cerrar a propósito. */
+.barra-soporte {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; justify-content: center;
+  flex-wrap: wrap; gap: 12px;
+  padding: 8px 14px;
+  background: var(--ambar-bg); color: var(--ambar);
+  border-bottom: 1px solid var(--borde);
+  font-size: 13px; font-weight: 600;
+  position: sticky; top: 0; z-index: 60;
+}
+.barra-soporte button {
+  background: var(--ambar); color: #fff; border: none;
+  padding: 4px 12px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.barra-soporte button:hover { filter: brightness(1.1); }
+
+.link-discreto {
+  display: block; margin: 12px auto 0;
+  background: none; border: none; padding: 0;
+  color: var(--texto-suave); font-size: 13px;
+  text-decoration: underline; cursor: pointer;
+}
+.link-discreto:hover { color: var(--texto); }
