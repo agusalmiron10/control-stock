@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Env, Variables, Presupuesto, PresupuestoItem, Herramienta } from "../types";
-import { HttpError, texto, entero, fechaISO, enumerado, uuid } from "../validate";
+import { HttpError, texto, entero, fechaISO, enumerado, uuid, normalizarBusqueda } from "../validate";
 import { requireModulo } from "../config";
 import { negocioDe } from "../types";
 
@@ -20,9 +20,18 @@ function ahoraSQL(): string {
 
 presupuestos.get("/", async (c) => {
   const estado = c.req.query("estado");
+  const buscar = c.req.query("buscar")?.trim();
+  const desde = c.req.query("desde");
+  const hasta = c.req.query("hasta");
+
   const cond: string[] = [];
   const args: unknown[] = [];
   if (estado) { cond.push("p.estado = ?"); args.push(estado); }
+  // Busca por nombre de cliente o por número de presupuesto: son las dos
+  // formas en que alguien busca uno que ya hizo.
+  if (desde) { cond.push("p.fecha >= ?"); args.push(fechaISO(desde, "desde")); }
+  if (hasta) { cond.push("p.fecha <= ?"); args.push(fechaISO(hasta, "hasta")); }
+
   cond.unshift("p.negocio_id = ?");
   args.unshift(negocioDe(c));
   const where = `WHERE ${cond.join(" AND ")}`;
@@ -34,7 +43,17 @@ presupuestos.get("/", async (c) => {
   )
     .bind(...args)
     .all<Presupuesto & { cliente_nombre: string }>();
-  return c.json({ presupuestos: rows.results ?? [] });
+
+  let lista = rows.results ?? [];
+  // Por nombre de cliente (sin acentos) o por número exacto: son las dos
+  // formas en que alguien busca un presupuesto que ya hizo.
+  if (buscar) {
+    const q = normalizarBusqueda(buscar);
+    lista = lista.filter(
+      (p) => normalizarBusqueda(p.cliente_nombre).includes(q) || String(p.numero) === buscar
+    );
+  }
+  return c.json({ presupuestos: lista });
 });
 
 presupuestos.get("/:id", async (c) => {

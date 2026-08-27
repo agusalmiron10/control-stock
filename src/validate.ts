@@ -80,3 +80,14 @@ export function uuidOpt(v: unknown, campo: string): string | null {
   if (v == null || v === "") return null;
   return uuid(v, campo);
 }
+
+/**
+ * Normaliza para buscar: sin acentos y en minúscula.
+ *
+ * SQLite con COLLATE NOCASE sólo ignora mayúsculas en ASCII, no los acentos,
+ * así que "perez" no encontraba a "Pérez" — y nadie escribe los acentos
+ * cuando busca. Por eso el filtro por nombre se hace acá y no en el WHERE.
+ */
+export function normalizarBusqueda(s: string): string {
+  return s.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
