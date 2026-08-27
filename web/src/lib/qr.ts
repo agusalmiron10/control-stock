@@ -17,3 +17,33 @@ export function qrClienteSvg(clienteId: string): string {
 export function idDeClienteDesdeQr(texto: string): string | null {
   return texto.startsWith(PREFIJO) ? texto.slice(PREFIJO.length) : null;
 }
+
+/**
+ * QR que exige ARCA en cada comprobante fiscal (RG 4291): una URL pública
+ * con un JSON codificado en base64 como parámetro. El formato del JSON es el
+ * vigente al momento de escribir esto — reconfirmar contra el manual de ARCA
+ * si algo no coincide (puede haber pasado de afip.gob.ar a arca.gob.ar).
+ */
+export interface PayloadQrArca {
+  fecha: string; // AAAA-MM-DD
+  cuit: number;
+  ptoVta: number;
+  tipoCmp: number; // código AFIP de comprobante
+  nroCmp: number;
+  importe: number; // en pesos, con decimales
+  moneda: "PES";
+  ctz: 1;
+  tipoDocRec: number;
+  nroDocRec: number;
+  tipoCodAut: "E"; // E = CAE
+  codAut: number;
+}
+
+export function qrArcaSvg(payload: PayloadQrArca): string {
+  const json = JSON.stringify({ ver: 1, ...payload });
+  const url = `https://www.afip.gob.ar/fe/qr/?p=${btoa(json)}`;
+  const qr = qrcode(0, "M");
+  qr.addData(url);
+  qr.make();
+  return qr.createSvgTag({ scalable: true });
+}

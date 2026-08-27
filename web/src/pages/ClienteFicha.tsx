@@ -10,6 +10,13 @@ import { waEstadoDeCuenta, waRecordatorioDeuda } from "../lib/whatsapp";
 import { navegar } from "../lib/router";
 import { qrClienteSvg } from "../lib/qr";
 import { useModulo } from "../lib/config";
+import { useFacturacionLista } from "../lib/facturacion";
+
+const ETIQUETA_CONDICION_IVA: Record<string, string> = {
+  responsable_inscripto: "Responsable Inscripto",
+  monotributo: "Monotributista",
+  exento: "Exento",
+};
 
 export function ClienteFicha({ id }: { id: string }) {
   const [editar, setEditar] = useState(false);
@@ -21,6 +28,7 @@ export function ClienteFicha({ id }: { id: string }) {
   const [archivar, setArchivar] = useState(false);
   const [verQr, setVerQr] = useState(false);
   const hayVentaRapida = useModulo("venta_rapida");
+  const hayFacturacion = useFacturacionLista().listo;
   const [aviso, setAviso] = useState<string | null>(null);
 
   const { data, error, cargando, recargar } = useCarga<any>(() => api.get(`/api/clientes/${id}`), [id]);
@@ -102,6 +110,12 @@ export function ClienteFicha({ id }: { id: string }) {
             <dt>Dirección</dt><dd>{c.direccion ?? "—"}</dd>
             <dt>Teléfono</dt><dd>{c.telefono ?? "—"}</dd>
             <dt>Email</dt><dd>{c.email ?? "—"}</dd>
+            {hayFacturacion && (
+              <>
+                <dt>Documento</dt><dd>{c.doc_tipo ? `${c.doc_tipo} ${c.doc_numero}` : "Consumidor final"}</dd>
+                <dt>Condición IVA</dt><dd>{ETIQUETA_CONDICION_IVA[c.condicion_iva ?? ""] ?? "Sin especificar"}</dd>
+              </>
+            )}
             <dt>Notas</dt><dd>{c.notas ?? "—"}</dd>
           </dl>
         </div>

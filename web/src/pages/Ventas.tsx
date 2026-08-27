@@ -3,9 +3,14 @@ import { api } from "../api";
 import { pesos, fecha } from "../format";
 import { Cargando, Error, Vacio, Confirmar, useCarga } from "../components/ui";
 import { Comprobante } from "../components/Comprobante";
+import { ComprobanteFiscal } from "../components/ComprobanteFiscal";
+import { EmitirFacturaModal } from "../components/EmitirFacturaModal";
 import { DetalleVentaModal } from "../components/DetalleVentaModal";
 import { ReporteVentasPDF } from "../components/ReporteVentasPDF";
 import { navegar } from "../lib/router";
+import { useFacturacionLista } from "../lib/facturacion";
+
+const LETRA_POR_TIPO: Record<number, string> = { 1: "A", 6: "B", 11: "C" };
 
 export function Ventas() {
   const [desde, setDesde] = useState("");
@@ -13,9 +18,15 @@ export function Ventas() {
   const [clienteId, setClienteId] = useState("");
   const [anular, setAnular] = useState<any | null>(null);
   const [comprobante, setComprobante] = useState<string | null>(null);
+  const [comprobanteFiscal, setComprobanteFiscal] = useState<string | null>(null);
+  const [emitirFactura, setEmitirFactura] = useState<string | null>(null);
+  const [notaCredito, setNotaCredito] = useState<any | null>(null);
   const [detalle, setDetalle] = useState<string | null>(null);
   const [mostrarPDF, setMostrarPDF] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
+  // El módulo prendido no alcanza: sin certificado cargado no se puede
+  // facturar, así que el botón no se ofrece.
+  const tieneFacturacion = useFacturacionLista().listo;
 
   const qs = new URLSearchParams();
   if (desde) qs.set("desde", desde);
@@ -34,6 +45,16 @@ export function Ventas() {
       setAviso(`Venta #${anular.numero} anulada.`);
       recargar();
     } catch (err: any) { setAviso(err.message); setAnular(null); }
+  }
+
+  async function hacerNotaCredito() {
+    if (!notaCredito) return;
+    try {
+      const r = await api.post<{ cae: string }>(`/api/facturacion/ventas/${notaCredito.id}/nota-credito`);
+      setNotaCredito(null);
+      setAviso(`Venta #${notaCredito.numero} anulada con Nota de Crédito (CAE ${r.cae}).`);
+      recargar();
+    } catch (err: any) { setAviso(err.message); setNotaCredito(null); }
   }
 
   const hayFiltro = desde || hasta || clienteId;
@@ -90,8 +111,24 @@ export function Ventas() {
                     <td className="acc">
                       <div className="btn-grupo" style={{ justifyContent: "flex-end" }}>
                         <button className="btn chico" onClick={() => setDetalle(v.id)}>Detalle</button>
-                        <button className="btn chico" onClick={() => setComprobante(v.id)}>Comprobante</button>
-                        {v.estado !== "anulada" && <button className="btn chico peligro" onClick={() => setAnular(v)}>Anular</button>}
+                        {v.factura_estado === "autorizada" ? (
+                          <>
+                            <span className="badge pagada">Fact. {LETRA_POR_TIPO[v.factura_tipo] ?? ""}</span>
+                            <button className="btn chico" onClick={() => setComprobanteFiscal(v.id)}>Factura</button>
+                          </>
+                        ) : (
+                          <button className="btn chico" onClick={() => setComprobante(v.id)}>Comprobante</button>
+                        )}
+                        {tieneFacturacion && v.estado !== "anulada" && v.factura_estado !== "autorizada" && (
+                          <button className="btn chico" onClick={() => setEmitirFactura(v.id)}>Facturar</button>
+                        )}
+                        {v.estado !== "anulada" && (
+                          v.factura_estado === "autorizada" ? (
+                            <button className="btn chico peligro" onClick={() => setNotaCredito(v)}>Anular (NC)</button>
+                          ) : (
+                            <button className="btn chico peligro" onClick={() => setAnular(v)}>Anular</button>
+                          )
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -114,8 +151,21 @@ export function Ventas() {
                 </div>
                 <div className="tf-datos" style={{ marginTop: 8 }}>
                   <button className="btn chico" onClick={() => setDetalle(v.id)}>Detalle</button>
-                  <button className="btn chico" onClick={() => setComprobante(v.id)}>Comprobante</button>
-                  {v.estado !== "anulada" && <button className="btn chico peligro" onClick={() => setAnular(v)}>Anular</button>}
+                  {v.factura_estado === "autorizada" ? (
+                    <button className="btn chico" onClick={() => setComprobanteFiscal(v.id)}>Factura {LETRA_POR_TIPO[v.factura_tipo] ?? ""}</button>
+                  ) : (
+                    <button className="btn chico" onClick={() => setComprobante(v.id)}>Comprobante</button>
+                  )}
+                  {tieneFacturacion && v.estado !== "anulada" && v.factura_estado !== "autorizada" && (
+                    <button className="btn chico" onClick={() => setEmitirFactura(v.id)}>Facturar</button>
+                  )}
+                  {v.estado !== "anulada" && (
+                    v.factura_estado === "autorizada" ? (
+                      <button className="btn chico peligro" onClick={() => setNotaCredito(v)}>Anular (NC)</button>
+                    ) : (
+                      <button className="btn chico peligro" onClick={() => setAnular(v)}>Anular</button>
+                    )
+                  )}
                 </div>
               </div>
             ))}
@@ -125,6 +175,13 @@ export function Ventas() {
 
       {detalle && <DetalleVentaModal ventaId={detalle} onCerrar={() => setDetalle(null)} />}
       {comprobante && <Comprobante ventaId={comprobante} onCerrar={() => setComprobante(null)} />}
+      {comprobanteFiscal && <ComprobanteFiscal ventaId={comprobanteFiscal} onCerrar={() => setComprobanteFiscal(null)} />}
+      {emitirFactura && (
+        <EmitirFacturaModal
+          ventaId={emitirFactura}
+          onCerrar={(mensaje) => { setEmitirFactura(null); if (mensaje) { setAviso(mensaje); recargar(); } }}
+        />
+      )}
       {mostrarPDF && (
         <ReporteVentasPDF
           desde={desde}
@@ -137,6 +194,12 @@ export function Ventas() {
       {anular && (
         <Confirmar mensaje={`¿Anular la venta #${anular.numero} de ${anular.cliente_nombre} por ${pesos(anular.total)}? Devuelve el stock y libera los pagos.`}
           textoConfirmar="Anular venta" peligro onSi={hacerAnular} onNo={() => setAnular(null)} />
+      )}
+      {notaCredito && (
+        <Confirmar
+          mensaje={`La venta #${notaCredito.numero} de ${notaCredito.cliente_nombre} ya tiene una factura con CAE. Para anularla se emite una Nota de Crédito por ${pesos(notaCredito.total)} y recién después se devuelve el stock y se liberan los pagos. ¿Confirmás?`}
+          textoConfirmar="Emitir Nota de Crédito y anular" peligro onSi={hacerNotaCredito} onNo={() => setNotaCredito(null)}
+        />
       )}
     </div>
   );

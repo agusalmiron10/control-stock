@@ -63,6 +63,7 @@ function sesion(nombre) {
 const IGUALES = {
   producto: { codigo: "MISMO-001", nombre: "Producto de prueba", precio: 100000, stock: 50 },
   cliente: { nombre: "Juan Pérez", telefono: "1122334455" },
+  proveedor: { nombre: "Distribuidora Repetida" },
   usuario: "admin",
   clave: "prueba1234",
 };
@@ -93,7 +94,21 @@ async function cargarDatos(s, sufijo) {
   const pago = await s.post("/api/pagos", { cliente_id: cli.datos.id, monto: 5000, medio: "efectivo" });
   if (pago.status !== 200) throw new Error(`pago (${s.nombre}): ${JSON.stringify(pago.datos)}`);
 
-  return { cliente: cli.datos.id, producto: prod.datos.id, venta: venta.datos.id, pago: pago.datos.id };
+  // Compras: el mismo proveedor (mismo nombre) en los dos negocios, para que
+  // el UNIQUE de proveedores tenga que estar scopeado por negocio.
+  const prov = await s.post("/api/compras/proveedores", { nombre: IGUALES.proveedor.nombre });
+  if (prov.status !== 200) throw new Error(`proveedor (${s.nombre}): ${JSON.stringify(prov.datos)}`);
+
+  const compra = await s.post("/api/compras", {
+    proveedor_id: prov.datos.id,
+    items: [{ herramienta_id: prod.datos.id, cantidad: 3, costo_unitario: 12345 }],
+  });
+  if (compra.status !== 200) throw new Error(`compra (${s.nombre}): ${JSON.stringify(compra.datos)}`);
+
+  return {
+    cliente: cli.datos.id, producto: prod.datos.id, venta: venta.datos.id, pago: pago.datos.id,
+    proveedor: prov.datos.id, compra: compra.datos.id,
+  };
 }
 
 const marca = Date.now().toString(36);
@@ -117,21 +132,41 @@ ok(`negocio A creado: ${A.codigo}`);
 ok(`negocio B creado: ${B.codigo}`);
 
 // ── 2. Los dos dueños se llaman "admin" y conviven ─────────────
-console.log("\n2) Login de cada dueño (los dos se llaman \"admin\")");
+// El login ya no pide código: como comparten usuario Y contraseña, el
+// servidor tiene que ofrecer un selector — y elegir a mano completa el login.
+console.log("\n2) Login de cada dueño (los dos se llaman \"admin\", misma contraseña)");
 const a = sesion("A");
 const b = sesion("B");
-const la = await a.post("/api/auth/login", { usuario: IGUALES.usuario, password: IGUALES.clave, negocio: A.codigo });
-const lb = await b.post("/api/auth/login", { usuario: IGUALES.usuario, password: IGUALES.clave, negocio: B.codigo });
-chequear(la.status === 200, "el dueño de A entra con su código de negocio", JSON.stringify(la.datos));
-chequear(lb.status === 200, "el dueño de B entra con su código de negocio", JSON.stringify(lb.datos));
 
-const sinCodigo = sesion("sin");
-const lsc = await sinCodigo.post("/api/auth/login", { usuario: IGUALES.usuario, password: IGUALES.clave });
-chequear(lsc.status === 401, "sin código de negocio, \"admin\" NO entra", `status ${lsc.status}`);
+const primerIntento = await a.post("/api/auth/login", { usuario: IGUALES.usuario, password: IGUALES.clave });
+chequear(
+  primerIntento.status === 200 && primerIntento.datos.eligeNegocio === true && primerIntento.datos.opciones?.length >= 2,
+  "usuario+contraseña ambiguos: el servidor ofrece elegir negocio",
+  JSON.stringify(primerIntento.datos)
+);
+
+async function loginEnNegocio(s, negocio) {
+  return s.post("/api/auth/login", { usuario: IGUALES.usuario, password: IGUALES.clave, negocio_id: negocio.id });
+}
+
+const la = await loginEnNegocio(a, A);
+const lb = await loginEnNegocio(b, B);
+chequear(la.status === 200, "el dueño de A entra eligiendo su negocio", JSON.stringify(la.datos));
+chequear(lb.status === 200, "el dueño de B entra eligiendo su negocio", JSON.stringify(lb.datos));
 
 const cruzado = sesion("cruzado");
-const lcr = await cruzado.post("/api/auth/login", { usuario: IGUALES.usuario, password: IGUALES.clave, negocio: "no-existe-" + marca });
-chequear(lcr.status === 401, "con un código de negocio inexistente, no entra", `status ${lcr.status}`);
+const lcr = await cruzado.post("/api/auth/login", { usuario: IGUALES.usuario, password: IGUALES.clave, negocio_id: "00000000-no-existe-" + marca });
+chequear(lcr.status === 401, "con un negocio_id inexistente, no entra", `status ${lcr.status}`);
+
+// Los módulos los prende sólo el proveedor. Se encienden acá, antes de cargar
+// datos, porque compras hace falta para el alta de proveedores y compras.
+for (const negocio of [A, B]) {
+  const detalle = (await sup.get(`/api/super/negocios/${negocio.id}`)).datos;
+  await sup.put(`/api/super/negocios/${negocio.id}/modulos`, {
+    modulos: { ...detalle.modulos, auditoria: true, compras: true },
+  });
+}
+ok("auditoría y compras activadas en los dos negocios para la prueba");
 
 // ── 3. Datos idénticos en los dos ──────────────────────────────
 console.log("\n3) Cargo datos idénticos en los dos negocios");
@@ -158,15 +193,11 @@ const LISTADOS = [
   ["/api/presupuestos", "presupuestos"],
 ];
 
-// La auditoría viene apagada en el preset de ferretería. La prendo a mano
-// porque el registro de quién entró a mirar los datos hay que probarlo igual.
-for (const s of [a, b]) {
-  const cfg = (await s.get("/api/config")).datos;
-  const activos = Object.entries(cfg.modulos ?? {}).filter(([, v]) => v).map(([k]) => k);
-  await s.put("/api/config", { ...cfg, modulos: { ...cfg.modulos, auditoria: true } });
-  if (!activos.includes("auditoria")) ok(`auditoría activada en ${s.nombre} para la prueba`);
-}
-LISTADOS.push(["/api/auditoria", "auditoria"]);
+LISTADOS.push(
+  ["/api/auditoria", "auditoria"],
+  ["/api/compras", "compras"],
+  ["/api/compras/proveedores", "proveedores"]
+);
 const idsB = new Set(Object.values(datosB));
 for (const [ruta, campo] of LISTADOS) {
   const r = await a.get(ruta);
@@ -183,6 +214,7 @@ const AJENOS = [
   [`/api/clientes/${datosB.cliente}`, "cliente"],
   [`/api/herramientas/${datosB.producto}`, "producto"],
   [`/api/ventas/${datosB.venta}`, "venta"],
+  [`/api/compras/${datosB.compra}`, "registro de compra"],
 ];
 for (const [ruta, que] of AJENOS) {
   const r = await a.get(ruta);
@@ -196,6 +228,12 @@ chequear(mod.status === 404, "A no puede editar el cliente de B", `devolvió ${m
 
 const bor = await a.del(`/api/herramientas/${datosB.producto}`);
 chequear(bor.status === 404, "A no puede borrar el producto de B", `devolvió ${bor.status}`);
+
+const modProv = await a.put(`/api/compras/proveedores/${datosB.proveedor}`, { nombre: "HACKEADO" });
+chequear(modProv.status === 404, "A no puede editar el proveedor de B", `devolvió ${modProv.status}`);
+
+const anulComp = await a.post(`/api/compras/${datosB.compra}/anular`, {});
+chequear(anulComp.status === 404, "A no puede anular la compra de B", `devolvió ${anulComp.status}`);
 
 const compB = await b.get(`/api/clientes/${datosB.cliente}`);
 chequear(
@@ -291,9 +329,7 @@ chequear(supFuera.status === 409, "al salir, el super admin vuelve a no tener ne
 console.log("\n12) Suspensión de un cliente");
 await sup.put(`/api/super/negocios/${B.id}`, { nombre: B.nombre, estado: "suspendido" });
 const bSuspendido = sesion("B-susp");
-const lbs = await bSuspendido.post("/api/auth/login", {
-  usuario: IGUALES.usuario, password: IGUALES.clave, negocio: B.codigo,
-});
+const lbs = await loginEnNegocio(bSuspendido, B);
 chequear(lbs.status === 403, "un negocio suspendido no puede entrar", `devolvió ${lbs.status}`);
 
 const laDespues = await a.get("/api/clientes");

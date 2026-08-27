@@ -4,6 +4,7 @@ import { HttpError, texto, entero, fechaISO, enumerado, boolOpt, uuid, uuidOpt }
 import { estadoDeCuenta, estadoDeCuentaTodos } from "../cuenta";
 import { auditar } from "../auditoria";
 import { negocioDe } from "../types";
+import { armarAnulacionVenta } from "../ventas-anular";
 
 export const ventas = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -33,12 +34,18 @@ ventas.get("/", async (c) => {
   cond.unshift("v.negocio_id = ?");
   args.unshift(neg);
   const rows = await c.env.DB.prepare(
-    `SELECT v.*, cl.nombre AS cliente_nombre FROM ventas v
+    `SELECT v.*, cl.nombre AS cliente_nombre, f.estado AS factura_estado, f.tipo_comprobante AS factura_tipo
+     FROM ventas v
      JOIN clientes cl ON cl.id = v.cliente_id
+     LEFT JOIN facturas f ON f.id = (
+       SELECT id FROM facturas
+       WHERE negocio_id = v.negocio_id AND venta_id = v.id AND factura_original_id IS NULL
+       ORDER BY (estado = 'autorizada') DESC, creado_en DESC LIMIT 1
+     )
      WHERE ${cond.join(" AND ")} ORDER BY v.fecha DESC, v.numero DESC`
   )
     .bind(...args)
-    .all<Venta & { cliente_nombre: string }>();
+    .all<Venta & { cliente_nombre: string; factura_estado: string | null; factura_tipo: number | null }>();
 
   // Estado de pago: batch en 2 queries (evita N+1).
   const cuentas = await estadoDeCuentaTodos(c.env, neg);
@@ -290,44 +297,21 @@ ventas.post("/:id/anular", async (c) => {
   if (!venta) throw new HttpError(404, "Venta no encontrada.");
   if (venta.estado === "anulada") throw new HttpError(400, "La venta ya está anulada.");
 
-  const items = await c.env.DB.prepare(`SELECT * FROM venta_items WHERE negocio_id = ? AND venta_id = ?`)
+  const factura = await c.env.DB
+    .prepare(
+      `SELECT id, estado FROM facturas
+       WHERE negocio_id = ? AND venta_id = ? AND factura_original_id IS NULL AND estado = 'autorizada'`
+    )
     .bind(neg, id)
-    .all<VentaItem>();
-
-  const fecha = hoy();
-
-  // Reponer stock por herramienta (agregando renglones repetidos).
-  const devolverPorH = new Map<string, number>();
-  for (const it of items.results ?? []) {
-    devolverPorH.set(it.herramienta_id, (devolverPorH.get(it.herramienta_id) ?? 0) + it.cantidad);
-  }
-
-  const stmts: D1PreparedStatement[] = [];
-  stmts.push(
-    c.env.DB.prepare(`UPDATE ventas SET estado = 'anulada', necesita_revision = 0, motivo_revision = NULL
-                      WHERE negocio_id = ? AND id = ?`).bind(neg, id)
-  );
-
-  for (const [hid, cant] of devolverPorH) {
-    const h = await c.env.DB.prepare(`SELECT stock FROM herramientas WHERE negocio_id = ? AND id = ?`)
-      .bind(neg, hid)
-      .first<{ stock: number }>();
-    const resultante = (h?.stock ?? 0) + cant;
-    stmts.push(c.env.DB.prepare(`UPDATE herramientas SET stock = ? WHERE negocio_id = ? AND id = ?`)
-      .bind(resultante, neg, hid));
-    stmts.push(
-      c.env.DB.prepare(
-        `INSERT INTO movimientos_stock (negocio_id, herramienta_id, fecha, tipo, cantidad, stock_resultante, venta_id, motivo)
-         VALUES (?, ?, ?, 'anulacion', ?, ?, ?, 'Anulación de venta')`
-      ).bind(neg, hid, fecha, cant, resultante, id)
+    .first<{ id: string; estado: string }>();
+  if (factura) {
+    throw new HttpError(
+      409,
+      "Esta venta ya tiene una factura con CAE autorizada. Para anularla hay que emitir la Nota de Crédito desde Facturación."
     );
   }
 
-  // Liberar los pagos que estaban imputados a esta venta (pasan a cuenta → reimputan solos).
-  stmts.push(c.env.DB.prepare(`UPDATE pagos SET venta_id = NULL WHERE negocio_id = ? AND venta_id = ?`)
-    .bind(neg, id));
-  stmts.push(auditar(c.env, neg, c.get("usuario").usuario, "anular_venta", "venta", id, `Venta #${venta.numero} por $${(venta.total / 100).toFixed(2)}`));
-
+  const stmts = await armarAnulacionVenta(c.env, neg, c.get("usuario").usuario, venta);
   await c.env.DB.batch(stmts);
   return c.json({ ok: true });
 });

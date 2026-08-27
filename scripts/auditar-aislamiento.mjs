@@ -17,6 +17,9 @@ const TABLAS = [
   "clientes", "herramientas", "ventas", "venta_items", "pagos",
   "movimientos_stock", "precios_historial", "presupuestos", "presupuesto_items",
   "operaciones", "auditoria", "config", "resumenes_diarios", "usuarios",
+  "facturacion_config", "facturas",
+  "proveedores", "compras", "compra_items",
+  "remitos", "remito_items",
 ];
 
 /**

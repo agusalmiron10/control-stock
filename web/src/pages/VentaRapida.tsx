@@ -2,7 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { pesos, aCentavos, aPesos, hoyISO } from "../format";
 import { obtenerClientes, obtenerHerramientas } from "../offline/listas";
 import { agregarClienteReciente, leerClientesRecientes } from "../offline/cache";
-import { encolarOperacion } from "../offline/sync";
+import { api } from "../api";
+import { encolarOperacion, calcularEstado } from "../offline/sync";
+import { useFacturacionLista } from "../lib/facturacion";
+import { EmitirFacturaModal } from "../components/EmitirFacturaModal";
 import { waVenta } from "../lib/whatsapp";
 import { navegar } from "../lib/router";
 import { Cargando } from "../components/ui";
@@ -28,9 +31,13 @@ export function VentaRapida() {
   const [cobre, setCobre] = useState<"nada" | "todo" | "mitad" | "libre">("nada");
   const [montoLibre, setMontoLibre] = useState("");
   const [guardando, setGuardando] = useState(false);
-  const [guardada, setGuardada] = useState<{ cliente: any; items: ItemCarrito[]; total: number; pagado: number } | null>(null);
+  const [guardada, setGuardada] = useState<{ cliente: any; items: ItemCarrito[]; total: number; pagado: number; id: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [escaneando, setEscaneando] = useState(false);
+  const [facturable, setFacturable] = useState<string | null>(null);
+  const [facturando, setFacturando] = useState(false);
+  const [avisoFactura, setAvisoFactura] = useState<string | null>(null);
+  const facturacion = useFacturacionLista();
 
   useEffect(() => {
     (async () => {
@@ -86,6 +93,21 @@ export function VentaRapida() {
     elegirCliente(cid);
   }
 
+  /** Consumidor Final del negocio, para el mostrador. Necesita señal la
+   *  primera vez (hay que crearlo); después ya queda en la lista de clientes. */
+  async function elegirMostrador() {
+    const enLista = clientes.find((c: any) => c.es_consumidor_final);
+    if (enLista) { elegirCliente(enLista.id); setCobre("todo"); return; }
+    try {
+      const cf = await api.get<{ id: string; nombre: string }>("/api/clientes/mostrador");
+      setClientes((arr) => (arr.some((x: any) => x.id === cf.id) ? arr : [...arr, { ...cf, es_consumidor_final: 1 }]));
+      elegirCliente(cf.id);
+      setCobre("todo");
+    } catch {
+      setError("Para usar el mostrador por primera vez hace falta señal. Elegí un cliente de la lista.");
+    }
+  }
+
   async function agregarClienteNuevo() {
     const nombre = buscarCliente.trim();
     if (!nombre) return;
@@ -125,6 +147,19 @@ export function VentaRapida() {
     setMontoLibre("");
     setGuardada(null);
     setError(null);
+    setFacturable(null);
+    setFacturando(false);
+    setAvisoFactura(null);
+  }
+
+  /** Espera (poco) a que la venta llegue al servidor para poder facturarla. */
+  async function esperarSincronizacion(ventaId: string): Promise<void> {
+    for (let i = 0; i < 15; i++) {
+      const e = await calcularEstado();
+      if (e.pendientes === 0 && e.online) { setFacturable(ventaId); return; }
+      if (!e.online) return; // sin señal no se factura: se hace después
+      await new Promise((r) => setTimeout(r, 1000));
+    }
   }
 
   async function guardar() {
@@ -143,7 +178,11 @@ export function VentaRapida() {
     try {
       await encolarOperacion("venta", id, payload);
       await agregarClienteReciente(clienteId);
-      setGuardada({ cliente, items: carrito, total, pagado });
+      setGuardada({ cliente, items: carrito, total, pagado, id });
+      // Facturar necesita que la venta ya esté en el servidor. Como acá se
+      // guarda contra la cola (para que ande sin señal), se espera a que
+      // termine de sincronizar antes de ofrecer el botón de facturar.
+      if (facturacion.listo) void esperarSincronizacion(id);
     } catch (err: any) {
       setError(err.message ?? "No se pudo guardar. Probá de nuevo.");
     } finally {
@@ -159,6 +198,7 @@ export function VentaRapida() {
         <div className="ok-box">
           Venta guardada. {deCache ? "Se sincroniza sola cuando vuelva la señal." : "Sincronizando…"}
         </div>
+        {avisoFactura && <div className="ok-box">{avisoFactura}</div>}
         <div className="card">
           <div className="card-body">
             <p><b>{guardada.cliente?.nombre ?? "Cliente"}</b></p>
@@ -185,9 +225,19 @@ export function VentaRapida() {
               WhatsApp: mandar resumen
             </button>
           )}
+          {facturable && !avisoFactura && (
+            <button className="btn" onClick={() => setFacturando(true)}>Facturar esta venta</button>
+          )}
           <button className="btn primario" onClick={nuevaVenta}>+ Nueva venta</button>
           <button className="btn" onClick={() => navegar("/panel")}>Terminar</button>
         </div>
+
+        {facturando && facturable && (
+          <EmitirFacturaModal
+            ventaId={facturable}
+            onCerrar={(mensaje) => { setFacturando(false); if (mensaje) setAvisoFactura(mensaje); }}
+          />
+        )}
       </div>
     );
   }
@@ -225,6 +275,10 @@ export function VentaRapida() {
                 )}
               </div>
               <div className="vr-lista-clientes">
+                {/* Para el que entra, paga y se va: no hay que inventarle una ficha. */}
+                <button className="vr-fila-cliente vr-nuevo" onClick={elegirMostrador}>
+                  Venta de mostrador (consumidor final)
+                </button>
                 {clientesFiltrados.length === 0 && <p className="mut">No hay clientes que coincidan.</p>}
                 {clientesFiltrados.map((c: any) => (
                   <button key={c.id} className="vr-fila-cliente" onClick={() => elegirCliente(c.id)}>{c.nombre}</button>

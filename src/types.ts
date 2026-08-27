@@ -6,6 +6,15 @@ export interface Env {
   ASSETS: Fetcher;
   SESSION_SECRET: string;
   BACKUPS: R2Bucket;
+  /** Cifra en reposo la clave privada del certificado ARCA (AES-256-GCM).
+   *  Queda del modelo anterior (un certificado por negocio); ya no se usa
+   *  para facturar, pero todavía lo importa certificados.ts. */
+  CERT_ENC_KEY: string;
+  /** Certificado del PROVEEDOR del sistema, en PEM. Uno solo para todos los
+   *  negocios: cada uno delega el servicio a este CUIT desde ARCA. */
+  ARCA_CERT_PEM: string;
+  /** Clave privada de ese certificado, en PEM. Nunca va a la base. */
+  ARCA_CLAVE_PEM: string;
 }
 
 export type Rol = "super" | "dueño" | "empleado" | "soporte";
@@ -66,6 +75,57 @@ export interface Cliente {
   longitud: number | null;
   activo: number;
   creado_en: string;
+  /** "CUIT" | "DNI" | null (consumidor final). Sólo obligatorio para Factura A. */
+  doc_tipo: string | null;
+  doc_numero: string | null;
+  condicion_iva: CondicionIva | null;
+}
+
+export type CondicionIva = "responsable_inscripto" | "monotributo" | "exento";
+
+export interface FacturacionConfig {
+  negocio_id: string;
+  activo: number;
+  cuit: string | null;
+  razon_social: string | null;
+  condicion_iva: CondicionIva | null;
+  punto_venta: number | null;
+  ambiente: "homologacion" | "produccion";
+  iva_porcentaje_defecto: number;
+  cert_pem: string | null;
+  clave_privada_enc: string | null;
+  clave_privada_iv: string | null;
+  cert_subido_en: string | null;
+  wsaa_token: string | null;
+  wsaa_sign: string | null;
+  wsaa_expira_en: string | null;
+  actualizado_en: string;
+}
+
+/** Código AFIP de tipo de comprobante. 1/6/11 = Factura A/B/C, 3/8/13 = NC A/B/C. */
+export type TipoComprobante = 1 | 3 | 6 | 8 | 11 | 13;
+
+export interface Factura {
+  id: string;
+  negocio_id: string;
+  venta_id: string;
+  factura_original_id: string | null;
+  tipo_comprobante: TipoComprobante;
+  punto_venta: number;
+  numero: number | null;
+  cae: string | null;
+  cae_vencimiento: string | null;
+  estado: "pendiente" | "autorizada" | "rechazada" | "error";
+  neto_gravado: number;
+  iva: number;
+  total: number;
+  iva_porcentaje: number;
+  doc_tipo: number;
+  doc_numero: string;
+  respuesta_afip: string | null;
+  observaciones: string | null;
+  creado_en: string;
+  autorizado_en: string | null;
 }
 
 export interface Herramienta {
@@ -81,6 +141,8 @@ export interface Herramienta {
   notas: string | null;
   activo: number;
   creado_en: string;
+  /** Override de alícuota de IVA (centésimas de punto: 2100 = 21,00%). Sin usar todavía. */
+  iva_porcentaje: number | null;
 }
 
 export type EstadoVenta = "borrador" | "sincronizada" | "confirmada" | "anulada";
@@ -191,4 +253,70 @@ export interface Operacion {
   entidad_id: string;
   resultado: string; // JSON serializado
   creado_en: string;
+}
+
+/** Proveedor al que este negocio le compra mercadería. */
+export interface Proveedor {
+  id: string;
+  negocio_id: string;
+  nombre: string;
+  telefono: string | null;
+  email: string | null;
+  direccion: string | null;
+  cuit: string | null;
+  notas: string | null;
+  activo: number;
+  creado_en: string;
+}
+
+/** Compra a un proveedor: sube el stock y recalcula el costo promedio. */
+export interface Compra {
+  id: string;
+  negocio_id: string;
+  numero: number;
+  proveedor_id: string;
+  fecha: string;
+  comprobante: string | null;
+  total: number;
+  nota: string | null;
+  estado: "registrada" | "anulada";
+  creado_en: string;
+}
+
+export interface CompraItem {
+  id: string;
+  negocio_id: string;
+  compra_id: string;
+  herramienta_id: string;
+  nombre_herramienta: string;
+  cantidad: number;
+  costo_unitario: number;
+  subtotal: number;
+}
+
+/** Remito: el papel que acompaña a la mercadería. Nace de una venta y no
+ *  toca el stock (ya se descontó al vender). Admite entregas parciales. */
+export interface Remito {
+  id: string;
+  negocio_id: string;
+  numero: number;
+  venta_id: string;
+  cliente_id: string;
+  fecha: string;
+  estado: "pendiente" | "entregado" | "anulado";
+  transporte: string | null;
+  domicilio: string | null;
+  recibido_por: string | null;
+  entregado_en: string | null;
+  nota: string | null;
+  creado_en: string;
+}
+
+export interface RemitoItem {
+  id: string;
+  negocio_id: string;
+  remito_id: string;
+  herramienta_id: string;
+  nombre_herramienta: string;
+  cantidad: number;
 }

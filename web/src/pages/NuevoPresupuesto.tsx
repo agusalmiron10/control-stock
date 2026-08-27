@@ -109,7 +109,7 @@ export function NuevoPresupuesto() {
 
       <div className="card">
         <h2>Renglones</h2>
-        <div className="tabla-wrap">
+        <div className="tabla-wrap solo-escritorio">
           <table className="tabla">
             <thead>
               <tr><th style={{ minWidth: 200 }}>Herramienta</th><th className="num">Cantidad</th><th className="num">Precio unit. ($)</th><th className="num">Subtotal</th><th></th></tr>
@@ -140,6 +140,33 @@ export function NuevoPresupuesto() {
             </tbody>
           </table>
         </div>
+
+        {/* En celular la tabla de 5 columnas no entra sin scroll horizontal
+            (el botón de quitar quedaba fuera de vista) — cada renglón pasa a
+            ser una mini-tarjeta con los campos apilados. */}
+        <div className="card-body solo-movil reng-lista">
+          {items.map((it, i) => {
+            const cant = Number(it.cantidad) || 0;
+            const sub = cant * aCentavos(it.precio || "0");
+            return (
+              <div className="reng-card" key={i}>
+                <div className="reng-card-fila">
+                  <select value={it.herramienta_id} onChange={(e) => elegirHerramienta(i, e.target.value)}>
+                    <option value="">Elegí…</option>
+                    {herramientas.map((hh) => <option key={hh.id} value={hh.id}>{hh.codigo} — {hh.nombre}</option>)}
+                  </select>
+                  <button className="btn chico" onClick={() => quitarReng(i)} disabled={items.length === 1}>Quitar</button>
+                </div>
+                <div className="reng-card-fila">
+                  <Campo label="Cantidad"><input className="num" type="number" min={1} value={it.cantidad} onChange={(e) => setItem(i, { cantidad: e.target.value })} /></Campo>
+                  <Campo label="Precio unit. ($)"><input className="num" type="number" step="0.01" min={0} value={it.precio} onChange={(e) => setItem(i, { precio: e.target.value })} /></Campo>
+                </div>
+                <div className="reng-card-subtotal">Subtotal <b>{pesos(sub)}</b></div>
+              </div>
+            );
+          })}
+        </div>
+
         <div className="card-body">
           <button className="btn" onClick={agregarReng}>+ Agregar renglón</button>
         </div>
@@ -164,7 +191,7 @@ export function NuevoPresupuesto() {
       </div>
 
       <div className="card">
-        <div className="card-body" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+        <div className="card-body totales-envio">
           <div className="dt-list" style={{ gridTemplateColumns: "auto auto" }}>
             <dt>Subtotal</dt><dd>{pesos(subtotal)}</dd>
             <dt>Descuento</dt><dd>{pesos(descuento)}</dd>

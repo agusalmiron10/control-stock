@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { api, ApiError } from "./api";
 import { useRuta, navegar } from "./lib/router";
 import { Auth } from "./pages/Auth";
@@ -9,6 +9,10 @@ import { ProductoFicha } from "./pages/ProductoFicha";
 import { Clientes } from "./pages/Clientes";
 import { ClienteFicha } from "./pages/ClienteFicha";
 import { Ventas } from "./pages/Ventas";
+import { Facturas } from "./pages/Facturas";
+import { Compras } from "./pages/Compras";
+import { Remitos } from "./pages/Remitos";
+import { Proveedores } from "./pages/Proveedores";
 import { NuevaVenta } from "./pages/NuevaVenta";
 import { MapaClientes } from "./pages/MapaClientes";
 import { VentaRapida } from "./pages/VentaRapida";
@@ -24,14 +28,14 @@ import { Reportes } from "./pages/Reportes";
 import { Ajustes } from "./pages/Ajustes";
 import { Auditoria } from "./pages/Auditoria";
 import type { Rol } from "./lib/rol";
-import { RolContext, esDueno } from "./lib/rol";
+import { RolContext, PermisosContext, esDueno } from "./lib/rol";
 import { SyncIndicator } from "./components/SyncIndicator";
 import { BuscadorGlobal } from "./components/BuscadorGlobal";
 import { iniciarSync } from "./offline/sync";
 import { guardarSesionCacheada, leerSesionCacheada, borrarSesionCacheada, asegurarCacheDelNegocio } from "./offline/cache";
 import { leerTema, aplicarTema, siguienteTema, type Tema } from "./lib/tema";
 import {
-  ConfigContext, CONFIG_INICIAL, setConfig, type ConfigNegocio, type Modulo,
+  ConfigContext, CONFIG_INICIAL, setConfig, moduloVisible, type ConfigNegocio, type Modulo,
 } from "./lib/config";
 
 const ICONO_TEMA: Record<Tema, string> = { claro: "☀️", oscuro: "🌙", auto: "🖥️" };
@@ -44,13 +48,19 @@ interface Estado {
   rol: Rol | null;
   /** El negocio de esta sesión. null = proveedor que todavía no entró a ninguno. */
   negocio: { id: string; nombre: string; codigo: string } | null;
+  /** Módulos que el dueño le habilitó a este usuario. null = sin restricción. */
+  modulosPermitidos: string[] | null;
+  /** Foto de perfil de ESTA sesión — cada usuario sube y borra la suya propia. */
+  foto: string | null;
 }
 
 /**
- * El menú se arma según los módulos activos de este negocio: una ferretería
- * no ve "Producción", un kiosko no ve "Presupuestos" ni "Cobranzas".
+ * El menú se arma según los módulos activos de este negocio (una ferretería
+ * no ve "Producción", un kiosko no ve "Presupuestos") Y según lo que el
+ * dueño le haya habilitado a este usuario en particular.
  */
-function construirNav(cfg: ConfigNegocio, esDueno: boolean): [string, string][] {
+function construirNav(cfg: ConfigNegocio, permisos: string[] | null, esDueno: boolean): [string, string][] {
+  const puede = (m: Modulo) => moduloVisible(cfg.modulos[m], permisos, m);
   const nav: [string, string][] = [
     ["/panel", "Panel"],
     ["/herramientas", cfg.vocabulario.producto_plural],
@@ -58,13 +68,16 @@ function construirNav(cfg: ConfigNegocio, esDueno: boolean): [string, string][] 
     ["/mapa-clientes", "Mapa"],
     ["/ventas", "Ventas"],
   ];
-  if (cfg.modulos.venta_rapida) nav.push(["/pendientes", "Pendientes"]);
-  if (cfg.modulos.presupuestos) nav.push(["/presupuestos", "Presupuestos"]);
+  if (puede("venta_rapida")) nav.push(["/pendientes", "Pendientes"]);
+  if (puede("presupuestos")) nav.push(["/presupuestos", "Presupuestos"]);
+  if (puede("remitos")) nav.push(["/remitos", "Remitos"]);
+  if (puede("facturacion_electronica")) nav.push(["/facturas", "Facturas"]);
   nav.push(["/pagos", "Pagos"]);
-  if (cfg.modulos.cuenta_corriente) nav.push(["/cobranzas", "Cobranzas"]);
-  if (cfg.modulos.produccion) nav.push(["/produccion", "Producción"]);
+  if (puede("cuenta_corriente")) nav.push(["/cobranzas", "Cobranzas"]);
+  if (puede("produccion")) nav.push(["/produccion", "Producción"]);
+  if (puede("compras")) nav.push(["/compras", "Compras"], ["/proveedores", "Proveedores"]);
   nav.push(["/reportes", "Reportes"], ["/ajustes", "Ajustes"]);
-  if (esDueno && cfg.modulos.auditoria) nav.push(["/auditoria", "Auditoría"]);
+  if (esDueno && puede("auditoria")) nav.push(["/auditoria", "Auditoría"]);
   return nav;
 }
 
@@ -75,6 +88,10 @@ const MODULO_DE_SECCION: Record<string, Modulo> = {
   cobranzas: "cuenta_corriente",
   produccion: "produccion",
   auditoria: "auditoria",
+  facturas: "facturacion_electronica",
+  remitos: "remitos",
+  compras: "compras",
+  proveedores: "compras",
 };
 
 export function App() {
@@ -82,7 +99,16 @@ export function App() {
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [tema, setTema] = useState<Tema>(() => leerTema());
   const [cfg, setCfg] = useState<ConfigNegocio>(CONFIG_INICIAL);
+  const [fotoAmpliada, setFotoAmpliada] = useState(false);
   const ruta = useRuta();
+
+  // Cerrar el visor de la foto con Escape, como cualquier ventana.
+  useEffect(() => {
+    if (!fotoAmpliada) return;
+    const alTeclear = (e: KeyboardEvent) => { if (e.key === "Escape") setFotoAmpliada(false); };
+    window.addEventListener("keydown", alTeclear);
+    return () => window.removeEventListener("keydown", alTeclear);
+  }, [fotoAmpliada]);
 
   /** La config define el menú y el vocabulario, así que se recarga al guardar en Ajustes. */
   const cargarConfig = useCallback(() => {
@@ -112,14 +138,15 @@ export function App() {
         setEstado(data);
         // Antes que nada: si cambió el negocio, la caché del anterior se tira.
         void asegurarCacheDelNegocio(data.negocio?.id ?? null);
-        if (data.authenticated && data.usuario && data.rol) void guardarSesionCacheada({ usuario: data.usuario, rol: data.rol, negocio: data.negocio });
-        else void borrarSesionCacheada();
+        if (data.authenticated && data.usuario && data.rol) {
+          void guardarSesionCacheada({ usuario: data.usuario, rol: data.rol, negocio: data.negocio, modulosPermitidos: data.modulosPermitidos, foto: data.foto });
+        } else void borrarSesionCacheada();
       })
       .catch(async (err) => {
         if (err instanceof ApiError) {
           // El servidor respondió: la sesión realmente no es válida (401).
           await borrarSesionCacheada();
-          setEstado({ needsSetup: false, authenticated: false, usuario: null, rol: null, negocio: null });
+          setEstado({ needsSetup: false, authenticated: false, usuario: null, rol: null, negocio: null, modulosPermitidos: null, foto: null });
           return;
         }
         // Sin red: no podemos confirmar la cookie contra el servidor. Si
@@ -128,8 +155,8 @@ export function App() {
         const cache = await leerSesionCacheada();
         setEstado(
           cache
-            ? { needsSetup: false, authenticated: true, usuario: cache.usuario, rol: cache.rol, negocio: cache.negocio ?? null }
-            : { needsSetup: false, authenticated: false, usuario: null, rol: null, negocio: null }
+            ? { needsSetup: false, authenticated: true, usuario: cache.usuario, rol: cache.rol, negocio: cache.negocio ?? null, modulosPermitidos: cache.modulosPermitidos ?? null, foto: cache.foto ?? null }
+            : { needsSetup: false, authenticated: false, usuario: null, rol: null, negocio: null, modulosPermitidos: null, foto: null }
         );
       });
   }, []);
@@ -161,6 +188,46 @@ export function App() {
     return () => window.removeEventListener("config-cambiada", onCambio);
   }, [cargarConfig]);
 
+  // La foto es la única cosa acá que un empleado puede cambiar él mismo —
+  // se refleja al toque en el sidebar, sin esperar a la próxima carga.
+  useEffect(() => {
+    const onFoto = () => cargarEstado();
+    window.addEventListener("foto-cambiada", onFoto);
+    return () => window.removeEventListener("foto-cambiada", onFoto);
+  }, [cargarEstado]);
+
+  // La barra de soporte va fija arriba (fuera del flujo), así que hay que
+  // reservarle el alto exacto. Se mide en vivo en vez de hardcodearlo: cambia
+  // si el texto se parte en dos líneas (celular) o si el nombre del negocio
+  // es largo. Va acá arriba, antes de cualquier return: los hooks tienen que
+  // ejecutarse siempre, y en el mismo orden, en todos los renders.
+  const barraSoporte = useRef<HTMLDivElement | null>(null);
+  const hayBarraSoporte = estado?.rol === "super" && !!estado?.negocio;
+  useEffect(() => {
+    const el = barraSoporte.current;
+    if (!hayBarraSoporte || !el) {
+      document.documentElement.style.removeProperty("--alto-soporte");
+      return;
+    }
+    const medir = () =>
+      document.documentElement.style.setProperty("--alto-soporte", `${el.offsetHeight}px`);
+    medir();
+    // Dos vías a propósito: ResizeObserver capta los cambios de alto que no
+    // vienen de la ventana (fuentes que cargan tarde, textos largos), pero no
+    // dispara en todos los navegadores cuando sólo cambia el viewport — y ahí
+    // es justamente cuando el texto pasa de una a dos líneas. El listener de
+    // resize cubre ese caso.
+    const obs = new ResizeObserver(medir);
+    obs.observe(el);
+    window.addEventListener("resize", medir);
+    window.addEventListener("orientationchange", medir);
+    return () => {
+      obs.disconnect();
+      window.removeEventListener("resize", medir);
+      window.removeEventListener("orientationchange", medir);
+    };
+  }, [hayBarraSoporte, estado?.negocio?.nombre]);
+
   async function salir() {
     await api.post("/api/auth/logout").catch(() => {});
     setEstado((e) => (e ? { ...e, authenticated: false } : e));
@@ -190,16 +257,17 @@ export function App() {
   }
 
   const base = "/" + (ruta.parts[0] ?? "panel");
-  const nav = construirNav(cfg, esDueno(estado.rol ?? "dueño"));
+  const nav = construirNav(cfg, estado.modulosPermitidos, esDueno(estado.rol ?? "dueño"));
 
   // Estoy mirando los datos de un cliente: tiene que quedar clarísimo, para
   // no confundir su negocio con el mío ni cargar algo en el lugar equivocado.
   const enSoporte = estado.rol === "super" && !!estado.negocio;
 
+
   return (
     <div className={`app ${enSoporte ? "modo-soporte" : ""}`}>
       {enSoporte && (
-        <div className="barra-soporte">
+        <div className="barra-soporte" ref={barraSoporte}>
           <span>Estás dentro de <strong>{estado.negocio!.nombre}</strong> como proveedor.</span>
           <button onClick={volverAProveedor}>Volver a mis clientes</button>
         </div>
@@ -219,7 +287,26 @@ export function App() {
       {menuAbierto && <div className="menu-fondo" onClick={() => setMenuAbierto(false)} />}
 
       <aside className={`sidebar ${menuAbierto ? "abierta" : ""}`}>
-        <div className="sidebar-marca">🔧 {cfg.negocio.nombre}</div>
+        {/* Arriba de todo: quién sos, con tu foto. Antes esto estaba abajo
+            del todo y había que buscarlo. */}
+        <div className="sidebar-cabecera">
+          {estado.foto ? (
+            <button
+              className="avatar-boton"
+              onClick={() => setFotoAmpliada(true)}
+              title="Ver la foto en grande"
+              aria-label="Ver tu foto de perfil en grande"
+            >
+              <img src={estado.foto} alt="" className="avatar" />
+            </button>
+          ) : (
+            <span className="avatar avatar-vacio">👤</span>
+          )}
+          <div className="sidebar-cabecera-txt">
+            <strong>{estado.usuario}</strong>
+            <span>{cfg.negocio.nombre}</span>
+          </div>
+        </div>
         <BuscadorGlobal />
         <nav>
           {nav.map(([path, label]) => (
@@ -233,9 +320,9 @@ export function App() {
           <button className="btn-tema" onClick={cambiarTema} title="Cambiar tema">
             {ICONO_TEMA[tema]} Tema: {LABEL_TEMA[tema]}
           </button>
+          {/* El usuario y su foto ahora van arriba; acá queda sólo el salir. */}
           <div className="usuario">
-            {estado.usuario}
-            <button onClick={salir}>Salir</button>
+            <button onClick={salir}>Cerrar sesión</button>
           </div>
         </div>
       </aside>
@@ -243,24 +330,35 @@ export function App() {
       <main className="contenido">
         <ConfigContext.Provider value={cfg}>
           <RolContext.Provider value={estado.rol ?? "dueño"}>
-            <Vista ruta={ruta} cfg={cfg} />
+            <PermisosContext.Provider value={estado.modulosPermitidos}>
+              <Vista ruta={ruta} cfg={cfg} permisos={estado.modulosPermitidos} />
+            </PermisosContext.Provider>
           </RolContext.Provider>
         </ConfigContext.Provider>
       </main>
+
+      {/* Visor de la foto de perfil: se cierra tocando en cualquier lado o con Escape. */}
+      {fotoAmpliada && estado.foto && (
+        <div className="foto-zoom" onClick={() => setFotoAmpliada(false)}>
+          <img src={estado.foto} alt="Tu foto de perfil" />
+          <button className="foto-zoom-cerrar" aria-label="Cerrar">✕</button>
+        </div>
+      )}
     </div>
   );
 }
 
-function Vista({ ruta, cfg }: { ruta: ReturnType<typeof useRuta>; cfg: ConfigNegocio }) {
+function Vista({ ruta, cfg, permisos }: { ruta: ReturnType<typeof useRuta>; cfg: ConfigNegocio; permisos: string[] | null }) {
   const [seccion, id, sub] = ruta.parts;
   const esMovil = useEsMovil();
 
-  // Si alguien entra por URL a una sección de un módulo apagado, no existe.
+  // Si alguien entra por URL a una sección apagada, o que no tiene habilitada, no existe.
   const moduloNecesario = seccion ? MODULO_DE_SECCION[seccion] : undefined;
+  const tieneAcceso = !moduloNecesario || moduloVisible(cfg.modulos[moduloNecesario], permisos, moduloNecesario);
   useEffect(() => {
-    if (moduloNecesario && !cfg.modulos[moduloNecesario]) navegar("/panel");
-  }, [moduloNecesario, cfg]);
-  if (moduloNecesario && !cfg.modulos[moduloNecesario]) return null;
+    if (!tieneAcceso) navegar("/panel");
+  }, [tieneAcceso]);
+  if (!tieneAcceso) return null;
 
   switch (seccion) {
     case undefined:
@@ -278,12 +376,20 @@ function Vista({ ruta, cfg }: { ruta: ReturnType<typeof useRuta>; cfg: ConfigNeg
       return <Pendientes />;
     case "presupuestos":
       return id === "nuevo" ? <NuevoPresupuesto /> : id ? <PresupuestoDetalle id={Number(id)} /> : <Presupuestos />;
+    case "facturas":
+      return <Facturas />;
+    case "remitos":
+      return <Remitos />;
     case "pagos":
       return <Pagos />;
     case "cobranzas":
       return <Cobranzas />;
     case "produccion":
       return <Produccion />;
+    case "compras":
+      return <Compras />;
+    case "proveedores":
+      return <Proveedores />;
     case "reportes":
       return <Reportes />;
     case "ajustes":

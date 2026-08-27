@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Env, Variables } from "../types";
 import { texto } from "../validate";
 import { requireDueno } from "../auth";
-import { leerConfig, MODULOS, type Modulo } from "../config";
+import { leerConfig } from "../config";
 import { auditar } from "../auditoria";
 import { negocioDe } from "../types";
 
@@ -40,7 +40,12 @@ config.put("/panel", requireDueno, async (c) => {
   return c.json({ ok: true });
 });
 
-/** Cambiar datos del negocio, vocabulario y módulos activos. Solo dueño. */
+/**
+ * Cambiar datos del negocio y vocabulario. Solo dueño.
+ * Los módulos NO se tocan acá a propósito: sólo el proveedor del sistema
+ * los prende o apaga, desde /api/super/negocios/:id/modulos — así ningún
+ * negocio se autohabilita algo que no le vendieron.
+ */
 config.put("/", requireDueno, async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const neg = negocioDe(c);
@@ -65,11 +70,6 @@ config.put("/", requireDueno, async (c) => {
   for (const [clave, valor, max] of campos) {
     if (valor === undefined) continue;
     guardar(clave, texto(valor, clave, { requerido: false, max }) ?? "");
-  }
-
-  if (b.modulos && typeof b.modulos === "object") {
-    const activos = MODULOS.filter((m: Modulo) => b.modulos[m] === true);
-    guardar("modulos", JSON.stringify(activos));
   }
 
   if (stmts.length > 0) {

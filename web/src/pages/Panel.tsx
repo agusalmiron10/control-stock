@@ -1,8 +1,11 @@
+import { useState } from "react";
 import { api } from "../api";
 import { pesos, numero, fecha } from "../format";
 import { Cargando, Error, useCarga } from "../components/ui";
 import { navegar } from "../lib/router";
 import { waResumenDiario } from "../lib/whatsapp";
+
+const STOCK_POR_PAGINA = 10;
 
 function Variacion({ actual, anterior }: { actual: number; anterior: number }) {
   if (!anterior) return null;
@@ -18,6 +21,7 @@ function Variacion({ actual, anterior }: { actual: number; anterior: number }) {
 export function Panel() {
   const { data, error, cargando } = useCarga<any>(() => api.get("/api/panel"), []);
   const resumenQ = useCarga<any>(() => api.get("/api/reportes/resumen-diario"), []);
+  const [paginaStock, setPaginaStock] = useState(1);
 
   if (cargando) return <Cargando />;
   if (error) return <Error msg={error} />;
@@ -27,6 +31,10 @@ export function Panel() {
     alta: "Alta", produccion: "Producción", venta: "Venta", ajuste: "Ajuste", anulacion: "Anulación",
   };
   const r = resumenQ.data?.resumen;
+
+  const alertaStock: any[] = data.herramientas_alerta ?? [];
+  const totalPaginasStock = Math.ceil(alertaStock.length / STOCK_POR_PAGINA);
+  const stockPaginado = alertaStock.slice((paginaStock - 1) * STOCK_POR_PAGINA, paginaStock * STOCK_POR_PAGINA);
 
   return (
     <div>
@@ -97,9 +105,9 @@ export function Panel() {
       </div>
 
       <div className="card">
-        <h2>Stock bajo o en cero</h2>
+        <h2>Stock bajo o en cero{alertaStock.length > 0 && ` (${alertaStock.length})`}</h2>
         <div className="tabla-wrap solo-escritorio">
-          {data.herramientas_alerta.length === 0 ? (
+          {alertaStock.length === 0 ? (
             <div className="vacio"><p>Todo el stock está por encima del mínimo.</p></div>
           ) : (
             <table className="tabla">
@@ -107,7 +115,7 @@ export function Panel() {
                 <tr><th>Código</th><th>Herramienta</th><th className="num">Stock</th><th className="num">Mínimo</th><th>Estado</th></tr>
               </thead>
               <tbody>
-                {data.herramientas_alerta.map((h: any) => (
+                {stockPaginado.map((h: any) => (
                   <tr key={h.id}>
                     <td className="num">{h.codigo}</td>
                     <td>{h.nombre}</td>
@@ -124,11 +132,11 @@ export function Panel() {
             </table>
           )}
         </div>
-        {data.herramientas_alerta.length === 0 ? (
+        {alertaStock.length === 0 ? (
           <div className="solo-movil"><div className="vacio"><p>Todo el stock está por encima del mínimo.</p></div></div>
         ) : (
           <div className="card-body solo-movil lista-tarjetas">
-            {data.herramientas_alerta.map((h: any) => (
+            {stockPaginado.map((h: any) => (
               <div className="tarjeta-fila" key={h.id}>
                 <div className="tf-titulo">{h.nombre} <span className="mut" style={{ fontWeight: 400 }}>· {h.codigo}</span></div>
                 <div className="tf-datos">
@@ -140,6 +148,13 @@ export function Panel() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+        {totalPaginasStock > 1 && (
+          <div className="card-body" style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "1rem", borderTop: "1px solid var(--borde)", padding: "16px" }}>
+            <button className="btn" disabled={paginaStock === 1} onClick={() => setPaginaStock((p) => p - 1)}>Anterior</button>
+            <span>Página <b>{paginaStock}</b> de {totalPaginasStock}</span>
+            <button className="btn" disabled={paginaStock === totalPaginasStock} onClick={() => setPaginaStock((p) => p + 1)}>Siguiente</button>
           </div>
         )}
       </div>

@@ -1,5 +1,5 @@
 import type { MiddlewareHandler } from "hono";
-import { negocioDe, type Env, type Variables } from "./types";
+import { negocioDe, esDuenoOSoporte, type Env, type Variables, type Rol } from "./types";
 import { HttpError } from "./validate";
 
 /**
@@ -20,12 +20,16 @@ export const MODULOS = [
   "precio_mayorista",
   /** Vender desde el celular en la calle, sin señal. */
   "venta_rapida",
+  /** El papel que acompaña la mercadería cuando sale. */
+  "remitos",
   /** Escanear productos por código de barras. */
   "codigo_barras",
   /** Apertura y cierre de caja por turno. */
   "caja_turno",
   /** Registro de quién hizo qué (tiene sentido con más de un usuario). */
   "auditoria",
+  /** Factura A/B/C con CAE real de ARCA, con Nota de Crédito al anular. */
+  "facturacion_electronica",
 ] as const;
 
 export type Modulo = (typeof MODULOS)[number];
@@ -82,15 +86,47 @@ export async function moduloActivo(env: Env, negocioId: string, modulo: Modulo):
   return cfg.modulos[modulo];
 }
 
+/** Lee la lista de módulos que el dueño le permitió a este usuario. null = sin restringir (ve todo lo activo). */
+export async function modulosPermitidos(env: Env, negocioId: string, uid: number): Promise<Modulo[] | null> {
+  const row = await env.DB.prepare(`SELECT modulos_permitidos FROM usuarios WHERE negocio_id = ? AND id = ?`)
+    .bind(negocioId, uid)
+    .first<{ modulos_permitidos: string | null }>();
+  if (!row?.modulos_permitidos) return null;
+  try {
+    const parsed = JSON.parse(row.modulos_permitidos);
+    return Array.isArray(parsed) ? parsed.filter((m): m is Modulo => MODULOS.includes(m)) : null;
+  } catch {
+    return null; // dato corrupto: mejor no restringir que romper el acceso
+  }
+}
+
+/**
+ * ¿Puede este usuario usar este módulo? El dueño, soporte y el proveedor
+ * siempre pueden — la restricción por módulo es sólo para empleados, y sólo
+ * si el dueño explícitamente les recortó la lista (por defecto ven todo lo
+ * que el negocio tiene activo, igual que siempre).
+ */
+export async function usuarioPuedeModulo(env: Env, negocioId: string, uid: number, rol: Rol, modulo: Modulo): Promise<boolean> {
+  if (esDuenoOSoporte(rol)) return true;
+  const permitidos = await modulosPermitidos(env, negocioId, uid);
+  return permitidos === null || permitidos.includes(modulo);
+}
+
 /**
  * Middleware: bloquea las rutas de un módulo que este negocio no tiene
- * activo. Devuelve 404 y no 403 a propósito — para esta instalación la
+ * activo, o que el dueño no le habilitó a este usuario en particular.
+ * Devuelve 404 y no 403 a propósito — para quien no tiene acceso, la
  * funcionalidad directamente no existe.
  */
 export function requireModulo(modulo: Modulo): MiddlewareHandler<{ Bindings: Env; Variables: Variables }> {
   return async (c, next) => {
-    if (!(await moduloActivo(c.env, negocioDe(c), modulo))) {
+    const neg = negocioDe(c);
+    if (!(await moduloActivo(c.env, neg, modulo))) {
       throw new HttpError(404, "Esta función no está activa en este negocio.");
+    }
+    const u = c.get("usuario");
+    if (!(await usuarioPuedeModulo(c.env, neg, u.uid, u.rol, modulo))) {
+      throw new HttpError(404, "No tenés acceso a esta función. Pedile al dueño que te lo habilite.");
     }
     await next();
   };

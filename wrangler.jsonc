@@ -47,6 +47,10 @@
     "enabled": true
   }
 
-  // El secreto de sesión NO va acá. Se carga con:
+  // Secretos que NO van acá. Se cargan con:
   //   wrangler secret put SESSION_SECRET
+  //   wrangler secret put CERT_ENC_KEY   (32 bytes al azar en base64 — cifra
+  //                                       la clave privada del certificado
+  //                                       ARCA de cada negocio, ver
+  //                                       src/facturacion/certificados.ts)
 }

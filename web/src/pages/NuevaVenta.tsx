@@ -3,6 +3,8 @@ import { api } from "../api";
 import { pesos, aCentavos, aPesos, hoyISO, numero } from "../format";
 import { Cargando, Error, Campo, Confirmar, useCarga } from "../components/ui";
 import { BuscadorCliente } from "../components/BuscadorCliente";
+import { FacturarTrasVenta } from "../components/FacturarTrasVenta";
+import { useFacturacionLista } from "../lib/facturacion";
 import { navegar } from "../lib/router";
 
 interface Reng { herramienta_id: string; cantidad: string; precio: string }
@@ -28,6 +30,8 @@ export function NuevaVenta() {
   const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
   const [confirmarNeg, setConfirmarNeg] = useState<string | null>(null);
+  const [ventaGuardada, setVentaGuardada] = useState<{ id: string; numero: number } | null>(null);
+  const facturacion = useFacturacionLista();
 
   const herramientas: any[] = herrQ.data?.herramientas ?? [];
   const hMap = useMemo(() => new Map(herramientas.map((h) => [String(h.id), h])), [herramientas]);
@@ -94,6 +98,19 @@ export function NuevaVenta() {
     return null;
   }
 
+  /** Elegir el Consumidor Final del negocio (se crea solo la primera vez) y
+   *  dejar el cobro en "paga todo", que es lo normal en el mostrador. */
+  async function elegirMostrador() {
+    try {
+      const cf = await api.get<{ id: string; nombre: string }>("/api/clientes/mostrador");
+      setClientesExtra((arr) => (arr.some((x) => x.id === cf.id) ? arr : [...arr, cf]));
+      setClienteId(cf.id);
+      setPagoModo("total");
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }
+
   async function enviar(force: boolean) {
     const v = validar();
     if (v) { setError(v); return; }
@@ -117,7 +134,10 @@ export function NuevaVenta() {
     if (pagoModo !== "nada" && pagoCent > 0) body.pago_inicial = { monto: pagoCent, medio: pagoMedio };
 
     try {
-      await api.post("/api/ventas", body);
+      const r = await api.post<{ id: string; numero: number }>("/api/ventas", body);
+      // Si el negocio factura, se ofrece hacerlo acá mismo en vez de tener que
+      // ir a buscar la venta después.
+      if (facturacion.listo) { setVentaGuardada(r); setGuardando(false); return; }
       navegar(`/clientes/${clienteId}`);
     } catch (err: any) {
       setError(err.message);
@@ -157,12 +177,16 @@ export function NuevaVenta() {
                 onElegir={setClienteId}
                 onClienteNuevo={(c) => setClientesExtra((arr) => [...arr, c])}
               />
+              {/* Para el que entra, paga y se va: no hay que inventarle una ficha. */}
+              <button type="button" className="btn chico" style={{ marginTop: 6 }} onClick={elegirMostrador}>
+                Venta de mostrador (consumidor final)
+              </button>
             </Campo>
             <Campo label="Fecha"><input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></Campo>
             <Campo label="Lista de precios">
               <select value={tipoPrecio} onChange={(e) => cambiarTipoPrecio(e.target.value as any)}>
-                <option value="minorista">Minorista (por menor)</option>
-                <option value="mayorista">Mayorista (por mayor)</option>
+                <option value="minorista">Minorista</option>
+                <option value="mayorista">Mayorista</option>
               </select>
             </Campo>
           </div>
@@ -256,7 +280,7 @@ export function NuevaVenta() {
       )}
 
       <div className="card">
-        <div className="card-body" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+        <div className="card-body totales-envio">
           <div className="dt-list" style={{ gridTemplateColumns: "auto auto" }}>
             <dt>Subtotal</dt><dd>{pesos(subtotal)}</dd>
             <dt>Descuento</dt><dd>{pesos(descuento)}</dd>
@@ -273,6 +297,10 @@ export function NuevaVenta() {
       {confirmarNeg && (
         <Confirmar mensaje={confirmarNeg} textoConfirmar="Vender igual" peligro
           onSi={() => enviar(true)} onNo={() => setConfirmarNeg(null)} />
+      )}
+
+      {ventaGuardada && (
+        <FacturarTrasVenta venta={ventaGuardada} onListo={() => navegar(`/clientes/${clienteId}`)} />
       )}
     </div>
   );

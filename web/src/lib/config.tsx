@@ -1,4 +1,5 @@
 import { createContext, useContext } from "react";
+import { usePermisos } from "./rol";
 
 export const MODULOS = [
   "cuenta_corriente",
@@ -7,9 +8,11 @@ export const MODULOS = [
   "presupuestos",
   "precio_mayorista",
   "venta_rapida",
+  "remitos",
   "codigo_barras",
   "caja_turno",
   "auditoria",
+  "facturacion_electronica",
 ] as const;
 
 export type Modulo = (typeof MODULOS)[number];
@@ -27,6 +30,10 @@ export const INFO_MODULOS: Record<Modulo, { titulo: string; detalle: string }> =
   compras: {
     titulo: "Compras y proveedores",
     detalle: "Para negocios que compran para revender: el stock sube al comprarle a un proveedor.",
+  },
+  remitos: {
+    titulo: "Remitos",
+    detalle: "El papel que acompaña la mercadería. Permite entregas parciales de una misma venta.",
   },
   presupuestos: {
     titulo: "Presupuestos",
@@ -51,6 +58,10 @@ export const INFO_MODULOS: Record<Modulo, { titulo: string; detalle: string }> =
   auditoria: {
     titulo: "Auditoría",
     detalle: "Registrar quién anuló, borró o modificó cada cosa. Útil con más de un usuario.",
+  },
+  facturacion_electronica: {
+    titulo: "Facturación electrónica (ARCA)",
+    detalle: "Emitir Factura A/B/C con CAE real desde una venta, con certificado digital propio de este negocio.",
   },
 };
 
@@ -87,9 +98,19 @@ export function useConfig(): ConfigNegocio {
   return useContext(ConfigContext);
 }
 
-/** ¿Está activo este módulo en este negocio? */
+/**
+ * ¿Puede esta sesión usar este módulo? Hace falta que el negocio lo tenga
+ * activo Y que el dueño no le haya recortado el acceso a este usuario en
+ * particular (permisos == null significa "sin restricción explícita").
+ */
+export function moduloVisible(activoEnNegocio: boolean, permisos: string[] | null, m: Modulo): boolean {
+  return activoEnNegocio && (permisos === null || permisos.includes(m));
+}
+
 export function useModulo(m: Modulo): boolean {
-  return useContext(ConfigContext).modulos[m];
+  const activo = useContext(ConfigContext).modulos[m];
+  const permisos = usePermisos();
+  return moduloVisible(activo, permisos, m);
 }
 
 /** Cómo llama este negocio a lo que vende ("Herramienta" / "Artículo" / "Producto"). */

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { pesos, numero, aCentavos, aPesos, hoyISO } from "../format";
 import { Cargando, Error, Vacio, Modal, Campo, Confirmar, useCarga } from "../components/ui";
+import { ImportarProductos } from "../components/ImportarProductos";
 import { exportarPrecios } from "../excel";
 import { waListaDePrecios } from "../lib/whatsapp";
 import { FormProduccion } from "../components/FormProduccion";
@@ -18,6 +19,7 @@ type Modo =
   | { t: "masivo" };
 
 export function Herramientas() {
+  const [importar, setImportar] = useState(false);
   const [buscar, setBuscar] = useState("");
   const [rubroF, setRubroF] = useState("");
   const [incluirArchivadas, setInclArch] = useState(false);
@@ -70,6 +72,7 @@ export function Herramientas() {
           </span>
         </div>
         <div className="btn-grupo">
+          <button className="btn" onClick={() => setImportar(true)}>⬆ Importar</button>
           <button className="btn" onClick={() => setModo({ t: "masivo" })}>% Ajuste masivo</button>
           <button className="btn wa" onClick={() => waListaDePrecios(data?.herramientas ?? [], "minorista")}>
             Compartir lista
@@ -80,6 +83,12 @@ export function Herramientas() {
           <button className="btn primario" onClick={() => setModo({ t: "nueva" })}>+ Nueva</button>
         </div>
       </div>
+
+      {importar && (
+        <ImportarProductos
+          onCerrar={(mensaje) => { setImportar(false); if (mensaje) { setAviso(mensaje); recargar(); } }}
+        />
+      )}
 
       {aviso && <div className="ok-box" onClick={() => setAviso(null)}>{aviso}</div>}
 

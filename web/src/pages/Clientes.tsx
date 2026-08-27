@@ -5,6 +5,7 @@ import { Cargando, Error, Vacio, Modal, Campo, useCarga } from "../components/ui
 import { navegar } from "../lib/router";
 import { exportarClientesTodos, exportarClientesContacto } from "../excel";
 import { ClientesPDF } from "../components/ClientesPDF";
+import { useModulo } from "../lib/config";
 
 export function Clientes() {
   const [buscar, setBuscar] = useState("");
@@ -130,11 +131,14 @@ export function Clientes() {
 
 export function FormCliente({ cliente, onCerrar }: { cliente?: any; onCerrar: (m?: string) => void }) {
   const editar = !!cliente;
+  const tieneFacturacion = useModulo("facturacion_electronica");
   const [f, setF] = useState({
     nombre: cliente?.nombre ?? "", localidad: cliente?.localidad ?? "",
     direccion: cliente?.direccion ?? "", telefono: cliente?.telefono ?? "",
     email: cliente?.email ?? "", notas: cliente?.notas ?? "",
     latitud: cliente?.latitud ?? "", longitud: cliente?.longitud ?? "",
+    doc_tipo: cliente?.doc_tipo ?? "", doc_numero: cliente?.doc_numero ?? "",
+    condicion_iva: cliente?.condicion_iva ?? "",
   });
   const [error, setError] = useState<string | null>(null);
   const [buscandoGps, setBuscandoGps] = useState(false);
@@ -200,6 +204,33 @@ export function FormCliente({ cliente, onCerrar }: { cliente?: any; onCerrar: (m
             <Campo label="Longitud"><input type="number" step="any" value={f.longitud} onChange={(e) => set("longitud", e.target.value)} placeholder="-58.3816" /></Campo>
           </div>
         </div>
+
+        {tieneFacturacion && (
+          <div style={{ padding: "10px", background: "var(--fondo-card)", borderRadius: "var(--radio)", border: "1px solid var(--borde)", marginBottom: "15px" }}>
+            <strong>Datos fiscales</strong>
+            <p className="mut" style={{ margin: "4px 0 10px" }}>Sólo hace falta el CUIT si le vas a emitir Factura A.</p>
+            <div className="fila" style={{ margin: 0 }}>
+              <Campo label="Documento">
+                <select value={f.doc_tipo} onChange={(e) => set("doc_tipo", e.target.value)}>
+                  <option value="">Consumidor final</option>
+                  <option value="CUIT">CUIT</option>
+                  <option value="DNI">DNI</option>
+                </select>
+              </Campo>
+              <Campo label="Número">
+                <input value={f.doc_numero} onChange={(e) => set("doc_numero", e.target.value)} disabled={!f.doc_tipo} />
+              </Campo>
+            </div>
+            <Campo label="Condición frente al IVA">
+              <select value={f.condicion_iva} onChange={(e) => set("condicion_iva", e.target.value)}>
+                <option value="">Sin especificar (consumidor final)</option>
+                <option value="responsable_inscripto">Responsable Inscripto</option>
+                <option value="monotributo">Monotributista</option>
+                <option value="exento">Exento</option>
+              </select>
+            </Campo>
+          </div>
+        )}
 
         <Campo label="Notas"><textarea rows={2} value={f.notas} onChange={(e) => set("notas", e.target.value)} /></Campo>
       </form>
