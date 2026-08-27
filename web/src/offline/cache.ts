@@ -34,6 +34,10 @@ export interface SesionCacheada {
   /** En qué negocio estaba: sin esto, al volver sin señal no se sabe de quién
    *  son los datos que quedaron en la caché. */
   negocio: { id: string; nombre: string; codigo: string } | null;
+  /** Módulos habilitados para este usuario. null = sin restricción. */
+  modulosPermitidos?: string[] | null;
+  /** Foto de perfil de este usuario, si se puso una. */
+  foto?: string | null;
 }
 
 /** Última sesión autenticada conocida — para poder entrar a la app sin

@@ -1,0 +1,12 @@
+-- Permisos por módulo, por usuario empleado. El dueño ya podía prender o
+-- apagar un módulo para todo el negocio (tabla config); esto agrega una
+-- segunda capa: dentro de los módulos que el negocio tiene activos, el dueño
+-- puede darle a cada empleado sólo los que necesita.
+--
+-- NULL = sin restricción explícita (ve todo lo que el negocio tenga activo,
+-- y sigue viéndolo automáticamente si el dueño activa un módulo nuevo — es
+-- el comportamiento de siempre, así ningún empleado existente pierde acceso
+-- de golpe con esta migración).
+-- Un JSON array = lista fija de nombres de módulo; un módulo nuevo que el
+-- negocio active después NO se agrega solo, el dueño lo tiene que sumar acá.
+ALTER TABLE usuarios ADD COLUMN modulos_permitidos TEXT;

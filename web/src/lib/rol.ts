@@ -17,3 +17,14 @@ export function useRol(): Rol {
 export function esDueno(rol: Rol): boolean {
   return rol === "dueño" || rol === "soporte" || rol === "super";
 }
+
+/**
+ * Módulos que el dueño le habilitó a esta sesión. null = sin restricción
+ * explícita (ve todo lo que el negocio tenga activo — el comportamiento de
+ * siempre). Sólo un empleado puede tener acá una lista fija.
+ */
+export const PermisosContext = createContext<string[] | null>(null);
+
+export function usePermisos(): string[] | null {
+  return useContext(PermisosContext);
+}
