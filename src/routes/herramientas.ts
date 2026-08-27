@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Env, Variables, Herramienta, MovimientoStock, PrecioHistorial } from "../types";
-import { HttpError, texto, entero, fechaISO, enumerado, boolOpt } from "../validate";
+import { HttpError, texto, entero, fechaISO, enumerado, boolOpt , normalizarBusqueda } from "../validate";
 import { auditar } from "../auditoria";
 import { requireModulo } from "../config";
 import { negocioDe } from "../types";
@@ -27,8 +27,9 @@ herramientas.get("/", async (c) => {
     .all<Herramienta>();
   let lista = rows.results ?? [];
   if (buscar) {
+    const q = normalizarBusqueda(buscar);
     lista = lista.filter(
-      (h) => h.nombre.toLowerCase().includes(buscar) || h.codigo.toLowerCase().includes(buscar)
+      (h) => normalizarBusqueda(h.nombre).includes(q) || normalizarBusqueda(h.codigo).includes(q)
     );
   }
   const rol = c.get("usuario").rol;
@@ -327,6 +328,203 @@ herramientas.post("/ajuste-masivo", async (c) => {
 });
 
 /** Rubros distintos (para filtros y ajuste masivo). */
+// ── Importación masiva ──────────────────────────────────────
+//
+// Dar de alta un negocio con 500 productos a mano es una tarde de tipeo, y es
+// lo que frena cada cliente nuevo. Acá entra la lista completa de una.
+//
+// El archivo se parsea en el navegador (ver Herramientas.tsx): acá llegan
+// filas ya separadas en columnas. Se hace en dos pasos —previsualizar y
+// confirmar— para que nadie le pise los precios a 500 productos sin ver antes
+// qué va a pasar.
+
+interface FilaImportada {
+  codigo: string;
+  nombre: string;
+  precio?: number;
+  precio_mayor?: number;
+  rubro?: string;
+  costo?: number;
+  stock?: number;
+  stock_minimo?: number;
+}
+
+interface FilaRevisada {
+  linea: number;
+  codigo: string;
+  nombre: string;
+  accion: "crear" | "actualizar" | "error";
+  motivo?: string;
+  datos?: FilaImportada;
+}
+
+/** Acepta "1234,50", "1234.50", "$ 1.234,50" y devuelve centavos. */
+function aCentavos(valor: unknown): number | null {
+  if (valor == null || valor === "") return null;
+  let t = String(valor).trim().replace(/[^0-9.,-]/g, "");
+  if (t === "") return null;
+  // Si tiene los dos separadores, el último es el decimal.
+  const ultimaComa = t.lastIndexOf(",");
+  const ultimoPunto = t.lastIndexOf(".");
+  if (ultimaComa >= 0 && ultimoPunto >= 0) {
+    const decimal = ultimaComa > ultimoPunto ? "," : ".";
+    const miles = decimal === "," ? "." : ",";
+    t = t.split(miles).join("").replace(decimal, ".");
+  } else if (ultimaComa >= 0) {
+    // Una sola coma: decimal si deja 1 o 2 dígitos ("1234,5"), si no es de miles.
+    t = t.length - ultimaComa - 1 <= 2 ? t.replace(",", ".") : t.split(",").join("");
+  }
+  const n = Number(t);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n * 100);
+}
+
+function aEntero(valor: unknown): number | null {
+  if (valor == null || valor === "") return null;
+  const n = Number(String(valor).trim().replace(/[^0-9-]/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Revisa las filas contra lo que ya existe, sin escribir nada. */
+async function revisarFilas(env: Env, neg: string, filas: any[]): Promise<FilaRevisada[]> {
+  const existentes = await env.DB
+    .prepare(`SELECT codigo FROM herramientas WHERE negocio_id = ?`)
+    .bind(neg)
+    .all<{ codigo: string }>();
+  // Mapea en minúsculas -> código real, para poder mostrar con cuál coincide.
+  const yaHay = new Map((existentes.results ?? []).map((h) => [h.codigo.toLowerCase(), h.codigo]));
+
+  const vistos = new Set<string>();
+  return filas.map((f, i): FilaRevisada => {
+    const linea = i + 1;
+    const codigo = String(f?.codigo ?? "").trim();
+    const nombre = String(f?.nombre ?? "").trim();
+
+    if (!codigo && !nombre) return { linea, codigo, nombre, accion: "error", motivo: "Fila vacía." };
+    if (!codigo) return { linea, codigo, nombre, accion: "error", motivo: "Le falta el código." };
+    if (!nombre) return { linea, codigo, nombre, accion: "error", motivo: "Le falta el nombre." };
+    if (codigo.length > 60) return { linea, codigo, nombre, accion: "error", motivo: "El código es demasiado largo." };
+
+    const clave = codigo.toLowerCase();
+    if (vistos.has(clave)) {
+      return { linea, codigo, nombre, accion: "error", motivo: "El código está repetido dentro del archivo." };
+    }
+    vistos.add(clave);
+
+    const datos: FilaImportada = {
+      codigo,
+      nombre: nombre.slice(0, 120),
+      precio: aCentavos(f?.precio) ?? undefined,
+      precio_mayor: aCentavos(f?.precio_mayor) ?? undefined,
+      costo: aCentavos(f?.costo) ?? undefined,
+      stock: aEntero(f?.stock) ?? undefined,
+      stock_minimo: aEntero(f?.stock_minimo) ?? undefined,
+      rubro: f?.rubro ? String(f.rubro).trim().slice(0, 60) : undefined,
+    };
+
+    const existente = yaHay.get(clave);
+    return {
+      linea, codigo, nombre, datos,
+      accion: existente ? "actualizar" : "crear",
+      // Si el código del archivo viene con otra capitalización, se avisa:
+      // "hacha" va a actualizar el producto cargado como "HACHA".
+      motivo: existente && existente !== codigo ? `Coincide con el código existente "${existente}".` : undefined,
+    };
+  });
+}
+
+/** Paso 1: mostrar qué va a pasar. No escribe nada. */
+herramientas.post("/importar/previsualizar", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const filas = Array.isArray(b.filas) ? b.filas : [];
+  if (filas.length === 0) throw new HttpError(400, "No llegó ninguna fila para importar.");
+  if (filas.length > 5000) throw new HttpError(400, "Son demasiadas filas de una. Partí el archivo en tandas de 5000.");
+
+  const revisadas = await revisarFilas(c.env, negocioDe(c), filas);
+  return c.json({
+    filas: revisadas,
+    resumen: {
+      crear: revisadas.filter((r) => r.accion === "crear").length,
+      actualizar: revisadas.filter((r) => r.accion === "actualizar").length,
+      error: revisadas.filter((r) => r.accion === "error").length,
+    },
+  });
+});
+
+/**
+ * Paso 2: escribir. Las filas con error se saltean (ya se avisaron en la
+ * previsualización); las demás se crean o se actualizan según el código.
+ *
+ * Al actualizar sólo se pisan las columnas que vienen en el archivo: si la
+ * planilla no trae stock, el stock que ya tenía queda como está. Si no fuera
+ * así, importar una lista de precios te borraría todo el stock.
+ */
+herramientas.post("/importar", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const filas = Array.isArray(b.filas) ? b.filas : [];
+  if (filas.length === 0) throw new HttpError(400, "No llegó ninguna fila para importar.");
+  if (filas.length > 5000) throw new HttpError(400, "Son demasiadas filas de una. Partí el archivo en tandas de 5000.");
+
+  const neg = negocioDe(c);
+  const revisadas = await revisarFilas(c.env, neg, filas);
+  const fecha = hoy();
+  const stmts: D1PreparedStatement[] = [];
+  let creados = 0;
+  let actualizados = 0;
+
+  for (const r of revisadas) {
+    if (r.accion === "error" || !r.datos) continue;
+    const d = r.datos;
+
+    if (r.accion === "crear") {
+      const id = crypto.randomUUID();
+      const stock = d.stock ?? 0;
+      stmts.push(
+        c.env.DB.prepare(
+          `INSERT INTO herramientas (id, negocio_id, codigo, nombre, precio, precio_mayor, rubro, costo, stock, stock_minimo)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(id, neg, d.codigo, d.nombre, d.precio ?? 0, d.precio_mayor ?? 0, d.rubro ?? null,
+               d.costo ?? 0, stock, d.stock_minimo ?? 0)
+      );
+      if (stock !== 0) {
+        stmts.push(
+          c.env.DB.prepare(
+            `INSERT INTO movimientos_stock (negocio_id, herramienta_id, fecha, tipo, cantidad, stock_resultante, motivo)
+             VALUES (?, ?, ?, 'alta', ?, ?, 'Stock inicial (importación)')`
+          ).bind(neg, id, fecha, stock, stock)
+        );
+      }
+      creados++;
+    } else {
+      // COALESCE: lo que no viene en el archivo se deja como estaba.
+      stmts.push(
+        c.env.DB.prepare(
+          `UPDATE herramientas SET
+             nombre = ?,
+             precio = COALESCE(?, precio),
+             precio_mayor = COALESCE(?, precio_mayor),
+             rubro = COALESCE(?, rubro),
+             costo = COALESCE(?, costo),
+             stock_minimo = COALESCE(?, stock_minimo)
+           WHERE negocio_id = ? AND codigo = ? COLLATE NOCASE`
+        ).bind(d.nombre, d.precio ?? null, d.precio_mayor ?? null, d.rubro ?? null,
+               d.costo ?? null, d.stock_minimo ?? null, neg, d.codigo)
+      );
+      actualizados++;
+    }
+  }
+
+  if (stmts.length === 0) throw new HttpError(400, "Ninguna fila del archivo se pudo importar. Revisá los errores.");
+
+  stmts.push(
+    auditar(c.env, neg, c.get("usuario").usuario, "importar_productos", "herramienta", null,
+      `${creados} creados, ${actualizados} actualizados`)
+  );
+  await c.env.DB.batch(stmts);
+
+  return c.json({ ok: true, creados, actualizados, omitidos: revisadas.filter((r) => r.accion === "error").length });
+});
+
 herramientas.get("/rubros", async (c) => {
   const rows = await c.env.DB.prepare(
     `SELECT DISTINCT rubro FROM herramientas
