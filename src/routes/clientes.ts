@@ -1,15 +1,28 @@
 import { Hono } from "hono";
 import type { Env, Variables, Cliente, Venta, Pago } from "../types";
-import { HttpError, texto, boolOpt, uuidOpt, decimalOpt } from "../validate";
+import { HttpError, texto, boolOpt, uuidOpt, decimalOpt, enumerado , normalizarBusqueda } from "../validate";
 import { estadoDeCuenta, estadoDeCuentaTodos } from "../cuenta";
 import { auditar } from "../auditoria";
 import { negocioDe } from "../types";
 
 export const clientes = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+const DOC_TIPOS = ["CUIT", "DNI"] as const;
+const CONDICIONES_IVA = ["responsable_inscripto", "monotributo", "exento"] as const;
+
+/** Campos fiscales del cliente: opcionales, sólo hacen falta para Factura A. */
+function camposFiscales(b: any) {
+  return {
+    doc_tipo: b.doc_tipo ? enumerado(b.doc_tipo, "tipo de documento", DOC_TIPOS) : null,
+    doc_numero: texto(b.doc_numero, "número de documento", { requerido: false, max: 20 }),
+    condicion_iva: b.condicion_iva ? enumerado(b.condicion_iva, "condición de IVA", CONDICIONES_IVA) : null,
+  };
+}
+
 /** Listado con saldo calculado. Filtros: buscar, localidad, soloDeben. */
 clientes.get("/", async (c) => {
-  const buscar = c.req.query("buscar")?.trim().toLowerCase() ?? "";
+  // Sin acentos: nadie los escribe al buscar ("gomez" tiene que encontrar a "Gómez").
+  const buscar = normalizarBusqueda(c.req.query("buscar") ?? "");
   const localidad = c.req.query("localidad")?.trim() ?? "";
   const soloDeben = boolOpt(c.req.query("soloDeben"));
   const incluirArchivados = boolOpt(c.req.query("incluirArchivados"));
@@ -33,7 +46,7 @@ clientes.get("/", async (c) => {
     };
   });
 
-  if (buscar) lista = lista.filter((cl) => cl.nombre.toLowerCase().includes(buscar));
+  if (buscar) lista = lista.filter((cl) => normalizarBusqueda(cl.nombre).includes(buscar));
   if (localidad) lista = lista.filter((cl) => (cl.localidad ?? "") === localidad);
   if (soloDeben) lista = lista.filter((cl) => cl.saldo > 0);
 
@@ -47,6 +60,30 @@ clientes.get("/localidades", async (c) => {
      WHERE negocio_id = ? AND localidad IS NOT NULL AND localidad != '' ORDER BY localidad`
   ).bind(negocioDe(c)).all<{ localidad: string }>();
   return c.json({ localidades: (rows.results ?? []).map((r) => r.localidad) });
+});
+
+/**
+ * El cliente "Consumidor Final" del negocio, para las ventas de mostrador.
+ * Se crea solo la primera vez que alguien lo pide — así ningún negocio tiene
+ * que acordarse de crearlo a mano antes de vender.
+ */
+clientes.get("/mostrador", async (c) => {
+  const neg = negocioDe(c);
+  const existente = await c.env.DB
+    .prepare(`SELECT id, nombre FROM clientes WHERE negocio_id = ? AND es_consumidor_final = 1`)
+    .bind(neg)
+    .first<{ id: string; nombre: string }>();
+  if (existente) return c.json(existente);
+
+  const id = crypto.randomUUID();
+  await c.env.DB
+    .prepare(
+      `INSERT INTO clientes (id, negocio_id, nombre, notas, es_consumidor_final)
+       VALUES (?, ?, 'Consumidor Final', 'Cliente para las ventas de mostrador. No se puede borrar.', 1)`
+    )
+    .bind(id, neg)
+    .run();
+  return c.json({ id, nombre: "Consumidor Final" });
 });
 
 /**
@@ -70,10 +107,11 @@ clientes.post("/", async (c) => {
   const id = uuidOpt(b.id, "id") ?? crypto.randomUUID();
 
   const neg = negocioDe(c);
+  const fiscal = camposFiscales(b);
   const stmts: D1PreparedStatement[] = [
     c.env.DB.prepare(
-      `INSERT INTO clientes (id, negocio_id, nombre, localidad, direccion, telefono, email, notas, latitud, longitud)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO clientes (id, negocio_id, nombre, localidad, direccion, telefono, email, notas, latitud, longitud, doc_tipo, doc_numero, condicion_iva)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       id,
       neg,
@@ -84,7 +122,10 @@ clientes.post("/", async (c) => {
       texto(b.email, "email", { requerido: false, max: 120 }),
       texto(b.notas, "notas", { requerido: false, max: 1000 }),
       decimalOpt(b.latitud, "latitud"),
-      decimalOpt(b.longitud, "longitud")
+      decimalOpt(b.longitud, "longitud"),
+      fiscal.doc_tipo,
+      fiscal.doc_numero,
+      fiscal.condicion_iva
     ),
   ];
 
@@ -153,12 +194,17 @@ clientes.put("/:id", async (c) => {
   const id = c.req.param("id");
   const b = await c.req.json().catch(() => ({}));
   const neg = negocioDe(c);
-  const existe = await c.env.DB.prepare(`SELECT id FROM clientes WHERE negocio_id = ? AND id = ?`)
+  const existe = await c.env.DB.prepare(`SELECT id, es_consumidor_final FROM clientes WHERE negocio_id = ? AND id = ?`)
     .bind(neg, id)
-    .first();
+    .first<{ id: string; es_consumidor_final: number }>();
   if (!existe) throw new HttpError(404, "Cliente no encontrado.");
+  if (existe.es_consumidor_final) {
+    throw new HttpError(400, "El Consumidor Final es el cliente de las ventas de mostrador: no se puede editar.");
+  }
+  const fiscal = camposFiscales(b);
   await c.env.DB.prepare(
-    `UPDATE clientes SET nombre=?, localidad=?, direccion=?, telefono=?, email=?, notas=?, latitud=?, longitud=?
+    `UPDATE clientes SET nombre=?, localidad=?, direccion=?, telefono=?, email=?, notas=?, latitud=?, longitud=?,
+       doc_tipo=?, doc_numero=?, condicion_iva=?
      WHERE negocio_id=? AND id=?`
   )
     .bind(
@@ -170,6 +216,9 @@ clientes.put("/:id", async (c) => {
       texto(b.notas, "notas", { requerido: false, max: 1000 }),
       decimalOpt(b.latitud, "latitud"),
       decimalOpt(b.longitud, "longitud"),
+      fiscal.doc_tipo,
+      fiscal.doc_numero,
+      fiscal.condicion_iva,
       neg,
       id
     )
@@ -183,6 +232,12 @@ clientes.post("/:id/archivar", async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const activo = boolOpt(b.activar) ? 1 : 0;
   const neg = negocioDe(c);
+  const cli = await c.env.DB.prepare(`SELECT es_consumidor_final FROM clientes WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, id)
+    .first<{ es_consumidor_final: number }>();
+  if (cli?.es_consumidor_final && !activo) {
+    throw new HttpError(400, "El Consumidor Final no se puede archivar: es el cliente de las ventas de mostrador.");
+  }
   await c.env.DB.batch([
     c.env.DB.prepare(`UPDATE clientes SET activo = ? WHERE negocio_id = ? AND id = ?`).bind(activo, neg, id),
     auditar(c.env, neg, c.get("usuario").usuario, activo ? "reactivar_cliente" : "archivar_cliente", "cliente", id),
