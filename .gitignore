@@ -6,3 +6,12 @@ dist/
 .DS_Store
 backups/
 panel/.dev.vars
+
+# Certificados de ARCA: la clave privada es la que firma las facturas.
+# Si se filtra, cualquiera puede facturar con tu CUIT.
+certificados/
+*.key
+*.csr
+*.crt
+*.pem
+*.p12
