@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Modal, Campo, Error, Cargando, Vacio, useCarga } from "../components/ui";
+import { MODULOS, INFO_MODULOS, type Modulo } from "../lib/config";
+import { pesos, aCentavos, aPesos, hoyISO } from "../format";
 
 /**
  * Pantalla del proveedor del sistema: la cartera de clientes. Desde acá se
@@ -16,6 +18,12 @@ interface Negocio {
   telefono: string | null;
   email: string | null;
   estado: "prueba" | "activo" | "suspendido" | "baja";
+  plan: string | null;
+  precio_mensual: number | null;
+  paga_hasta: string | null;
+  dias_para_vencer: number | null;
+  ultimo_pago: string | null;
+  sin_corte: number;
   notas: string | null;
   alta: string;
   usuarios: number;
@@ -52,7 +60,14 @@ function desdeHace(fecha: string | null): string {
 }
 
 export function Proveedor({ onEntrar }: { onEntrar: () => void }) {
-  const [modo, setModo] = useState<{ t: "alta" } | { t: "editar"; n: Negocio } | { t: "clave"; n: Negocio } | null>(null);
+  const [modo, setModo] = useState<
+    | { t: "alta" }
+    | { t: "editar"; n: Negocio }
+    | { t: "clave"; n: Negocio }
+    | { t: "plan"; n: Negocio }
+    | { t: "cobro"; n: Negocio }
+    | null
+  >(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const lista = useCarga<{ negocios: Negocio[] }>(() => api.get("/api/super/negocios"), []);
 
@@ -67,8 +82,17 @@ export function Proveedor({ onEntrar }: { onEntrar: () => void }) {
     onEntrar();
   }
 
-  const negocios = lista.data?.negocios ?? [];
+  const negocios: Negocio[] = lista.data?.negocios ?? [];
   const activos = negocios.filter((n) => n.estado === "activo" || n.estado === "prueba");
+
+  // Quién está al día y quién no. Sólo cuenta a los que tienen plan cargado:
+  // un negocio sin precio todavía no es un cliente que paga.
+  const conPlan = negocios.filter((n) => n.precio_mensual != null && !n.sin_corte);
+  const vencidos = conPlan.filter((n) => n.dias_para_vencer != null && n.dias_para_vencer < 0);
+  const porVencer = conPlan.filter((n) => n.dias_para_vencer != null && n.dias_para_vencer >= 0 && n.dias_para_vencer <= 7);
+  const facturacionMensual = conPlan
+    .filter((n) => n.estado === "activo")
+    .reduce((s, n) => s + (n.precio_mensual ?? 0), 0);
 
   return (
     <div className="app">
@@ -88,6 +112,26 @@ export function Proveedor({ onEntrar }: { onEntrar: () => void }) {
         </div>
 
         {aviso && <div className="ok-box">{aviso}</div>}
+
+        {conPlan.length > 0 && (
+          <div className="grid-kpi">
+            <div className="kpi">
+              <div className="rot">Facturación mensual</div>
+              <div className="val">{pesos(facturacionMensual)}</div>
+              <div className="mut">{conPlan.filter((n) => n.estado === "activo").length} clientes activos</div>
+            </div>
+            <div className="kpi">
+              <div className="rot">Vencidos</div>
+              <div className={`val ${vencidos.length > 0 ? "debe" : ""}`}>{vencidos.length}</div>
+              <div className="mut">{vencidos.length > 0 ? vencidos.map((n) => n.nombre).join(", ") : "Nadie te debe"}</div>
+            </div>
+            <div className="kpi">
+              <div className="rot">Vencen esta semana</div>
+              <div className="val">{porVencer.length}</div>
+              <div className="mut">{porVencer.length > 0 ? porVencer.map((n) => n.nombre).join(", ") : "Ninguno"}</div>
+            </div>
+          </div>
+        )}
 
         {lista.cargando && <Cargando />}
         <Error msg={lista.error} />
@@ -112,8 +156,28 @@ export function Proveedor({ onEntrar }: { onEntrar: () => void }) {
                 <span className="mut">Última venta: {desdeHace(n.ultima_venta)}</span>
                 {n.contacto && <span className="mut">{n.contacto}{n.telefono ? ` · ${n.telefono}` : ""}</span>}
               </div>
+              <div className="tf-datos">
+                {n.precio_mensual == null ? (
+                  <span className="mut">Sin plan asignado</span>
+                ) : (
+                  <>
+                    <span>{n.plan ?? "Plan"} · {pesos(n.precio_mensual)}/mes</span>
+                    <span className={n.sin_corte ? "mut" : (n.dias_para_vencer ?? 0) < 0 ? "debe" : "mut"}>
+                      {n.sin_corte
+                        ? "Sin corte"
+                        : n.paga_hasta == null
+                          ? "Nunca pagó"
+                          : (n.dias_para_vencer ?? 0) < 0
+                            ? `Vencido hace ${Math.abs(n.dias_para_vencer ?? 0)} día(s)`
+                            : `Al día · vence en ${n.dias_para_vencer} día(s)`}
+                    </span>
+                  </>
+                )}
+              </div>
               <div className="tf-datos" style={{ marginTop: 6 }}>
                 <button className="btn chico primario" onClick={() => entrar(n)}>Entrar</button>
+                <button className="btn chico" onClick={() => setModo({ t: "cobro", n })}>Registrar cobro</button>
+                <button className="btn chico" onClick={() => setModo({ t: "plan", n })}>Plan</button>
                 <button className="btn chico" onClick={() => setModo({ t: "editar", n })}>Editar</button>
                 <button className="btn chico" onClick={() => setModo({ t: "clave", n })}>Blanquear clave</button>
               </div>
@@ -125,6 +189,8 @@ export function Proveedor({ onEntrar }: { onEntrar: () => void }) {
       {modo?.t === "alta" && <FormAlta onCerrar={cerrar} />}
       {modo?.t === "editar" && <FormEditar negocio={modo.n} onCerrar={cerrar} />}
       {modo?.t === "clave" && <FormClave negocio={modo.n} onCerrar={cerrar} />}
+      {modo?.t === "plan" && <FormPlan negocio={modo.n} onCerrar={cerrar} />}
+      {modo?.t === "cobro" && <FormCobro negocio={modo.n} onCerrar={cerrar} />}
     </div>
   );
 }
@@ -254,10 +320,20 @@ function FormEditar({ negocio, onCerrar }: { negocio: Negocio; onCerrar: (msg?: 
   const [error, setError] = useState<string | null>(null);
   const set = (k: keyof typeof f, v: string) => setF((x) => ({ ...x, [k]: v }));
 
+  // Los módulos son el único dato de este modal que el proveedor controla y
+  // el dueño del negocio no puede tocar — por eso se cargan y se guardan
+  // aparte, contra su propio endpoint.
+  const detalle = useCarga<{ modulos: Record<Modulo, boolean> }>(() => api.get(`/api/super/negocios/${negocio.id}`), [negocio.id]);
+  const [modulos, setModulos] = useState<Record<Modulo, boolean> | null>(null);
+  useEffect(() => { if (detalle.data) setModulos(detalle.data.modulos); }, [detalle.data]);
+  const toggleModulo = (m: Modulo) => setModulos((mm) => (mm ? { ...mm, [m]: !mm[m] } : mm));
+
   async function guardar(e: React.FormEvent) {
     e.preventDefault();
+    setError(null);
     try {
       await api.put(`/api/super/negocios/${negocio.id}`, f);
+      if (modulos) await api.put(`/api/super/negocios/${negocio.id}/modulos`, { modulos });
       onCerrar("Datos actualizados.");
     } catch (err: any) {
       setError(err.message);
@@ -287,6 +363,27 @@ function FormEditar({ negocio, onCerrar }: { negocio: Negocio; onCerrar: (msg?: 
         <Campo label="Notas (privadas)">
           <textarea rows={3} value={f.notas} onChange={(e) => set("notas", e.target.value)} />
         </Campo>
+
+        <hr />
+        <p className="mut" style={{ marginTop: 0 }}>
+          Módulos que tiene este negocio. Sólo vos podés prenderlos o apagarlos — el dueño no.
+        </p>
+        {!modulos ? (
+          <p className="mut">Cargando…</p>
+        ) : (
+          <div className="lista-tarjetas">
+            {MODULOS.map((m) => (
+              <label className="tarjeta-fila modulo-fila" key={m}>
+                <input type="checkbox" checked={modulos[m]} onChange={() => toggleModulo(m)} />
+                <span>
+                  <span className="tf-titulo" style={{ marginBottom: 2 }}>{INFO_MODULOS[m].titulo}</span>
+                  <span className="mut">{INFO_MODULOS[m].detalle}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+
         <div className="btn-grupo" style={{ justifyContent: "flex-end", marginTop: 16 }}>
           <button type="button" className="btn" onClick={() => onCerrar()}>Cancelar</button>
           <button className="btn primario">Guardar</button>
@@ -336,6 +433,132 @@ function FormClave({ negocio, onCerrar }: { negocio: Negocio; onCerrar: (msg?: s
           <button className="btn primario" disabled={!usuario || password.length < 6}>Cambiar</button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+
+/** Cuánto paga este negocio y con qué tolerancia. No cobra: sólo define. */
+function FormPlan({ negocio, onCerrar }: { negocio: Negocio; onCerrar: (msg?: string) => void }) {
+  const [f, setF] = useState({
+    plan: negocio.plan ?? "",
+    precio: negocio.precio_mensual == null ? "" : String(aPesos(negocio.precio_mensual)),
+    dias_gracia: String((negocio as any).dias_gracia ?? 7),
+    sin_corte: negocio.sin_corte === 1,
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+
+  async function guardar() {
+    setError(null);
+    setGuardando(true);
+    try {
+      await api.put(`/api/super/negocios/${negocio.id}/plan`, {
+        plan: f.plan || null,
+        precio_mensual: f.precio === "" ? null : aCentavos(f.precio),
+        dias_gracia: Number(f.dias_gracia) || 0,
+        sin_corte: f.sin_corte,
+      });
+      onCerrar(`Plan de ${negocio.nombre} actualizado.`);
+    } catch (err: any) {
+      setError(err.message);
+      setGuardando(false);
+    }
+  }
+
+  return (
+    <Modal titulo={`Plan de ${negocio.nombre}`} onCerrar={() => onCerrar()}>
+      <Error msg={error} />
+      <div className="fila">
+        <Campo label="Nombre del plan"><input value={f.plan} onChange={(e) => setF({ ...f, plan: e.target.value })} placeholder="Básico" /></Campo>
+        <Campo label="Precio por mes ($)">
+          <input type="number" step="0.01" min="0" value={f.precio} onChange={(e) => setF({ ...f, precio: e.target.value })} />
+        </Campo>
+      </div>
+      <Campo label="Días de tolerancia después del vencimiento">
+        <input type="number" min="0" max="90" value={f.dias_gracia} onChange={(e) => setF({ ...f, dias_gracia: e.target.value })} />
+      </Campo>
+      <p className="mut" style={{ marginTop: -4 }}>
+        Pasados esos días sin pagar, el sistema lo suspende solo. Los datos no se borran.
+      </p>
+      <label className="tarjeta-fila modulo-fila">
+        <input type="checkbox" checked={f.sin_corte} onChange={(e) => setF({ ...f, sin_corte: e.target.checked })} />
+        <span>
+          No suspender nunca
+          <div className="mut">Para tu propio negocio o un acuerdo especial.</div>
+        </span>
+      </label>
+      <div className="btn-grupo" style={{ justifyContent: "flex-end", marginTop: 16 }}>
+        <button className="btn" onClick={() => onCerrar()}>Cancelar</button>
+        <button className="btn primario" disabled={guardando} onClick={guardar}>{guardando ? "Guardando…" : "Guardar"}</button>
+      </div>
+    </Modal>
+  );
+}
+
+/** Registra un cobro y empuja la fecha hasta la que el negocio está cubierto. */
+function FormCobro({ negocio, onCerrar }: { negocio: Negocio; onCerrar: (msg?: string) => void }) {
+  const [f, setF] = useState({
+    monto: negocio.precio_mensual == null ? "" : String(aPesos(negocio.precio_mensual)),
+    meses: "1",
+    medio: "transferencia",
+    fecha: hoyISO(),
+    nota: "",
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+
+  async function guardar() {
+    if (!f.monto) { setError("Poné el monto cobrado."); return; }
+    setError(null);
+    setGuardando(true);
+    try {
+      const r = await api.post<{ cubre_hasta: string }>(`/api/super/negocios/${negocio.id}/cobro`, {
+        monto: aCentavos(f.monto),
+        meses: Number(f.meses) || 1,
+        medio: f.medio,
+        fecha: f.fecha,
+        nota: f.nota || null,
+      });
+      onCerrar(`Cobro registrado. ${negocio.nombre} queda cubierto hasta el ${r.cubre_hasta}.`);
+    } catch (err: any) {
+      setError(err.message);
+      setGuardando(false);
+    }
+  }
+
+  return (
+    <Modal titulo={`Registrar cobro — ${negocio.nombre}`} onCerrar={() => onCerrar()}>
+      <Error msg={error} />
+      <p className="mut" style={{ marginTop: 0 }}>
+        {negocio.paga_hasta
+          ? `Hoy está cubierto hasta el ${negocio.paga_hasta}.`
+          : "Todavía no tiene ningún pago registrado."}
+      </p>
+      <div className="fila">
+        <Campo label="Monto ($)">
+          <input type="number" step="0.01" min="0" value={f.monto} onChange={(e) => setF({ ...f, monto: e.target.value })} />
+        </Campo>
+        <Campo label="Meses que cubre">
+          <input type="number" min="1" max="36" value={f.meses} onChange={(e) => setF({ ...f, meses: e.target.value })} />
+        </Campo>
+      </div>
+      <div className="fila">
+        <Campo label="Fecha del cobro"><input type="date" value={f.fecha} onChange={(e) => setF({ ...f, fecha: e.target.value })} /></Campo>
+        <Campo label="Medio">
+          <select value={f.medio} onChange={(e) => setF({ ...f, medio: e.target.value })}>
+            {["transferencia", "efectivo", "mercadopago", "otro"].map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </Campo>
+      </div>
+      <Campo label="Nota (opcional)"><input value={f.nota} onChange={(e) => setF({ ...f, nota: e.target.value })} /></Campo>
+      <p className="mut">
+        Si estaba suspendido por falta de pago, registrar el cobro lo reactiva solo.
+      </p>
+      <div className="btn-grupo" style={{ justifyContent: "flex-end", marginTop: 16 }}>
+        <button className="btn" onClick={() => onCerrar()}>Cancelar</button>
+        <button className="btn primario" disabled={guardando} onClick={guardar}>{guardando ? "Guardando…" : "Registrar cobro"}</button>
+      </div>
     </Modal>
   );
 }

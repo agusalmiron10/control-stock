@@ -75,6 +75,30 @@ async function backupAR2(env: Env): Promise<void> {
   }
 }
 
+/**
+ * Suspende a los que se pasaron del vencimiento más los días de gracia.
+ *
+ * Es deliberadamente conservador: sólo toca negocios 'activo' (nunca los que
+ * están en 'prueba', que todavía no compraron nada, ni los que ya están de
+ * 'baja'), respeta la marca `sin_corte`, y no hace nada si el negocio nunca
+ * tuvo una fecha de pago cargada — sin eso no se sabe si debe o si todavía no
+ * le pusiste plan, y cortarle el sistema por las dudas sería lo peor.
+ */
+async function suspenderVencidos(env: Env): Promise<void> {
+  const r = await env.DB
+    .prepare(
+      `UPDATE negocios
+          SET estado = 'suspendido'
+        WHERE estado = 'activo'
+          AND sin_corte = 0
+          AND paga_hasta IS NOT NULL
+          AND julianday(date('now')) > julianday(paga_hasta) + dias_gracia`
+    )
+    .run();
+  const cortados = r.meta?.changes ?? 0;
+  if (cortados > 0) console.log(`Suspendidos por falta de pago: ${cortados}`);
+}
+
 export async function scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
   ctx.waitUntil(
     (async () => {
@@ -88,6 +112,8 @@ export async function scheduled(_event: ScheduledEvent, env: Env, ctx: Execution
           console.error(`No se pudo calcular el resumen de ${n.id}:`, e)
         );
       }
+      // Que falle el corte no debe impedir el backup, ni al revés.
+      await suspenderVencidos(env).catch((e) => console.error("No se pudo revisar vencimientos:", e));
       await backupAR2(env);
     })()
   );

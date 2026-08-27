@@ -8,10 +8,11 @@
  */
 import { Hono } from "hono";
 import type { Env, Variables } from "../types";
-import { HttpError, texto, enumerado } from "../validate";
+import { HttpError, texto, enumerado, entero, boolOpt, fechaISO } from "../validate";
 import { hashPassword, crearSesion, requireSuper } from "../auth";
 import { codigoDeNegocio } from "./auth";
-import { MODULOS, type Modulo } from "../config";
+import { MODULOS, leerConfig, type Modulo } from "../config";
+import { auditar } from "../auditoria";
 
 export const superAdmin = new Hono<{ Bindings: Env; Variables: Variables }>();
 superAdmin.use("*", requireSuper);
@@ -77,7 +78,10 @@ superAdmin.get("/negocios", async (c) => {
               (SELECT COUNT(*) FROM clientes     WHERE negocio_id = n.id) AS clientes,
               (SELECT COUNT(*) FROM herramientas WHERE negocio_id = n.id) AS productos,
               (SELECT COUNT(*) FROM ventas       WHERE negocio_id = n.id AND estado != 'anulada') AS ventas,
-              (SELECT MAX(fecha) FROM ventas     WHERE negocio_id = n.id) AS ultima_venta
+              (SELECT MAX(fecha) FROM ventas     WHERE negocio_id = n.id) AS ultima_venta,
+              -- Días que faltan (o que se pasó, si es negativo) para el vencimiento.
+              CAST(julianday(n.paga_hasta) - julianday(date('now')) AS INTEGER) AS dias_para_vencer,
+              (SELECT MAX(fecha) FROM suscripcion_pagos WHERE negocio_id = n.id) AS ultimo_pago
        FROM negocios n
        ORDER BY CASE n.estado WHEN 'activo' THEN 0 WHEN 'prueba' THEN 1 WHEN 'suspendido' THEN 2 ELSE 3 END,
                 n.nombre`
@@ -86,7 +90,84 @@ superAdmin.get("/negocios", async (c) => {
   return c.json({ negocios: rows.results ?? [] });
 });
 
-/** Detalle de un negocio, con sus usuarios (sin hashes). */
+// ── Suscripción: plan, vencimiento y cobros ─────────────────
+
+/** Define o cambia el plan de un negocio. No cobra nada: sólo deja escrito
+ *  cuánto paga y cada cuánto. */
+superAdmin.put("/negocios/:id/plan", async (c) => {
+  const id = c.req.param("id");
+  const b = await c.req.json().catch(() => ({}));
+  const negocio = await c.env.DB.prepare(`SELECT id FROM negocios WHERE id = ?`).bind(id).first();
+  if (!negocio) throw new HttpError(404, "Ese negocio no existe.");
+
+  await c.env.DB.prepare(
+    `UPDATE negocios SET plan = ?, precio_mensual = ?, dias_gracia = ?, sin_corte = ? WHERE id = ?`
+  )
+    .bind(
+      texto(b.plan, "plan", { requerido: false, max: 60 }),
+      b.precio_mensual == null ? null : entero(b.precio_mensual, "precio mensual", { min: 0 }),
+      entero(b.dias_gracia ?? 7, "días de gracia", { min: 0, max: 90 }),
+      boolOpt(b.sin_corte) ? 1 : 0,
+      id
+    )
+    .run();
+  return c.json({ ok: true });
+});
+
+/**
+ * Registra un cobro y empuja la fecha de cobertura.
+ *
+ * Se cuenta desde la fecha de vencimiento anterior, no desde hoy: si alguien
+ * paga tres días tarde, no pierde esos tres días. Pero si estuvo meses sin
+ * pagar, se cuenta desde hoy — un pago no te compra los meses que no usaste.
+ */
+superAdmin.post("/negocios/:id/cobro", async (c) => {
+  const id = c.req.param("id");
+  const b = await c.req.json().catch(() => ({}));
+  const negocio = await c.env.DB
+    .prepare(`SELECT id, nombre, paga_hasta, precio_mensual FROM negocios WHERE id = ?`)
+    .bind(id)
+    .first<{ id: string; nombre: string; paga_hasta: string | null; precio_mensual: number | null }>();
+  if (!negocio) throw new HttpError(404, "Ese negocio no existe.");
+
+  const monto = entero(b.monto ?? negocio.precio_mensual, "monto", { min: 0 });
+  const meses = entero(b.meses ?? 1, "meses", { min: 1, max: 36 });
+  const fecha = b.fecha ? fechaISO(b.fecha, "fecha") : new Date().toISOString().slice(0, 10);
+
+  // Desde dónde se cuenta la cobertura nueva.
+  const hoy = new Date().toISOString().slice(0, 10);
+  const desde = negocio.paga_hasta && negocio.paga_hasta > hoy ? negocio.paga_hasta : hoy;
+  const base = new Date(`${desde}T00:00:00Z`);
+  base.setUTCMonth(base.getUTCMonth() + meses);
+  const cubreHasta = base.toISOString().slice(0, 10);
+
+  const pagoId = crypto.randomUUID();
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO suscripcion_pagos (id, negocio_id, fecha, monto, medio, cubre_hasta, nota, registrado_por)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(pagoId, id, fecha, monto, texto(b.medio, "medio", { requerido: false, max: 40 }),
+           cubreHasta, texto(b.nota, "nota", { requerido: false, max: 500 }), c.get("usuario").usuario),
+    // Cobrar reactiva: si estaba suspendido por falta de pago, vuelve solo.
+    c.env.DB.prepare(
+      `UPDATE negocios SET paga_hasta = ?, estado = CASE WHEN estado = 'suspendido' THEN 'activo' ELSE estado END
+       WHERE id = ?`
+    ).bind(cubreHasta, id),
+  ]);
+
+  return c.json({ ok: true, cubre_hasta: cubreHasta });
+});
+
+/** Historial de cobros de un negocio. */
+superAdmin.get("/negocios/:id/cobros", async (c) => {
+  const rows = await c.env.DB
+    .prepare(`SELECT * FROM suscripcion_pagos WHERE negocio_id = ? ORDER BY fecha DESC, creado_en DESC`)
+    .bind(c.req.param("id"))
+    .all();
+  return c.json({ cobros: rows.results ?? [] });
+});
+
+/** Detalle de un negocio, con sus usuarios (sin hashes) y sus módulos activos. */
 superAdmin.get("/negocios/:id", async (c) => {
   const id = c.req.param("id");
   const negocio = await c.env.DB.prepare(`SELECT * FROM negocios WHERE id = ?`).bind(id).first();
@@ -95,7 +176,33 @@ superAdmin.get("/negocios/:id", async (c) => {
     .prepare(`SELECT id, usuario, rol, creado_en FROM usuarios WHERE negocio_id = ? ORDER BY id`)
     .bind(id)
     .all();
-  return c.json({ negocio, usuarios: usuarios.results ?? [] });
+  const cfg = await leerConfig(c.env, id);
+  return c.json({ negocio, usuarios: usuarios.results ?? [], modulos: cfg.modulos });
+});
+
+/**
+ * Prender o apagar módulos de un negocio. Sólo el proveedor puede hacer
+ * esto — un negocio no se autohabilita algo que no le vendieron. Queda
+ * registrado en la auditoría de ESE negocio, para que el dueño vea que
+ * cambió algo y no piense que es un bug.
+ */
+superAdmin.put("/negocios/:id/modulos", async (c) => {
+  const id = c.req.param("id");
+  const existe = await c.env.DB.prepare(`SELECT id FROM negocios WHERE id = ?`).bind(id).first();
+  if (!existe) throw new HttpError(404, "Ese negocio no existe.");
+
+  const b = await c.req.json().catch(() => ({}));
+  if (!b.modulos || typeof b.modulos !== "object") throw new HttpError(400, "Mandá la lista de módulos.");
+  const activos = MODULOS.filter((m: Modulo) => b.modulos[m] === true);
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO config (negocio_id, clave, valor, actualizado_en) VALUES (?, 'modulos', ?, datetime('now'))
+       ON CONFLICT(negocio_id, clave) DO UPDATE SET valor = excluded.valor, actualizado_en = excluded.actualizado_en`
+    ).bind(id, JSON.stringify(activos)),
+    auditar(c.env, id, c.get("usuario").usuario, "cambiar_modulos", "config", null, `Módulos: ${activos.join(", ") || "ninguno"}`),
+  ]);
+  return c.json({ ok: true, modulos: activos });
 });
 
 /**
