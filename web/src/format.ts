@@ -68,3 +68,13 @@ export function mesCorto(aaaaMm: string): string {
   const mes = MESES_CORTOS[Number(m[2]) - 1] ?? m[2];
   return `${mes} '${m[1].slice(2)}`;
 }
+
+const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+/** "2026-08" -> "Agosto 2026". Nadie lee fechas en formato de máquina. */
+export function mesLargo(aaaaMm: string): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(aaaaMm);
+  if (!m) return aaaaMm;
+  return `${MESES[Number(m[2]) - 1] ?? m[2]} ${m[1]}`;
+}

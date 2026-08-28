@@ -85,7 +85,14 @@ export function Presupuestos() {
         <Cargando />
       ) : lista.length === 0 ? (
         <Vacio
-          mensaje={hayFiltro ? "Ningún presupuesto coincide con la búsqueda." : "No hay presupuestos todavía."}
+          icono={hayFiltro ? undefined : "📝"}
+          titulo={hayFiltro ? undefined : "Cotizaciones para pasarle al cliente"}
+          mensaje={
+            hayFiltro
+              ? "Ningún presupuesto coincide con la búsqueda."
+              : "Armás el presupuesto con los productos y el precio, se lo mandás, y si te lo acepta " +
+                "lo convertís en venta con un clic — sin volver a cargar nada."
+          }
           accion={
             hayFiltro ? (
               <button className="btn" onClick={() => { setFiltros(FILTROS_VACIOS); setEstado(""); }}>Limpiar filtros</button>

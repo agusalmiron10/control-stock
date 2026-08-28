@@ -67,10 +67,14 @@ export function Remitos() {
         <Cargando />
       ) : lista.length === 0 ? (
         <Vacio
+          icono={hayFiltro ? undefined : "🧾"}
+          titulo={hayFiltro ? undefined : "El papel que acompaña a la mercadería"}
           mensaje={
             hayFiltro
               ? "Ningún remito coincide con la búsqueda."
-              : "Todavía no hiciste ningún remito. Se arman desde una venta ya confirmada."
+              : "Se arma desde una venta ya confirmada y permite entregas parciales: si vendiste 10 " +
+                "bolsas y entregás 4 hoy, el sistema lleva la cuenta de las 6 que faltan. No toca el " +
+                "stock, porque ya se descontó al vender."
           }
           accion={
             hayFiltro ? (

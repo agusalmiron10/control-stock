@@ -75,8 +75,11 @@ export function Proveedores() {
         <Cargando />
       ) : lista.length === 0 ? (
         <Vacio
-          mensaje="Todavía no cargaste ningún proveedor."
-          accion={<button className="btn primario" onClick={() => setEditando("nuevo")}>Cargar el primero</button>}
+          icono="🚚"
+          titulo="A quién le comprás la mercadería"
+          mensaje="Cargando tus proveedores podés registrar las compras que les hacés y ver de un
+                   vistazo cuánto le compraste a cada uno y cuándo fue la última vez."
+          accion={<button className="btn primario" onClick={() => setEditando("nuevo")}>Cargar el primer proveedor</button>}
         />
       ) : (
         <div className="card">

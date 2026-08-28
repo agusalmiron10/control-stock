@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "../api";
-import { pesos, numero, fecha } from "../format";
+import { pesos, numero, fecha, mesLargo } from "../format";
 import { Cargando, Error, useCarga } from "../components/ui";
 import { navegar } from "../lib/router";
 import { waResumenDiario } from "../lib/whatsapp";
@@ -40,7 +40,7 @@ export function Panel() {
     <div>
       <div className="encabezado-seccion">
         <h1>Panel</h1>
-        <span className="mut">Mes en curso: {data.mes}</span>
+        <span className="mut">{mesLargo(data.mes)}</span>
       </div>
 
       {r && (

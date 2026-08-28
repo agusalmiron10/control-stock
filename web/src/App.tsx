@@ -117,6 +117,31 @@ export function App() {
   const [tema, setTema] = useState<Tema>(() => leerTema());
   const [cfg, setCfg] = useState<ConfigNegocio>(CONFIG_INICIAL);
   const [fotoAmpliada, setFotoAmpliada] = useState(false);
+  /**
+   * Qué grupos del menú están desplegados. Se recuerda entre sesiones: cada
+   * negocio usa dos o tres secciones y no tiene sentido que las vuelva a
+   * abrir cada vez que entra. El grupo de la página actual se abre solo,
+   * así que arrancar todo cerrado no deja a nadie perdido.
+   */
+  const [gruposAbiertos, setGruposAbiertos] = useState<Record<string, boolean>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("cs_menu_grupos") ?? "{}");
+    } catch {
+      return {};
+    }
+  });
+
+  function alternarGrupo(titulo: string) {
+    setGruposAbiertos((prev) => {
+      const siguiente = { ...prev, [titulo]: !prev[titulo] };
+      try {
+        localStorage.setItem("cs_menu_grupos", JSON.stringify(siguiente));
+      } catch {
+        // Modo incógnito o storage lleno: se pierde la preferencia, nada más.
+      }
+      return siguiente;
+    });
+  }
   const ruta = useRuta();
 
   // Cerrar el visor de la foto con Escape, como cualquier ventana.
@@ -339,16 +364,29 @@ export function App() {
         </button>
 
         <nav>
-          {nav.map((grupo) => (
-            <div className="nav-grupo" key={grupo.titulo}>
-              <div className="nav-grupo-titulo">{grupo.titulo}</div>
-              {grupo.items.map(([path, label]) => (
-                <a key={path} href={`#${path}`} className={base === path ? "activo" : ""}>
-                  {label}
-                </a>
-              ))}
-            </div>
-          ))}
+          {nav.map((grupo) => {
+            // El grupo de la página actual se abre siempre: si no, al entrar a
+            // una sección quedaría cerrada la que estás usando.
+            const tieneActivo = grupo.items.some(([path]) => path === base);
+            const abierto = tieneActivo || (gruposAbiertos[grupo.titulo] ?? false);
+            return (
+              <div className={`nav-grupo ${abierto ? "abierto" : ""}`} key={grupo.titulo}>
+                <button
+                  className="nav-grupo-titulo"
+                  onClick={() => alternarGrupo(grupo.titulo)}
+                  aria-expanded={abierto}
+                >
+                  <span className="nav-flecha">▸</span>
+                  {grupo.titulo}
+                </button>
+                {abierto && grupo.items.map(([path, label]) => (
+                  <a key={path} href={`#${path}`} className={base === path ? "activo" : ""}>
+                    {label}
+                  </a>
+                ))}
+              </div>
+            );
+          })}
         </nav>
         <div className="sidebar-pie">
           <div className="solo-escritorio"><SyncIndicator /></div>

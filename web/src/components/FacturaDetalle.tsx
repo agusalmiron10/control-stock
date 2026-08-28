@@ -56,7 +56,7 @@ export function FacturaDetalle({ id, onCerrar, onImprimir, onVerificar, onReinte
             <span className={`badge ${BADGE[f.estado] ?? ""}`}>{TEXTO_ESTADO[f.estado] ?? f.estado}</span>
             {data.nota_credito && <span className="badge anulada">Anulada por Nota de Crédito</span>}
             {data.emisor?.ambiente === "homologacion" && (
-              <span className="badge parcial">Prueba (homologación)</span>
+              <span className="badge parcial">Modo prueba</span>
             )}
           </div>
 

@@ -248,7 +248,7 @@ function FacturacionElectronicaPanel({ onOk, onError }: { onOk: (m: string) => v
           <div className="tf-datos" style={{ marginBottom: 12 }}>
             <span className={`badge ${data.activo ? "pagada" : "anulada"}`}>{data.activo ? "Activa" : "Inactiva"}</span>
             <span className={`badge ${data.ambiente === "produccion" ? "impaga" : "parcial"}`}>
-              Ambiente: {data.ambiente === "produccion" ? "PRODUCCIÓN" : "Pruebas (homologación)"}
+              Ambiente: {data.ambiente === "produccion" ? "PRODUCCIÓN — facturas reales" : "Modo prueba"}
             </span>
             {data.tiene_certificado && <span className="mut">Certificado cargado{data.cert_subido_en ? ` el ${data.cert_subido_en.slice(0, 10)}` : ""}</span>}
           </div>
@@ -278,15 +278,16 @@ function FacturacionElectronicaPanel({ onOk, onError }: { onOk: (m: string) => v
             </Campo>
             <Campo label="Ambiente">
               <select value={f.ambiente} onChange={(e) => set("ambiente", e.target.value)}>
-                <option value="homologacion">Pruebas (homologación)</option>
+                <option value="homologacion">Modo prueba — para practicar sin emitir nada real</option>
                 <option value="produccion">Producción — factura de verdad</option>
               </select>
             </Campo>
           </div>
           {f.ambiente === "produccion" && (
             <p className="error-box">
-              Ambiente de PRODUCCIÓN: lo que emitas acá son comprobantes fiscales reales. Probá primero en
-              homologación.
+              <b>Producción:</b> las facturas que emitas acá son reales y quedan registradas en ARCA.
+              No se pueden borrar — un error se corrige con una nota de crédito. Practicá primero en
+              modo prueba.
             </p>
           )}
           <button className="btn primario" disabled={guardando}>{guardando ? "Guardando…" : "Guardar datos fiscales"}</button>

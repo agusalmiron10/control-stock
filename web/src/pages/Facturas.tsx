@@ -1,19 +1,11 @@
 import { useState } from "react";
 import { api } from "../api";
-import { pesos, fecha } from "../format";
+import { pesos, fecha, mesLargo } from "../format";
 import { Cargando, Error, Vacio, useCarga } from "../components/ui";
 import { ComprobanteFiscal } from "../components/ComprobanteFiscal";
 import { EmitirFacturaModal } from "../components/EmitirFacturaModal";
 import { FacturaDetalle } from "../components/FacturaDetalle";
 import { FiltroComprobantes, FILTROS_VACIOS, comoQuery, type Filtros } from "../components/FiltroComprobantes";
-
-/** "2026-08" → "Agosto 2026", para que el selector no muestre números sueltos. */
-const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-function nombreMes(m: string): string {
-  const [anio, mes] = m.split("-");
-  return `${MESES[Number(mes) - 1] ?? mes} ${anio}`;
-}
 
 function mesActual(): string {
   return new Date().toISOString().slice(0, 7);
@@ -114,7 +106,7 @@ export function Facturas() {
         <div className="campo">
           <label>Mes</label>
           <select value={mes} onChange={(e) => setMes(e.target.value)} disabled={porFecha}>
-            {opcionesMes.map((m) => <option key={m} value={m}>{nombreMes(m)}</option>)}
+            {opcionesMes.map((m) => <option key={m} value={m}>{mesLargo(m)}</option>)}
           </select>
         </div>
         {t?.con_problema > 0 && (
@@ -181,7 +173,7 @@ export function Facturas() {
                 ? "Ninguna factura coincide con la búsqueda."
                 : porFecha
                   ? "No hay facturas en ese rango de fechas."
-                  : `No hay facturas en ${nombreMes(mes)}. Las facturas se emiten desde la venta, en la pantalla de Ventas.`
+                  : `No hay facturas en ${mesLargo(mes)}. Las facturas se emiten desde la venta, en la pantalla de Ventas.`
           }
           accion={
             hayBusqueda || porFecha ? (

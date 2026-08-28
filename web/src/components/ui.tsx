@@ -74,9 +74,27 @@ export function Cargando() {
   return <div className="spinner">Cargando…</div>;
 }
 
-export function Vacio({ mensaje, accion }: { mensaje: string; accion?: React.ReactNode }) {
+/**
+ * Pantalla vacía. Cuando lleva `titulo`, deja de ser un cartel de "no hay
+ * nada" y pasa a explicar para qué sirve la sección — que es justo cuando la
+ * persona más lo necesita: la primera vez que entra. Ahí se enseña, no en un
+ * manual que nadie lee.
+ */
+export function Vacio({
+  titulo,
+  mensaje,
+  accion,
+  icono,
+}: {
+  titulo?: string;
+  mensaje: string;
+  accion?: React.ReactNode;
+  icono?: string;
+}) {
   return (
     <div className="vacio">
+      {icono && <div className="vacio-icono">{icono}</div>}
+      {titulo && <h2 className="vacio-titulo">{titulo}</h2>}
       <p>{mensaje}</p>
       {accion}
     </div>

@@ -68,8 +68,12 @@ export function Compras() {
         <Cargando />
       ) : lista.length === 0 ? (
         <Vacio
-          mensaje="Todavía no registraste ninguna compra. Al registrar una, el stock sube solo."
-          accion={<button className="btn primario" onClick={() => setNueva(true)}>Registrar la primera</button>}
+          icono="📦"
+          titulo="Acá registrás lo que le comprás a tus proveedores"
+          mensaje="Al cargar una compra, el stock de cada producto sube solo y su costo se recalcula
+                   mezclando lo que ya tenías con lo que entra. Eso es lo que después te deja saber
+                   cuánto ganás de verdad en cada venta."
+          accion={<button className="btn primario" onClick={() => setNueva(true)}>Registrar la primera compra</button>}
         />
       ) : (
         <div className="card">
