@@ -173,6 +173,20 @@ export function App() {
     setMenuAbierto(false);
   }, [ruta.path]);
 
+  /**
+   * Al entrar a una sección, su grupo se despliega. Va acá y no en el render
+   * para que quede como una preferencia más: si después lo cerrás a mano, se
+   * queda cerrado — el efecto sólo corre al cambiar de página, no al tocar.
+   */
+  useEffect(() => {
+    if (!estado?.authenticated) return;
+    const seccion = "/" + (ruta.parts[0] ?? "panel");
+    const grupos = construirNav(cfg, estado.modulosPermitidos, esDueno(estado.rol ?? "dueño"));
+    const grupo = grupos.find((g) => g.items.some(([path]) => path === seccion));
+    if (!grupo) return;
+    setGruposAbiertos((prev) => (prev[grupo.titulo] ? prev : { ...prev, [grupo.titulo]: true }));
+  }, [ruta.parts[0], estado?.authenticated, cfg]);
+
   const cargarEstado = useCallback(() => {
     api
       .get<Estado>("/api/auth/status")
@@ -372,10 +386,11 @@ export function App() {
 
         <nav>
           {nav.map((grupo) => {
-            // El grupo de la página actual se abre siempre: si no, al entrar a
-            // una sección quedaría cerrada la que estás usando.
             const tieneActivo = grupo.items.some(([path]) => path === base);
-            const abierto = tieneActivo || (gruposAbiertos[grupo.titulo] ?? false);
+            // Lo que el usuario haya decidido manda. Sólo si nunca lo tocó se
+            // usa el automático (abierto si contiene la página actual). Antes
+            // el grupo activo se forzaba abierto y clickearlo no hacía nada.
+            const abierto = gruposAbiertos[grupo.titulo] ?? tieneActivo;
             return (
               <div className={`nav-grupo ${abierto ? "abierto" : ""}`} key={grupo.titulo}>
                 <button
@@ -412,6 +427,16 @@ export function App() {
       </aside>
 
       <main className="contenido">
+        {/* Volver, en todas las secciones de primer nivel. Las pantallas de
+            detalle (ficha de cliente, nueva venta) ya traen su propio "←" que
+            lleva a su listado, que es más útil que uno genérico: por eso acá
+            se muestra sólo cuando la ruta tiene un solo tramo. */}
+        {base !== "/panel" && ruta.parts.length <= 1 && (
+          <div className="barra-volver">
+            <button className="btn chico" onClick={() => history.back()}>← Atrás</button>
+            <button className="btn chico" onClick={() => navegar("/panel")}>Ir al inicio</button>
+          </div>
+        )}
         <ConfigContext.Provider value={cfg}>
           <RolContext.Provider value={estado.rol ?? "dueño"}>
             <PermisosContext.Provider value={estado.modulosPermitidos}>

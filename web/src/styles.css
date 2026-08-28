@@ -1074,3 +1074,10 @@ table.tabla td.acc .btn-grupo { flex-wrap: nowrap; }
      sería el mismo botón dos veces. */
   .btn-vender { display: none; }
 }
+
+/* Volver / ir al inicio. En el celular la app corre como PWA y no hay flecha
+   del navegador a la vista, así que si esto no está no hay forma de salir de
+   una sección sin abrir el menú. */
+.barra-volver {
+  display: flex; gap: 8px; margin-bottom: 14px;
+}
