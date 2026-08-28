@@ -984,3 +984,44 @@ table.tabla td.acc .btn-grupo { flex-wrap: nowrap; }
 .cae-caja .val {
   font-family: var(--mono); font-size: 18px; font-weight: 700; margin-top: 3px;
 }
+
+/* ── Botón de vender y menú agrupado ─────────────────────
+   Vender es la acción del día: estaba a tres clics (menú → Ventas → Nueva
+   venta) y ahora está a uno, siempre visible. */
+.btn-vender {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  margin: 0 10px 4px; padding: 12px;
+  background: var(--acento); color: #fff; border: none;
+  border-radius: var(--radio); cursor: pointer;
+  font: inherit; font-size: 15px; font-weight: 600;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, .35);
+  transition: background .15s ease, transform .1s ease, box-shadow .15s ease;
+}
+.btn-vender:hover { background: var(--acento-hover); box-shadow: 0 6px 18px rgba(37, 99, 235, .45); }
+.btn-vender:active { transform: translateY(1px); }
+.btn-vender-mas { font-size: 18px; line-height: 1; }
+
+.btn-vender-movil {
+  display: none;
+  background: var(--acento); color: #fff; border: none;
+  padding: 7px 12px; border-radius: var(--radio-chico);
+  font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+  white-space: nowrap;
+}
+
+/* Los grupos: un título chico y apagado que ordena sin robar atención.
+   Va en columna porque los <a> dejaron de ser hijos directos del flex del
+   nav — sin esto quedan uno al lado del otro y se cortan. */
+.nav-grupo { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+.nav-grupo-titulo {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em;
+  font-weight: 700; color: #6b7a90;
+  padding: 8px 12px 4px;
+}
+
+@media (max-width: 640px) {
+  .btn-vender-movil { display: block; }
+  /* En el celular el botón de arriba ya cubre vender: dentro del cajón
+     sería el mismo botón dos veces. */
+  .btn-vender { display: none; }
+}

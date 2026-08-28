@@ -58,27 +58,44 @@ interface Estado {
  * El menú se arma según los módulos activos de este negocio (una ferretería
  * no ve "Producción", un kiosko no ve "Presupuestos") Y según lo que el
  * dueño le haya habilitado a este usuario en particular.
+ *
+ * Va agrupado, no en una lista larga: con todos los módulos prendidos son 16
+ * entradas, y nadie tiene un mapa mental de 16 cajones sueltos. Los grupos
+ * siguen cómo se piensa el trabajo —lo de todos los días, los papeles, el
+ * depósito, el negocio— y no cómo está armado el sistema por dentro.
  */
-function construirNav(cfg: ConfigNegocio, permisos: string[] | null, esDueno: boolean): [string, string][] {
+export interface GrupoNav {
+  titulo: string;
+  items: [string, string][];
+}
+
+function construirNav(cfg: ConfigNegocio, permisos: string[] | null, esDueno: boolean): GrupoNav[] {
   const puede = (m: Modulo) => moduloVisible(cfg.modulos[m], permisos, m);
-  const nav: [string, string][] = [
-    ["/panel", "Panel"],
-    ["/herramientas", cfg.vocabulario.producto_plural],
-    ["/clientes", "Clientes"],
-    ["/mapa-clientes", "Mapa"],
-    ["/ventas", "Ventas"],
-  ];
-  if (puede("venta_rapida")) nav.push(["/pendientes", "Pendientes"]);
-  if (puede("presupuestos")) nav.push(["/presupuestos", "Presupuestos"]);
-  if (puede("remitos")) nav.push(["/remitos", "Remitos"]);
-  if (puede("facturacion_electronica")) nav.push(["/facturas", "Facturas"]);
-  nav.push(["/pagos", "Pagos"]);
-  if (puede("cuenta_corriente")) nav.push(["/cobranzas", "Cobranzas"]);
-  if (puede("produccion")) nav.push(["/produccion", "Producción"]);
-  if (puede("compras")) nav.push(["/compras", "Compras"], ["/proveedores", "Proveedores"]);
-  nav.push(["/reportes", "Reportes"], ["/ajustes", "Ajustes"]);
-  if (esDueno && puede("auditoria")) nav.push(["/auditoria", "Auditoría"]);
-  return nav;
+
+  const diaADia: [string, string][] = [["/ventas", "Ventas"], ["/clientes", "Clientes"]];
+  if (puede("venta_rapida")) diaADia.push(["/pendientes", "Pendientes"]);
+  if (puede("cuenta_corriente")) diaADia.push(["/cobranzas", "Cobranzas"]);
+  diaADia.push(["/pagos", "Pagos"]);
+
+  const comprobantes: [string, string][] = [];
+  if (puede("presupuestos")) comprobantes.push(["/presupuestos", "Presupuestos"]);
+  if (puede("remitos")) comprobantes.push(["/remitos", "Remitos"]);
+  if (puede("facturacion_electronica")) comprobantes.push(["/facturas", "Facturas"]);
+
+  const deposito: [string, string][] = [["/herramientas", cfg.vocabulario.producto_plural]];
+  if (puede("compras")) deposito.push(["/compras", "Compras"], ["/proveedores", "Proveedores"]);
+  if (puede("produccion")) deposito.push(["/produccion", "Producción"]);
+
+  const negocio: [string, string][] = [["/panel", "Panel"], ["/reportes", "Reportes"], ["/mapa-clientes", "Mapa"]];
+  negocio.push(["/ajustes", "Ajustes"]);
+  if (esDueno && puede("auditoria")) negocio.push(["/auditoria", "Auditoría"]);
+
+  return [
+    { titulo: "Día a día", items: diaADia },
+    { titulo: "Comprobantes", items: comprobantes },
+    { titulo: "Depósito", items: deposito },
+    { titulo: "El negocio", items: negocio },
+  ].filter((g) => g.items.length > 0);
 }
 
 /** Secciones que dependen de un módulo: si está apagado, la ruta no existe. */
@@ -281,6 +298,11 @@ export function App() {
           {menuAbierto ? "✕" : "☰"}
         </button>
         <div className="marca">🔧 {cfg.negocio.nombre}</div>
+        {/* En el celular el menú está cerrado, así que vender tiene que estar
+            en la barra de arriba o queda a dos toques igual que antes. */}
+        <button className="btn-vender-movil" onClick={() => navegar("/ventas/nueva")}>
+          + Vender
+        </button>
         <SyncIndicator />
       </header>
 
@@ -308,11 +330,24 @@ export function App() {
           </div>
         </div>
         <BuscadorGlobal />
+        {/* Vender es lo que se hace cincuenta veces por día y estaba a tres
+            clics (menú → Ventas → Nueva venta). Acá queda a uno. En el
+            celular se abre la venta rápida, que es la pensada para el
+            mostrador. */}
+        <button className="btn-vender" onClick={() => navegar("/ventas/nueva")}>
+          <span className="btn-vender-mas">+</span> Vender
+        </button>
+
         <nav>
-          {nav.map(([path, label]) => (
-            <a key={path} href={`#${path}`} className={base === path ? "activo" : ""}>
-              {label}
-            </a>
+          {nav.map((grupo) => (
+            <div className="nav-grupo" key={grupo.titulo}>
+              <div className="nav-grupo-titulo">{grupo.titulo}</div>
+              {grupo.items.map(([path, label]) => (
+                <a key={path} href={`#${path}`} className={base === path ? "activo" : ""}>
+                  {label}
+                </a>
+              ))}
+            </div>
           ))}
         </nav>
         <div className="sidebar-pie">
