@@ -91,14 +91,17 @@ async function signToken(payload: SessionPayload, secret: string): Promise<strin
 }
 
 async function verifyToken(token: string, secret: string): Promise<SessionPayload | null> {
-  const dot = token.lastIndexOf(".");
-  if (dot < 0) return null;
-  const body = token.slice(0, dot);
-  const sig = b64urlDecode(token.slice(dot + 1));
-  const key = await hmacKey(secret);
-  const ok = await crypto.subtle.verify("HMAC", key, bs(sig), bs(enc.encode(body)));
-  if (!ok) return null;
+  // Todo el cuerpo va en el try: una cookie con basura (base64 inválido en la
+  // firma o en el payload) tiene que dar sesión nula, no una excepción que
+  // termine en 500. Un token falso es un caso normal, no un error del server.
   try {
+    const dot = token.lastIndexOf(".");
+    if (dot < 0) return null;
+    const body = token.slice(0, dot);
+    const sig = b64urlDecode(token.slice(dot + 1));
+    const key = await hmacKey(secret);
+    const ok = await crypto.subtle.verify("HMAC", key, bs(sig), bs(enc.encode(body)));
+    if (!ok) return null;
     const payload = JSON.parse(new TextDecoder().decode(b64urlDecode(body))) as SessionPayload;
     if (typeof payload.exp !== "number" || payload.exp < Math.floor(Date.now() / 1000)) return null;
     return payload;

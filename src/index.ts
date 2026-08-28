@@ -23,6 +23,35 @@ import { scheduled } from "./scheduled";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+// Cabeceras de seguridad en toda respuesta. Cierran ataques que no dependen
+// de la sesión: clickjacking (que carguen la app en un iframe para engañar al
+// usuario), sniffing de tipo de contenido, y fuga del referer a terceros.
+// La CSP restringe de dónde puede cargar recursos la página: scripts sólo
+// propios, y así una inyección de HTML no puede traer código de afuera.
+app.use("*", async (c, next) => {
+  await next();
+  c.header("X-Frame-Options", "DENY");
+  c.header("X-Content-Type-Options", "nosniff");
+  c.header("Referrer-Policy", "strict-origin-when-cross-origin");
+  c.header(
+    "Content-Security-Policy",
+    [
+      "default-src 'self'",
+      // El bundle de Vite y algún estilo embebido necesitan 'unsafe-inline'.
+      "script-src 'self' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src 'self' https://fonts.gstatic.com",
+      // Fotos de perfil y QRs van como data:; los tiles del mapa desde CARTO.
+      "img-src 'self' data: blob: https://*.basemaps.cartocdn.com",
+      // El geocodificador de direcciones (nominatim) del alta de clientes.
+      "connect-src 'self' https://nominatim.openstreetmap.org",
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+    ].join("; ")
+  );
+});
+
 // Manejo central de errores: HttpError → { error } con su status.
 app.onError((err, c) => {
   if (err instanceof HttpError) return c.json({ error: err.message }, err.status as any);
