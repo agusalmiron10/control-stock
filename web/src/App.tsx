@@ -336,6 +336,9 @@ export function App() {
       <aside className={`sidebar ${menuAbierto ? "abierta" : ""}`}>
         {/* Arriba de todo: quién sos, con tu foto. Antes esto estaba abajo
             del todo y había que buscarlo. */}
+        {/* La foto y el nombre son dos cosas distintas a propósito: la foto
+            se toca para verla en grande, y el nombre lleva al inicio. No van
+            en un mismo botón porque no se pueden anidar. */}
         <div className="sidebar-cabecera">
           {estado.foto ? (
             <button
@@ -349,10 +352,14 @@ export function App() {
           ) : (
             <span className="avatar avatar-vacio">👤</span>
           )}
-          <div className="sidebar-cabecera-txt">
+          <button
+            className="sidebar-cabecera-txt"
+            onClick={() => navegar("/panel")}
+            title="Ir al inicio"
+          >
             <strong>{estado.usuario}</strong>
             <span>{cfg.negocio.nombre}</span>
-          </div>
+          </button>
         </div>
         <BuscadorGlobal />
         {/* Vender es lo que se hace cincuenta veces por día y estaba a tres
@@ -379,11 +386,15 @@ export function App() {
                   <span className="nav-flecha">▸</span>
                   {grupo.titulo}
                 </button>
-                {abierto && grupo.items.map(([path, label]) => (
-                  <a key={path} href={`#${path}`} className={base === path ? "activo" : ""}>
-                    {label}
-                  </a>
-                ))}
+                {abierto && (
+                  <div className="nav-grupo-items">
+                    {grupo.items.map(([path, label]) => (
+                      <a key={path} href={`#${path}`} className={base === path ? "activo" : ""}>
+                        {label}
+                      </a>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}

@@ -1037,7 +1037,36 @@ table.tabla td.acc .btn-grupo { flex-wrap: nowrap; }
   transition: transform .18s ease;
 }
 .nav-grupo.abierto .nav-flecha { transform: rotate(90deg); }
-.nav-grupo.abierto .nav-grupo-titulo { color: #9fb0c7; }
+
+/* Grupo abierto: el título se enciende con el color de acento y el fondo se
+   marca. Sin esto no se nota cuál desplegaste y hay que deducirlo mirando
+   qué apareció debajo. */
+.nav-grupo.abierto .nav-grupo-titulo {
+  color: #fff;
+  background: rgba(37, 99, 235, .22);
+}
+.nav-grupo.abierto .nav-flecha { color: var(--acento-hover); }
+
+/* Los ítems del grupo abierto van encapsulados: una barra al costado y un
+   fondo apenas más claro dejan ver de un vistazo dónde empieza y dónde
+   termina cada sección. */
+.nav-grupo-items {
+  display: flex; flex-direction: column; gap: 2px;
+  margin: 2px 0 0 6px; padding: 4px 0 4px 8px;
+  border-left: 2px solid rgba(37, 99, 235, .45);
+  background: rgba(255, 255, 255, .025);
+  border-radius: 0 var(--radio-chico) var(--radio-chico) 0;
+}
+
+/* El nombre del negocio en la cabecera lleva al inicio. */
+.sidebar-cabecera-txt {
+  background: none; border: none; padding: 4px 6px; margin: -4px -6px;
+  border-radius: var(--radio-chico);
+  font: inherit; text-align: left; cursor: pointer;
+  transition: background .14s ease;
+}
+.sidebar-cabecera-txt:hover { background: rgba(255, 255, 255, .07); }
+.sidebar-cabecera-txt:focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; }
 
 @media (max-width: 640px) {
   .btn-vender-movil { display: block; }
