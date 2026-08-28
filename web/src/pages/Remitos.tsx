@@ -5,6 +5,7 @@ import { Cargando, Error, Vacio, useCarga } from "../components/ui";
 import { FiltroComprobantes, FILTROS_VACIOS, comoQuery, type Filtros } from "../components/FiltroComprobantes";
 import { RemitoDetalle } from "../components/RemitoDetalle";
 import { NuevoRemito } from "../components/NuevoRemito";
+import { RemitoImprimible } from "../components/RemitoImprimible";
 
 const ESTADOS = ["pendiente", "entregado", "anulado"] as const;
 
@@ -26,6 +27,7 @@ export function Remitos() {
   const [filtros, setFiltros] = useState<Filtros>(FILTROS_VACIOS);
   const [detalle, setDetalle] = useState<string | null>(null);
   const [nuevo, setNuevo] = useState(false);
+  const [imprimir, setImprimir] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
 
   const qs = comoQuery(filtros, { estado });
@@ -123,11 +125,13 @@ export function Remitos() {
           id={detalle}
           onCerrar={() => setDetalle(null)}
           onCambio={(mensaje) => { setDetalle(null); setAviso(mensaje); recargar(); }}
+          onImprimir={(id) => { setDetalle(null); setImprimir(id); }}
         />
       )}
       {nuevo && (
         <NuevoRemito onCerrar={(mensaje) => { setNuevo(false); if (mensaje) { setAviso(mensaje); recargar(); } }} />
       )}
+      {imprimir && <RemitoImprimible remitoId={imprimir} onCerrar={() => setImprimir(null)} />}
     </div>
   );
 }

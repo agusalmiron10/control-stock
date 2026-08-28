@@ -13,10 +13,12 @@ interface Props {
   id: string;
   onCerrar: () => void;
   onCambio: (mensaje: string) => void;
+  /** Abre el remito imprimible. Va afuera porque imprimir el modal sale en blanco. */
+  onImprimir: (id: string) => void;
 }
 
 /** Ficha del remito: qué se entregó, a quién, y quién lo recibió. */
-export function RemitoDetalle({ id, onCerrar, onCambio }: Props) {
+export function RemitoDetalle({ id, onCerrar, onCambio, onImprimir }: Props) {
   const { data, error, cargando } = useCarga<any>(() => api.get(`/api/remitos/${id}`), [id]);
   const [recibidoPor, setRecibidoPor] = useState("");
   const [anular, setAnular] = useState(false);
@@ -109,7 +111,7 @@ export function RemitoDetalle({ id, onCerrar, onCambio }: Props) {
 
           <div className="btn-grupo" style={{ justifyContent: "flex-end", marginTop: 18 }}>
             <button className="btn" onClick={onCerrar}>Cerrar</button>
-            <button className="btn" onClick={() => window.print()}>Imprimir</button>
+            <button className="btn" onClick={() => onImprimir(id)}>Imprimir</button>
             {r.estado !== "anulado" && (
               <button className="btn peligro" disabled={trabajando} onClick={() => setAnular(true)}>Anular</button>
             )}
