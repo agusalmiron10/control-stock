@@ -1123,3 +1123,48 @@ table.tabla td.acc .btn-grupo { flex-wrap: nowrap; }
   width: 4px; height: 22px; border-radius: 2px;
   background: linear-gradient(180deg, var(--acento), var(--acento-hover));
 }
+
+/* ── Menos blanco y gris ─────────────────────────────────
+   El fondo era gris plano y las tablas blanco puro: mucha superficie muerta.
+   Acá entra color de verdad, sin tapar los datos. */
+
+/* Fondo con un degradado apenas azulado en vez de gris plano. Fijo, así no
+   se despega al hacer scroll. */
+body {
+  background:
+    radial-gradient(1200px 700px at 15% -10%, color-mix(in srgb, var(--acento) 9%, transparent), transparent 60%),
+    radial-gradient(900px 600px at 100% 0%, color-mix(in srgb, var(--acento) 6%, transparent), transparent 55%),
+    var(--bg);
+  background-attachment: fixed;
+}
+
+/* Encabezado de tabla: azul en vez de gris. Es la línea que ordena toda la
+   tabla y estaba apagada. */
+table.tabla th {
+  background: color-mix(in srgb, var(--acento) 9%, var(--panel));
+  color: var(--acento);
+  border-bottom: 2px solid color-mix(in srgb, var(--acento) 22%, transparent);
+}
+
+/* Filas alternadas y realce al pasar: una tabla de 40 filas sin esto es un
+   bloque en el que se pierde el renglón que estás leyendo. */
+table.tabla tbody tr:nth-child(even) { background: color-mix(in srgb, var(--acento) 3%, transparent); }
+table.tabla tbody tr:hover { background: color-mix(in srgb, var(--acento) 9%, transparent); }
+
+/* La barra de filtros deja de flotar suelta sobre el fondo. */
+.barra-filtros {
+  background: var(--panel);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  padding: 12px 14px;
+  box-shadow: var(--sombra);
+}
+
+/* Los badges tenían poco cuerpo. */
+.badge { border: 1px solid transparent; }
+.badge.pagada { border-color: color-mix(in srgb, var(--verde) 30%, transparent); }
+.badge.impaga { border-color: color-mix(in srgb, var(--rojo) 30%, transparent); }
+.badge.parcial { border-color: color-mix(in srgb, var(--ambar) 30%, transparent); }
+
+/* Los avisos de la parte de arriba, con el acento en vez de lila apagado. */
+.pill-info, .ok-box { border-left: 3px solid currentColor; }
