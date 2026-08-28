@@ -1081,3 +1081,45 @@ table.tabla td.acc .btn-grupo { flex-wrap: nowrap; }
 .barra-volver {
   display: flex; gap: 8px; margin-bottom: 14px;
 }
+
+/* ── Color en tarjetas y encabezados ─────────────────────
+   El sistema quedaba muy blanco: cajas grises sobre fondo gris. Esto le da
+   color sin ensuciarlo, y va acá y no en cada pantalla para que valga en
+   todas de una. */
+
+/* Cada KPI lleva una franja arriba del color de lo que muestra. El color se
+   deduce del propio valor con :has(), así no hay que tocar el markup de las
+   nueve pantallas que usan .kpi. Si el navegador no soporta :has(), queda la
+   franja azul y no se rompe nada. */
+.kpi {
+  border-top: 3px solid var(--acento);
+  position: relative;
+}
+.kpi:has(.val.debe) { border-top-color: var(--rojo); }
+.kpi:has(.val.saldado) { border-top-color: var(--verde); }
+.kpi .rot { color: var(--acento); }
+.kpi:has(.val.debe) .rot { color: var(--rojo); }
+.kpi:has(.val.saldado) .rot { color: var(--verde); }
+
+/* Encabezado de tarjeta: una barrita de acento adelante y fondo apenas
+   teñido. Antes era gris sobre gris y se perdía. */
+.card > h2, .card-header {
+  display: flex; align-items: center; gap: 9px;
+  background: color-mix(in srgb, var(--acento) 5%, var(--superficie));
+  color: var(--texto);
+}
+.card > h2::before, .card-header::before {
+  content: ""; flex: none;
+  width: 3px; height: 14px; border-radius: 2px;
+  background: var(--acento);
+}
+
+/* El título de sección también se ancla con color. */
+.encabezado-seccion h1 {
+  display: flex; align-items: center; gap: 10px;
+}
+.encabezado-seccion h1::before {
+  content: ""; flex: none;
+  width: 4px; height: 22px; border-radius: 2px;
+  background: linear-gradient(180deg, var(--acento), var(--acento-hover));
+}
