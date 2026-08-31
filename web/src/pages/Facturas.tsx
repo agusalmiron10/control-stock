@@ -227,6 +227,7 @@ export function Facturas() {
           onImprimir={(ventaId) => { setDetalle(null); setVerFactura(ventaId); }}
           onVerificar={() => { setDetalle(null); void verificarHuerfanos(); }}
           onReintentar={(ventaId) => { setDetalle(null); setReintentar(ventaId); }}
+          onBorrado={(m) => { setDetalle(null); setAviso(m); recargar(); }}
         />
       )}
 

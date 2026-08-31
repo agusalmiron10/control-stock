@@ -303,3 +303,31 @@ compras.post("/:id/anular", async (c) => {
   await c.env.DB.batch(stmts);
   return c.json({ ok: true });
 });
+
+/**
+ * Borrar una compra. Sólo si está anulada.
+ *
+ * Anular ya devolvió el stock; borrar sólo la saca de la lista. Pedir que
+ * esté anulada primero garantiza que el stock quedó como corresponde antes de
+ * que el registro desaparezca — si se pudiera borrar directo, el stock que
+ * entró con esa compra quedaría inflado para siempre y sin rastro de por qué.
+ */
+compras.delete("/:id", async (c) => {
+  const id = c.req.param("id");
+  const neg = negocioDe(c);
+  const co = await c.env.DB.prepare(`SELECT numero, estado FROM compras WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, id)
+    .first<{ numero: number; estado: string }>();
+  if (!co) throw new HttpError(404, "Compra no encontrada.");
+  if (co.estado !== "anulada") {
+    throw new HttpError(400, "Para borrar una compra primero hay que anularla, así el stock vuelve a como estaba.");
+  }
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(`DELETE FROM movimientos_stock WHERE negocio_id = ? AND compra_id = ?`).bind(neg, id),
+    c.env.DB.prepare(`DELETE FROM compra_items WHERE negocio_id = ? AND compra_id = ?`).bind(neg, id),
+    c.env.DB.prepare(`DELETE FROM compras WHERE negocio_id = ? AND id = ?`).bind(neg, id),
+    auditar(c.env, neg, c.get("usuario").usuario, "borrar_compra", "compra", id, `Compra #${co.numero}`),
+  ]);
+  return c.json({ ok: true });
+});

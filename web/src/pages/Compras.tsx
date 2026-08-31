@@ -21,6 +21,7 @@ export function Compras() {
   const [nueva, setNueva] = useState(false);
   const [detalle, setDetalle] = useState<string | null>(null);
   const [anular, setAnular] = useState<Compra | null>(null);
+  const [borrar, setBorrar] = useState<Compra | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,6 +40,19 @@ export function Compras() {
     } catch (err: any) {
       setError(err.message);
       setAnular(null);
+    }
+  }
+
+  async function hacerBorrar() {
+    if (!borrar) return;
+    try {
+      await api.del(`/api/compras/${borrar.id}`);
+      setAviso(`Compra #${borrar.numero} borrada.`);
+      setBorrar(null);
+      recargar();
+    } catch (err: any) {
+      setError(err.message);
+      setBorrar(null);
     }
   }
 
@@ -99,8 +113,10 @@ export function Compras() {
                     <td className="acc">
                       <div className="btn-grupo" style={{ justifyContent: "flex-end" }}>
                         <button className="btn chico" onClick={() => setDetalle(co.id)}>Ver</button>
-                        {co.estado === "registrada" && (
+                        {co.estado === "registrada" ? (
                           <button className="btn chico peligro" onClick={() => setAnular(co)}>Anular</button>
+                        ) : (
+                          <button className="btn chico peligro" onClick={() => setBorrar(co)}>Borrar</button>
                         )}
                       </div>
                     </td>
@@ -123,8 +139,10 @@ export function Compras() {
                 </div>
                 <div className="tf-datos" style={{ marginTop: 8 }}>
                   <button className="btn chico" onClick={() => setDetalle(co.id)}>Ver</button>
-                  {co.estado === "registrada" && (
+                  {co.estado === "registrada" ? (
                     <button className="btn chico peligro" onClick={() => setAnular(co)}>Anular</button>
+                  ) : (
+                    <button className="btn chico peligro" onClick={() => setBorrar(co)}>Borrar</button>
                   )}
                 </div>
               </div>
@@ -137,6 +155,15 @@ export function Compras() {
         <NuevaCompra onCerrar={(mensaje) => { setNueva(false); if (mensaje) { setAviso(mensaje); recargar(); } }} />
       )}
       {detalle && <DetalleCompra id={detalle} onCerrar={() => setDetalle(null)} />}
+      {borrar && (
+        <Confirmar
+          mensaje={`¿Borrar la compra #${borrar.numero} de la lista? Ya está anulada, así que el stock no cambia — sólo desaparece del historial. No se puede deshacer.`}
+          textoConfirmar="Borrar"
+          peligro
+          onSi={hacerBorrar}
+          onNo={() => setBorrar(null)}
+        />
+      )}
       {anular && (
         <Confirmar
           mensaje={`¿Anular la compra #${anular.numero} a ${anular.proveedor_nombre} por ${pesos(anular.total)}? El stock que había entrado se va a descontar.`}

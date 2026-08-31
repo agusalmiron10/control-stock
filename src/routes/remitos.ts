@@ -277,3 +277,30 @@ remitos.post("/:id/anular", async (c) => {
   ]);
   return c.json({ ok: true });
 });
+
+/**
+ * Borrar un remito. Sólo si está anulado.
+ *
+ * Anular ya libera las cantidades para volver a remitarlas, así que borrar es
+ * puramente para limpiar: sacar de la lista un remito que se cargó mal o de
+ * prueba. Exigir que esté anulado primero evita que alguien haga desaparecer
+ * de un clic la constancia de una entrega que sí ocurrió.
+ */
+remitos.delete("/:id", async (c) => {
+  const id = c.req.param("id");
+  const neg = negocioDe(c);
+  const r = await c.env.DB.prepare(`SELECT numero, estado FROM remitos WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, id)
+    .first<{ numero: number; estado: string }>();
+  if (!r) throw new HttpError(404, "Remito no encontrado.");
+  if (r.estado !== "anulado") {
+    throw new HttpError(400, "Para borrar un remito primero hay que anularlo. Así queda claro que la entrega no va.");
+  }
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(`DELETE FROM remito_items WHERE negocio_id = ? AND remito_id = ?`).bind(neg, id),
+    c.env.DB.prepare(`DELETE FROM remitos WHERE negocio_id = ? AND id = ?`).bind(neg, id),
+    auditar(c.env, neg, c.get("usuario").usuario, "borrar_remito", "remito", id, `Remito #${r.numero}`),
+  ]);
+  return c.json({ ok: true });
+});

@@ -543,6 +543,54 @@ facturacion.get("/facturas/:id", async (c) => {
   });
 });
 
+/**
+ * Borrar un comprobante. NUNCA uno autorizado.
+ *
+ * Una factura autorizada existe en ARCA, no sólo acá: borrarla de la base no
+ * la borra de allá, sólo hace que tus registros dejen de coincidir con los de
+ * ARCA. Y hay obligación legal de conservarla. Si está mal, el camino es la
+ * Nota de Crédito, que es justamente para eso.
+ *
+ * Lo que sí se puede borrar son los intentos que nunca llegaron a ser un
+ * comprobante: los que ARCA rechazó y los que quedaron con error. Esos no
+ * existen en ningún lado más que en esta tabla.
+ *
+ * Los huérfanos tampoco: hasta no verificarlos contra ARCA no se sabe si son
+ * un comprobante real. Borrarlos sería tapar la duda en vez de resolverla.
+ */
+facturacion.delete("/facturas/:id", async (c) => {
+  const neg = negocioDe(c);
+  const id = c.req.param("id");
+  const f = await c.env.DB
+    .prepare(`SELECT numero, punto_venta, estado FROM facturas WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, id)
+    .first<{ numero: number | null; punto_venta: number; estado: string }>();
+  if (!f) throw new HttpError(404, "Comprobante no encontrado.");
+
+  if (f.estado === "autorizada") {
+    throw new HttpError(
+      400,
+      "Una factura autorizada no se borra: existe en ARCA y hay que conservarla. Si está mal, anulala con una Nota de Crédito."
+    );
+  }
+  if (f.estado === "huerfano") {
+    throw new HttpError(
+      400,
+      "Este comprobante quedó sin confirmar. Verificalo con ARCA primero: si nunca se emitió vas a poder borrarlo."
+    );
+  }
+  if (f.estado === "pendiente") {
+    throw new HttpError(400, "Este comprobante se está emitiendo en este momento. Esperá a que termine.");
+  }
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(`DELETE FROM facturas WHERE negocio_id = ? AND id = ?`).bind(neg, id),
+    auditar(c.env, neg, c.get("usuario").usuario, "borrar_factura", "factura", id,
+      `Intento ${f.estado}${f.numero ? ` · ${f.punto_venta}-${f.numero}` : ""}`),
+  ]);
+  return c.json({ ok: true });
+});
+
 facturacion.get("/ventas/:ventaId/previo", async (c) => {
   const neg = negocioDe(c);
   const ventaId = c.req.param("ventaId");

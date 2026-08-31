@@ -1,0 +1,1313 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StockApp</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..900&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Sans+3:wght@400;500;600;700&display=swap">
+
+<style>
+/* ============================================================
+   TOKENS — derivados de la paleta real del sistema (styles.css)
+   ============================================================ */
+:root{
+  --ground:#ffffff;
+  --surface:#f1f4f9;
+  --raised:#ffffff;
+  --inset:#f7f9fc;
+  --line:#dde3ed;
+  --line-soft:#eaeef5;
+  --ink:#0b1526;
+  --ink-2:#4a5a72;
+  --ink-3:#5d6b80;
+  --accent:#1d4ed8;
+  --accent-hi:#2563eb;
+  --accent-soft:#eaf0fe;
+  --on-accent:#ffffff;
+  --ok:#15803d;
+  --ok-soft:#dcfce7;
+  --warn:#b45309;
+  --warn-soft:#fef3c7;
+  --bad:#dc2626;
+  --shadow:0 1px 2px rgba(11,21,38,.04), 0 1px 3px rgba(11,21,38,.06);
+  --shadow-md:0 2px 4px rgba(11,21,38,.04), 0 6px 18px rgba(11,21,38,.08);
+  --shadow-lg:0 12px 24px -8px rgba(11,21,38,.14), 0 4px 8px -4px rgba(11,21,38,.08);
+
+  --sans:"Source Sans 3",-apple-system,"Segoe UI",Roboto,sans-serif;
+  --disp:"Archivo","Helvetica Neue",Arial,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+
+  --r:12px;
+  --r-sm:8px;
+  --wrap:1180px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#080d18;
+    --surface:#101828;
+    --raised:#151d2e;
+    --inset:#1c2537;
+    --line:#26314a;
+    --line-soft:#1a2334;
+    --ink:#e8edf7;
+    --ink-2:#93a1b8;
+    --ink-3:#6b7b94;
+    --accent:#5b94ff;
+    --accent-hi:#7faeff;
+    --accent-soft:#142346;
+    --on-accent:#06101f;
+    --ok:#4ade80;
+    --ok-soft:#06301a;
+    --warn:#fbbf24;
+    --warn-soft:#3a2506;
+    --bad:#f87171;
+    --shadow:0 1px 2px rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.4);
+    --shadow-md:0 2px 4px rgba(0,0,0,.5), 0 6px 18px rgba(0,0,0,.45);
+    --shadow-lg:0 12px 24px -8px rgba(0,0,0,.65), 0 4px 8px -4px rgba(0,0,0,.5);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#080d18;
+  --surface:#101828;
+  --raised:#151d2e;
+  --inset:#1c2537;
+  --line:#26314a;
+  --line-soft:#1a2334;
+  --ink:#e8edf7;
+  --ink-2:#93a1b8;
+  --ink-3:#6b7b94;
+  --accent:#5b94ff;
+  --accent-hi:#7faeff;
+  --accent-soft:#142346;
+  --on-accent:#06101f;
+  --ok:#4ade80;
+  --ok-soft:#06301a;
+  --warn:#fbbf24;
+  --warn-soft:#3a2506;
+  --bad:#f87171;
+  --shadow:0 1px 2px rgba(0,0,0,.5), 0 1px 3px rgba(0,0,0,.4);
+  --shadow-md:0 2px 4px rgba(0,0,0,.5), 0 6px 18px rgba(0,0,0,.45);
+  --shadow-lg:0 12px 24px -8px rgba(0,0,0,.65), 0 4px 8px -4px rgba(0,0,0,.5);
+}
+
+/* ============================================================
+   BASE
+   ============================================================ */
+body{
+  background:var(--ground);
+  color:var(--ink);
+  font-family:var(--sans);
+  font-size:17px;
+  line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+}
+*{box-sizing:border-box}
+a{color:inherit;text-decoration:none}
+:focus-visible{outline:2px solid var(--accent-hi);outline-offset:3px;border-radius:4px}
+
+.wrap{width:100%;max-width:var(--wrap);margin-inline:auto;padding-inline:24px}
+
+h1,h2,h3,h4{font-family:var(--disp);font-stretch:106%;text-wrap:balance;margin:0}
+h1{font-size:clamp(2.3rem,4.4vw,3.6rem);font-weight:800;letter-spacing:-.036em;line-height:1.02}
+h2{font-size:clamp(1.85rem,3.5vw,2.95rem);font-weight:700;letter-spacing:-.03em;line-height:1.06}
+h3{font-size:1.22rem;font-weight:700;letter-spacing:-.016em;line-height:1.3}
+h4{font-size:.98rem;font-weight:700;letter-spacing:-.008em}
+p{margin:0}
+
+.eyebrow{
+  font-family:var(--mono);font-size:.7rem;font-weight:500;
+  letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);
+  display:block;margin-bottom:14px;
+}
+.lead{font-size:clamp(1.05rem,1.55vw,1.26rem);line-height:1.6;color:var(--ink-2);max-width:62ch}
+.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+
+/* filete de sección: separador en vez de bloques de color alternados */
+.rule{border:0;border-top:1px solid var(--line);margin:0}
+
+.sec{padding-block:clamp(64px,8vw,112px)}
+.sec--tint{background:var(--surface)}
+
+.sec-head{max-width:60ch;margin-bottom:clamp(38px,5vw,60px)}
+.sec-head p{margin-top:16px}
+
+/* ---- botones ---- */
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:9px;
+  font-family:var(--sans);font-size:1rem;font-weight:600;
+  padding:13px 24px;border-radius:var(--r-sm);border:1px solid transparent;
+  cursor:pointer;transition:background .16s ease,border-color .16s ease,color .16s ease,transform .16s ease;
+  white-space:nowrap;
+}
+.btn--pri{background:var(--accent);color:var(--on-accent);box-shadow:var(--shadow-md)}
+.btn--pri:hover{background:var(--accent-hi);transform:translateY(-1px)}
+.btn--sec{background:var(--raised);color:var(--ink);border-color:var(--line)}
+.btn--sec:hover{border-color:var(--ink-3);background:var(--inset)}
+.btn--ghost{background:transparent;color:var(--ink-2);padding:8px 14px;font-size:.94rem}
+.btn--ghost:hover{color:var(--ink)}
+.btn--sm{padding:10px 18px;font-size:.94rem}
+.btn--wide{width:100%}
+
+/* ============================================================
+   NAV
+   ============================================================ */
+.nav{
+  position:sticky;top:0;z-index:60;
+  background:color-mix(in srgb, var(--ground) 88%, transparent);
+  backdrop-filter:saturate(1.6) blur(12px);
+  border-bottom:1px solid var(--line);
+}
+.nav-in{display:flex;align-items:center;gap:26px;height:64px}
+.brand{display:flex;align-items:center;gap:10px;font-family:var(--disp);font-weight:800;font-size:1.16rem;letter-spacing:-.028em}
+.brand svg{display:block;flex:none}
+.nav-links{display:flex;gap:4px;margin-left:auto}
+.nav-cta{display:flex;gap:10px;align-items:center}
+@media (max-width:900px){ .nav-links{display:none} .nav-cta{margin-left:auto} }
+@media (max-width:520px){ .nav-cta .btn--ghost{display:none} }
+
+/* ============================================================
+   HERO
+   ============================================================ */
+.hero{padding-block:clamp(56px,7vw,96px) clamp(52px,6vw,84px)}
+.hero-grid{display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,.92fr);gap:clamp(40px,5vw,72px);align-items:center}
+@media (max-width:1000px){ .hero-grid{grid-template-columns:1fr;gap:44px} }
+
+.hero h1 .hl{color:var(--accent)}
+.hero .lead{margin-top:24px}
+.hero-cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:32px}
+.hero-fine{
+  margin-top:18px;font-family:var(--mono);font-size:.76rem;letter-spacing:.03em;
+  color:var(--ink-3);
+}
+
+/* ============================================================
+   DEMO — imputación FIFO en vivo (el corazón del sistema)
+   ============================================================ */
+.demo{
+  background:var(--raised);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow-lg);overflow:hidden;
+}
+.demo-bar{
+  display:flex;align-items:center;gap:7px;padding:11px 14px;
+  background:var(--inset);border-bottom:1px solid var(--line);
+}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--line);flex:none}
+.demo-bar .path{
+  margin-left:8px;font-family:var(--mono);font-size:.72rem;color:var(--ink-3);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.demo-head{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;padding:20px 22px 16px}
+.demo-head .who{font-family:var(--disp);font-weight:700;font-size:1.1rem;letter-spacing:-.018em;display:block}
+.demo-saldo{text-align:right;flex:none}
+.demo-saldo .lbl{display:block;font-family:var(--mono);font-size:.64rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:3px}
+.demo-saldo .val{
+  font-family:var(--disp);font-weight:800;font-size:1.5rem;letter-spacing:-.028em;
+  font-variant-numeric:tabular-nums;display:block;
+  transition:color .3s ease;
+}
+.demo-saldo .val.moving{color:var(--accent)}
+
+.demo-rows{border-top:1px solid var(--line-soft)}
+.row{
+  position:relative;display:grid;
+  grid-template-columns:auto 1fr auto;gap:4px 14px;align-items:center;
+  padding:14px 22px;border-bottom:1px solid var(--line-soft);
+  isolation:isolate;
+}
+.row::before{
+  content:"";position:absolute;inset:0;z-index:-1;
+  background:var(--ok-soft);opacity:0;
+  transform-origin:left;transform:scaleX(var(--fill,0));
+  transition:transform .62s cubic-bezier(.22,.9,.28,1), opacity .3s ease;
+}
+.row.touched::before{opacity:1}
+.row.partial::before{background:var(--warn-soft)}
+.row .ref{font-family:var(--mono);font-size:.82rem;font-weight:500;color:var(--ink)}
+.row .fecha{font-family:var(--mono);font-size:.74rem;color:var(--ink-3)}
+.row .monto{font-family:var(--sans);font-weight:600;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.row .estado{grid-column:1 / -1;display:flex;align-items:center;gap:8px;margin-top:2px}
+
+.pill{
+  display:inline-block;font-family:var(--mono);font-size:.66rem;font-weight:500;
+  letter-spacing:.08em;text-transform:uppercase;
+  padding:3px 8px;border-radius:99px;white-space:nowrap;
+  background:var(--inset);color:var(--ink-3);border:1px solid var(--line);
+}
+.pill--ok{background:var(--ok-soft);color:var(--ok);border-color:transparent}
+.pill--warn{background:var(--warn-soft);color:var(--warn);border-color:transparent}
+.pill--bad{background:transparent;color:var(--ink-3)}
+.row .detalle{font-size:.85rem;color:var(--ink-2);font-variant-numeric:tabular-nums}
+
+.demo-pago{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  padding:16px 22px;background:var(--accent-soft);
+  border-bottom:1px solid var(--line-soft);
+  opacity:0;transform:translateY(-8px);
+  transition:opacity .4s ease,transform .4s cubic-bezier(.22,.9,.28,1);
+}
+.demo-pago.on{opacity:1;transform:none}
+.demo-pago .tag{
+  font-family:var(--mono);font-size:.64rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--accent);font-weight:600;
+}
+.demo-pago .plata{font-family:var(--disp);font-weight:800;font-size:1.06rem;letter-spacing:-.02em;font-variant-numeric:tabular-nums;color:var(--ink)}
+.demo-pago .como{font-size:.87rem;color:var(--ink-2)}
+
+.demo-foot{
+  display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;
+  padding:14px 22px;background:var(--inset);
+}
+.demo-foot .nota{font-size:.85rem;color:var(--ink-2);max-width:46ch}
+.replay{
+  font-family:var(--mono);font-size:.72rem;letter-spacing:.06em;
+  background:transparent;border:1px solid var(--line);color:var(--ink-2);
+  padding:7px 13px;border-radius:99px;cursor:pointer;white-space:nowrap;
+  transition:border-color .16s ease,color .16s ease;
+}
+.replay:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ============================================================
+   MARQUEE de módulos
+   ============================================================ */
+.strip{border-block:1px solid var(--line);background:var(--surface);overflow:hidden;padding-block:16px}
+.marq{display:flex;gap:0;width:max-content;animation:slide 46s linear infinite}
+.marq-set{display:flex;gap:0;flex:none}
+.marq span{
+  font-family:var(--mono);font-size:.78rem;letter-spacing:.06em;color:var(--ink-2);
+  padding-inline:20px;white-space:nowrap;position:relative;
+}
+.marq span::after{content:"";position:absolute;right:0;top:50%;transform:translateY(-50%);width:3px;height:3px;border-radius:50%;background:var(--ink-3);opacity:.5}
+@keyframes slide{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+.strip:hover .marq{animation-play-state:paused}
+
+/* ============================================================
+   PROBLEMA
+   ============================================================ */
+.pains{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
+@media (max-width:960px){ .pains{grid-template-columns:1fr;max-width:640px} }
+.pain{
+  background:var(--raised);border:1px solid var(--line);border-radius:var(--r);
+  padding:26px 24px;display:flex;flex-direction:column;gap:16px;box-shadow:var(--shadow);
+}
+.pain h3{color:var(--ink)}
+.pain ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:9px}
+.pain ul li{
+  position:relative;padding-left:20px;font-size:.96rem;color:var(--ink-2);line-height:1.5;
+}
+.pain ul li::before{
+  content:"";position:absolute;left:2px;top:.6em;width:8px;height:1px;background:var(--ink-3);
+}
+.fix{
+  margin-top:auto;padding-top:16px;border-top:1px solid var(--line-soft);
+  font-size:.95rem;color:var(--ink-2);line-height:1.55;
+}
+.fix b{color:var(--accent);font-weight:600}
+
+/* ============================================================
+   PASOS (única numeración de la página: es una secuencia real)
+   ============================================================ */
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border-top:1px solid var(--line)}
+@media (max-width:1000px){ .steps{grid-template-columns:repeat(2,1fr)} }
+@media (max-width:620px){ .steps{grid-template-columns:1fr} }
+.step{padding:26px 24px 30px 0;border-right:1px solid var(--line)}
+.step:last-child{border-right:0}
+@media (max-width:1000px){
+  .step{padding-right:24px;border-bottom:1px solid var(--line)}
+  .step:nth-child(2n){border-right:0}
+}
+@media (max-width:620px){ .step{border-right:0} }
+.step .n{
+  font-family:var(--mono);font-size:.74rem;font-weight:600;letter-spacing:.1em;
+  color:var(--accent);display:block;margin-bottom:14px;
+}
+.step h3{margin-bottom:10px}
+.step p{font-size:.96rem;color:var(--ink-2);line-height:1.55;max-width:34ch}
+
+/* ============================================================
+   MÓDULOS
+   ============================================================ */
+.mod{display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1fr);gap:clamp(32px,4.5vw,64px);align-items:center;padding-block:clamp(44px,5vw,64px)}
+.mod + .mod{border-top:1px solid var(--line)}
+.mod--flip .mod-txt{order:2}
+@media (max-width:940px){
+  .mod{grid-template-columns:1fr;gap:32px}
+  .mod--flip .mod-txt{order:0}
+}
+.mod-txt h3{font-size:clamp(1.35rem,2.2vw,1.85rem);letter-spacing:-.024em;margin-bottom:14px}
+.mod-txt > p{color:var(--ink-2);margin-bottom:22px;max-width:48ch}
+.mod-list{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:11px}
+.mod-list li{position:relative;padding-left:26px;font-size:.97rem;line-height:1.5;color:var(--ink-2)}
+.mod-list li::before{
+  content:"";position:absolute;left:0;top:.42em;width:13px;height:7px;
+  border-left:1.5px solid var(--accent);border-bottom:1.5px solid var(--accent);
+  transform:rotate(-45deg);
+}
+.mod-list li b{color:var(--ink);font-weight:600}
+
+/* ---- panel genérico de mockup ---- */
+.panel{
+  background:var(--raised);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow-lg);overflow:hidden;
+}
+.panel-head{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:13px 18px;border-bottom:1px solid var(--line);background:var(--inset);
+}
+.panel-head .t{font-family:var(--disp);font-weight:700;font-size:.95rem;letter-spacing:-.012em}
+.panel-head .s{font-family:var(--mono);font-size:.68rem;color:var(--ink-3);letter-spacing:.06em}
+.tbl{width:100%;border-collapse:collapse;font-size:.9rem}
+.tbl th{
+  font-family:var(--mono);font-size:.63rem;font-weight:500;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-3);text-align:left;padding:10px 18px;border-bottom:1px solid var(--line-soft);font-weight:500;
+}
+.tbl td{padding:11px 18px;border-bottom:1px solid var(--line-soft);color:var(--ink-2)}
+.tbl tr:last-child td{border-bottom:0}
+.tbl .prod{color:var(--ink);font-weight:600}
+.tbl .r{text-align:right;font-variant-numeric:tabular-nums}
+.tbl .low{color:var(--warn);font-weight:700}
+.tbl .sug{color:var(--accent);font-weight:700}
+.tbl-scroll{overflow-x:auto}
+
+/* barras de antigüedad */
+.aging{padding:16px 18px 18px;display:flex;flex-direction:column;gap:12px}
+.age-row{display:grid;grid-template-columns:64px 1fr 96px;gap:12px;align-items:center}
+.age-row .k{font-family:var(--mono);font-size:.72rem;color:var(--ink-3)}
+.age-row .v{font-weight:600;font-variant-numeric:tabular-nums;text-align:right;font-size:.9rem;color:var(--ink)}
+.bar{height:9px;border-radius:99px;background:var(--inset);overflow:hidden}
+.bar i{display:block;height:100%;border-radius:99px;background:var(--accent)}
+.age-row[data-t="61"] .bar i{background:var(--warn)}
+.age-row[data-t="90"] .bar i{background:var(--bad)}
+
+/* KPIs */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--line-soft)}
+@media (max-width:520px){ .kpis{grid-template-columns:repeat(2,1fr)} }
+.kpi{padding:15px 18px;border-right:1px solid var(--line-soft)}
+.kpi:last-child{border-right:0}
+@media (max-width:520px){
+  .kpi:nth-child(2n){border-right:0}
+  .kpi:nth-child(-n+2){border-bottom:1px solid var(--line-soft)}
+}
+.kpi .k{display:block;font-family:var(--mono);font-size:.61rem;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);margin-bottom:5px}
+.kpi .v{font-family:var(--disp);font-weight:800;font-size:1.12rem;letter-spacing:-.026em;font-variant-numeric:tabular-nums;display:block}
+.kpi .v.pos{color:var(--ok)}
+
+/* comprobante fiscal */
+.fisc{padding:18px}
+.fisc-top{display:flex;justify-content:space-between;gap:14px;padding-bottom:14px;border-bottom:1px dashed var(--line)}
+.fisc-top .cls{
+  font-family:var(--disp);font-weight:800;font-size:1.6rem;line-height:1;
+  border:2px solid var(--ink);border-radius:6px;padding:6px 12px;flex:none;
+}
+.fisc dl{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin:14px 0 0;font-size:.86rem}
+.fisc dt{font-family:var(--mono);font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);align-self:center}
+.fisc dd{margin:0;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink);font-weight:600}
+
+/* ============================================================
+   CAMPO / MOSTRADOR — mockup de celular
+   ============================================================ */
+.field{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.62fr);gap:clamp(36px,5vw,72px);align-items:center}
+@media (max-width:940px){ .field{grid-template-columns:1fr;gap:40px} }
+.phone{
+  width:min(288px,100%);margin-inline:auto;
+  background:var(--raised);border:8px solid var(--ink);border-radius:32px;
+  box-shadow:var(--shadow-lg);overflow:hidden;
+}
+.ph-status{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:9px 16px 7px;font-family:var(--mono);font-size:.62rem;color:var(--ink-3);
+  background:var(--inset);
+}
+.ph-off{
+  display:flex;align-items:center;gap:7px;padding:9px 14px;
+  background:var(--warn-soft);color:var(--warn);
+  font-family:var(--mono);font-size:.66rem;letter-spacing:.03em;
+}
+.ph-off .blip{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none;animation:pulse 1.9s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+.ph-body{padding:14px 16px 16px}
+.ph-ttl{font-family:var(--disp);font-weight:700;font-size:1.02rem;letter-spacing:-.018em;margin-bottom:2px}
+.ph-sub{font-family:var(--mono);font-size:.64rem;color:var(--ink-3);margin-bottom:14px}
+.ph-item{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--line-soft);font-size:.86rem}
+.ph-item .q{font-family:var(--mono);font-size:.72rem;color:var(--ink-3);display:block}
+.ph-item .n{color:var(--ink)}
+.ph-item .p{font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ph-tot{display:flex;justify-content:space-between;align-items:baseline;padding:14px 0 12px}
+.ph-tot .k{font-family:var(--mono);font-size:.66rem;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3)}
+.ph-tot .v{font-family:var(--disp);font-weight:800;font-size:1.4rem;letter-spacing:-.028em;font-variant-numeric:tabular-nums}
+
+/* ============================================================
+   PRECIOS
+   ============================================================ */
+.toggle{
+  display:inline-flex;background:var(--inset);border:1px solid var(--line);
+  border-radius:99px;padding:4px;gap:4px;margin-top:24px;
+}
+.toggle button{
+  font-family:var(--sans);font-size:.9rem;font-weight:600;color:var(--ink-2);
+  background:transparent;border:0;padding:8px 18px;border-radius:99px;cursor:pointer;
+  transition:background .16s ease,color .16s ease;white-space:nowrap;
+}
+.toggle button[aria-pressed="true"]{background:var(--raised);color:var(--ink);box-shadow:var(--shadow)}
+.toggle .off{font-family:var(--mono);font-size:.68rem;color:var(--ok);margin-left:6px}
+
+.plans{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;align-items:start}
+@media (max-width:960px){ .plans{grid-template-columns:1fr;max-width:520px} }
+.plan{
+  background:var(--raised);border:1px solid var(--line);border-radius:var(--r);
+  padding:28px 24px;display:flex;flex-direction:column;gap:18px;box-shadow:var(--shadow);
+  position:relative;
+}
+.plan--best{border-color:var(--accent);box-shadow:var(--shadow-lg)}
+.plan .flag{
+  position:absolute;top:-11px;left:24px;
+  background:var(--accent);color:var(--on-accent);
+  font-family:var(--mono);font-size:.62rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
+  padding:4px 11px;border-radius:99px;
+}
+.plan .nom{font-family:var(--disp);font-weight:800;font-size:1.28rem;letter-spacing:-.024em}
+.plan .para{font-size:.93rem;color:var(--ink-2);line-height:1.5;min-height:2.9em}
+.price{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap}
+.price .cur{font-family:var(--mono);font-size:.8rem;color:var(--ink-3)}
+.price .amt{font-family:var(--disp);font-weight:800;font-size:2.35rem;letter-spacing:-.04em;font-variant-numeric:tabular-nums;line-height:1}
+.price .per{font-size:.9rem;color:var(--ink-3)}
+.plan .antes{font-family:var(--mono);font-size:.72rem;color:var(--ink-3);min-height:1.2em}
+.plan .antes s{opacity:.75}
+.plan hr{border:0;border-top:1px solid var(--line-soft);margin:0}
+.plan .inc{font-family:var(--mono);font-size:.62rem;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3)}
+.plan ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:9px}
+.plan ul li{position:relative;padding-left:24px;font-size:.94rem;line-height:1.45;color:var(--ink-2)}
+.plan ul li::before{
+  content:"";position:absolute;left:0;top:.4em;width:12px;height:6px;
+  border-left:1.5px solid var(--accent);border-bottom:1.5px solid var(--accent);transform:rotate(-45deg);
+}
+
+/* tabla comparativa */
+.cmp{margin-top:clamp(44px,5vw,64px)}
+.cmp table{width:100%;border-collapse:collapse;font-size:.92rem;min-width:520px}
+.cmp caption{
+  font-family:var(--mono);font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-3);text-align:left;padding-bottom:14px;
+}
+.cmp th,.cmp td{padding:11px 14px;border-bottom:1px solid var(--line-soft);text-align:left}
+.cmp thead th{
+  font-family:var(--mono);font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink-3);font-weight:500;border-bottom:1px solid var(--line);
+}
+.cmp thead th:not(:first-child),.cmp td:not(:first-child){text-align:center;width:15%}
+.cmp td:first-child{color:var(--ink-2)}
+.cmp .grp td{
+  font-family:var(--mono);font-size:.63rem;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--ink-3);background:var(--inset);padding-block:8px;
+}
+.cmp .yes{color:var(--ok);font-weight:700}
+.cmp .no{color:var(--ink-3)}
+
+/* ============================================================
+   FAQ
+   ============================================================ */
+.faq{max-width:800px;border-top:1px solid var(--line)}
+.faq details{border-bottom:1px solid var(--line)}
+.faq summary{
+  list-style:none;cursor:pointer;padding:20px 40px 20px 0;position:relative;
+  font-family:var(--disp);font-weight:700;font-size:1.04rem;letter-spacing:-.014em;
+}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{
+  content:"";position:absolute;right:8px;top:50%;width:11px;height:11px;
+  border-right:1.6px solid var(--ink-3);border-bottom:1.6px solid var(--ink-3);
+  transform:translateY(-70%) rotate(45deg);transition:transform .2s ease;
+}
+.faq details[open] summary::after{transform:translateY(-25%) rotate(225deg)}
+.faq details[open] summary{color:var(--accent)}
+.faq details[open] summary::after{border-color:var(--accent)}
+.faq .ans{padding:0 40px 22px 0;color:var(--ink-2);font-size:.98rem;line-height:1.6;max-width:64ch}
+
+/* ============================================================
+   CTA FINAL + FOOTER
+   ============================================================ */
+.final{background:var(--surface);border-top:1px solid var(--line)}
+.final-in{padding-block:clamp(64px,8vw,104px);text-align:left;max-width:64ch}
+.final .btns{display:flex;flex-wrap:wrap;gap:12px;margin-top:30px}
+.foot{border-top:1px solid var(--line);padding-block:36px;background:var(--ground)}
+.foot-in{display:flex;flex-wrap:wrap;gap:20px 40px;align-items:flex-start;justify-content:space-between}
+.foot .cols{display:flex;flex-wrap:wrap;gap:40px}
+.foot .col{display:flex;flex-direction:column;gap:8px}
+.foot .col b{font-family:var(--mono);font-size:.63rem;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);font-weight:500}
+.foot .col a{font-size:.93rem;color:var(--ink-2)}
+.foot .col a:hover{color:var(--accent)}
+.foot .legal{font-size:.84rem;color:var(--ink-3);max-width:34ch}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important}
+  .marq{animation:none}
+}
+</style>
+
+<!-- ==========================================================
+     NAV
+     ========================================================== -->
+<nav class="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="#top">
+      <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
+        <rect x="1" y="1" width="24" height="24" rx="6" fill="var(--accent)"></rect>
+        <rect x="6.5" y="15.5" width="13" height="3.2" rx="1.1" fill="var(--on-accent)"></rect>
+        <rect x="6.5" y="10.6" width="9" height="3.2" rx="1.1" fill="var(--on-accent)" opacity=".72"></rect>
+        <rect x="6.5" y="5.7" width="5" height="3.2" rx="1.1" fill="var(--on-accent)" opacity=".45"></rect>
+      </svg>
+      StockApp
+    </a>
+    <div class="nav-links">
+      <a class="btn btn--ghost" href="#como">Cómo funciona</a>
+      <a class="btn btn--ghost" href="#modulos">Módulos</a>
+      <a class="btn btn--ghost" href="#precios">Precios</a>
+      <a class="btn btn--ghost" href="#preguntas">Preguntas</a>
+    </div>
+    <div class="nav-cta">
+      <a class="btn btn--ghost" href="#entrar">Entrar</a>
+      <a target="_blank" rel="noopener noreferrer" class="btn btn--pri btn--sm" href="https://wa.me/5491134947557?text=Hola%21%20Quiero%20ver%20una%20demo%20de%20StockApp.">Pedir demo</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ==========================================================
+     HERO
+     ========================================================== -->
+<header class="hero" id="top">
+  <div class="wrap hero-grid">
+    <div>
+      <span class="eyebrow">Software de gestión para talleres</span>
+      <h1>Sabés qué fabricaste, qué vendiste y <span class="hl">quién te debe</span>.</h1>
+      <p class="lead">El stock sube cuando producís y baja cuando vendés. La cuenta corriente de cada cliente se imputa sola, venta por venta. Todo en un solo sistema, desde la computadora del taller o el celular en el mostrador.</p>
+      <div class="hero-cta">
+        <a target="_blank" rel="noopener noreferrer" class="btn btn--pri" href="https://wa.me/5491134947557?text=Hola%21%20Quiero%20ver%20una%20demo%20de%20StockApp.">Pedir una demo</a>
+        <a class="btn btn--sec" href="#como">Ver cómo funciona</a>
+      </div>
+      <p class="hero-fine">Te lo mostramos funcionando en 20 minutos · Respondemos por WhatsApp</p>
+    </div>
+
+    <!-- DEMO EN VIVO: la imputación FIFO, que es el corazón del sistema -->
+    <div class="demo" id="demo" role="group" aria-label="Demostración: cómo se imputa un pago en la cuenta corriente">
+      <div class="demo-bar">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        <span class="path">stockapp.com.ar/clientes/ferreteria-el-ancla</span>
+      </div>
+
+      <div class="demo-head">
+        <div>
+          <span class="eyebrow" style="margin-bottom:6px">Cuenta corriente</span>
+          <strong class="who">Ferretería El Ancla</strong>
+        </div>
+        <div class="demo-saldo">
+          <span class="lbl">Saldo</span>
+          <span class="val num" id="saldo">$ 523.500</span>
+        </div>
+      </div>
+
+      <div class="demo-pago" id="pago">
+        <span class="tag">Pago</span>
+        <span class="plata">$ 300.000</span>
+        <span class="como">transferencia · 02/08 · a cuenta</span>
+      </div>
+
+      <div class="demo-rows" id="rows"></div>
+
+      <div class="demo-foot">
+        <p class="nota">Se imputa sola, de la venta más vieja a la más nueva. Si después corregís el pago, todo el saldo se recalcula.</p>
+        <button class="replay" id="replay" type="button">Volver a mostrar</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ==========================================================
+     MARQUEE
+     ========================================================== -->
+<div class="strip" aria-hidden="true">
+  <div class="marq" id="marq"></div>
+</div>
+
+<!-- ==========================================================
+     EL PROBLEMA
+     ========================================================== -->
+<section class="sec">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">El problema</span>
+      <h2>Menos cuaderno y planilla. Más taller.</h2>
+      <p class="lead">Casi todos los talleres que fabrican llevan la producción, el stock y el fiado entre un cuaderno, un Excel y WhatsApp. Funciona, hasta que deja de funcionar.</p>
+    </div>
+
+    <div class="pains">
+      <article class="pain">
+        <h3>El cuaderno de fiado</h3>
+        <ul>
+          <li>Las ventas a cuenta se anotan a mano y el saldo se saca de memoria.</li>
+          <li>No sabés con certeza quién te debe ni desde cuándo.</li>
+          <li>Cuando el cliente paga, hay que ir venta por venta a ver qué tapa.</li>
+          <li>Un pago mal anotado y el saldo queda mal para siempre.</li>
+        </ul>
+        <p class="fix"><b>Con StockApp:</b> cargás el pago y se imputa solo, de la venta más vieja a la más nueva. Si después lo corregís o lo borrás, el saldo entero se vuelve a calcular — nunca queda nada desincronizado.</p>
+      </article>
+
+      <article class="pain">
+        <h3>Stock que no coincide</h3>
+        <ul>
+          <li>Fabricás un lote y nadie lo carga en ningún lado.</li>
+          <li>Vendés y el stock del papel sigue igual que ayer.</li>
+          <li>Te enterás de que faltaba producto cuando el cliente ya lo pidió.</li>
+          <li>Nadie sabe cuánto costó realmente hacer cada cosa.</li>
+        </ul>
+        <p class="fix"><b>Con StockApp:</b> cada producción suma y cada venta descuenta, en la misma operación. El plan de producción cruza lo que tenés con lo que vendiste los últimos 30 y 60 días y te dice cuánto fabricar.</p>
+      </article>
+
+      <article class="pain">
+        <h3>Administrar después de cerrar</h3>
+        <ul>
+          <li>Facturar es volver a cargar todo lo que ya cargaste una vez.</li>
+          <li>No sabés si el mes dio ganancia hasta que lo hacés a mano.</li>
+          <li>Los precios se actualizan uno por uno, producto por producto.</li>
+          <li>Armar la lista de precios para mandar es una tarde perdida.</li>
+        </ul>
+        <p class="fix"><b>Con StockApp:</b> la venta que ya cargaste se convierte en factura electrónica con CAE de ARCA. Los precios se ajustan por porcentaje y por rubro, de una. Y la lista sale en Excel lista para mandar.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<!-- ==========================================================
+     CÓMO FUNCIONA
+     ========================================================== -->
+<section class="sec sec--tint" id="como">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Cómo funciona</span>
+      <h2>Del taller al cobro, sin cargar nada dos veces.</h2>
+      <p class="lead">Cada paso reutiliza lo que ya cargaste en el anterior. Esa es toda la idea.</p>
+    </div>
+
+    <ol class="steps" style="list-style:none;padding:0;margin:0">
+      <li class="step">
+        <span class="n">01</span>
+        <h3>Cargás productos y clientes</h3>
+        <p>Cada herramienta con su precio por menor y por mayor, agrupada por rubro. Si ya los tenés en un Excel, los importás en un paso.</p>
+      </li>
+      <li class="step">
+        <span class="n">02</span>
+        <h3>Producís y el stock sube</h3>
+        <p>Registrás el lote con su costo total, materiales y mano de obra. El costo del producto se recalcula como promedio ponderado con el stock que ya tenías.</p>
+      </li>
+      <li class="step">
+        <span class="n">03</span>
+        <h3>Vendés y el stock baja</h3>
+        <p>Elegís lista por menor o por mayor y los renglones se precargan solos. La venta descuenta stock, arma el comprobante y, si es a cuenta, genera la deuda.</p>
+      </li>
+      <li class="step">
+        <span class="n">04</span>
+        <h3>Cobrás y facturás</h3>
+        <p>El pago se imputa solo contra las ventas más viejas. Y esa misma venta se convierte en factura A, B o C con CAE de ARCA, sin volver a tipear nada.</p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<!-- ==========================================================
+     MÓDULOS
+     ========================================================== -->
+<section class="sec" id="modulos">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Módulos</span>
+      <h2>Todo el taller en un sistema, no en seis planillas.</h2>
+      <p class="lead">Lo que ves acá abajo es el sistema real funcionando, no una maqueta hecha para la publicidad.</p>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <!-- MOD 1: stock y producción -->
+    <div class="mod">
+      <div class="mod-txt">
+        <span class="eyebrow">Stock y producción</span>
+        <h3>Lo que tenés, lo que fabricás y lo que te falta</h3>
+        <p>El stock se mueve solo con la operación: sube cuando cargás una producción, baja cuando cargás una venta, y cada movimiento queda registrado con su motivo.</p>
+        <ul class="mod-list">
+          <li><b>Plan de producción</b> sugerido: cruza el stock actual y el mínimo con lo vendido en 30 y 60 días.</li>
+          <li><b>Costo por lote</b> con promedio ponderado, así la rentabilidad deja de ser una estimación.</li>
+          <li><b>Precio por menor y por mayor</b> en cada producto, con historial de cambios.</li>
+          <li><b>Ajuste masivo por porcentaje</b>, filtrando por rubro y con redondeo opcional.</li>
+          <li><b>Ficha de producto</b>: stock, unidades vendidas, ganancia y quiénes lo compraron.</li>
+          <li><b>Lista de precios</b> en Excel, lista para imprimir o mandar por WhatsApp.</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <span class="t">Plan de producción</span>
+          <span class="s">ÚLTIMOS 30 DÍAS</span>
+        </div>
+        <div class="tbl-scroll">
+          <table class="tbl">
+            <thead>
+              <tr><th>Producto</th><th>Rubro</th><th class="r">Stock</th><th class="r">Mín.</th><th class="r">Fabricar</th></tr>
+            </thead>
+            <tbody>
+              <tr><td class="prod">Maza de 3 kg</td><td>Masas</td><td class="r low">4</td><td class="r">10</td><td class="r sug">22</td></tr>
+              <tr><td class="prod">Barreta punta y paleta 1,5 m</td><td>Barretas</td><td class="r low">7</td><td class="r">10</td><td class="r sug">15</td></tr>
+              <tr><td class="prod">Grinfa N° 2</td><td>Grinfas</td><td class="r">18</td><td class="r">12</td><td class="r">—</td></tr>
+              <tr><td class="prod">Cortafierro 3/4"</td><td>Cortes</td><td class="r">31</td><td class="r">15</td><td class="r">—</td></tr>
+              <tr><td class="prod">Maza de 5 kg</td><td>Masas</td><td class="r low">2</td><td class="r">8</td><td class="r sug">14</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="kpis">
+          <div class="kpi"><span class="k">Valor a costo</span><span class="v num">$ 3.184.200</span></div>
+          <div class="kpi"><span class="k">Valor a venta</span><span class="v num">$ 5.902.700</span></div>
+          <div class="kpi"><span class="k">Bajo mínimo</span><span class="v num">3</span></div>
+          <div class="kpi"><span class="k">Rubros</span><span class="v num">7</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MOD 2: cuenta corriente -->
+    <div class="mod mod--flip">
+      <div class="mod-txt">
+        <span class="eyebrow">Cuenta corriente</span>
+        <h3>Quién te debe, cuánto y desde cuándo</h3>
+        <p>No hay asignaciones guardadas a mano que se puedan desfasar: el saldo se calcula entero cada vez, a partir de las ventas y los pagos. Por eso editar o borrar un pago nunca rompe nada.</p>
+        <ul class="mod-list">
+          <li><b>Imputación automática</b> de la venta más vieja a la más nueva.</li>
+          <li><b>Saldo a favor</b> cuando el cliente paga de más, aplicado contra la próxima venta.</li>
+          <li><b>Estado por venta</b>: pagada, parcial (con cuánto de cuánto) o impaga.</li>
+          <li><b>Anular una venta</b> devuelve el stock y libera sus pagos, que se reimputan solos.</li>
+          <li><b>Cobranzas por antigüedad</b>, con totales por tramo de días.</li>
+          <li><b>Estado de cuenta y recordatorio por WhatsApp</b>, con el mensaje ya armado.</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <span class="t">Cobranzas</span>
+          <span class="s">POR ANTIGÜEDAD DE LA DEUDA</span>
+        </div>
+        <div class="aging">
+          <div class="age-row" data-t="0"><span class="k">0-30 d</span><span class="bar"><i style="width:100%"></i></span><span class="v num">$ 412.900</span></div>
+          <div class="age-row" data-t="31"><span class="k">31-60 d</span><span class="bar"><i style="width:65%"></i></span><span class="v num">$ 268.400</span></div>
+          <div class="age-row" data-t="61"><span class="k">61-90 d</span><span class="bar"><i style="width:23%"></i></span><span class="v num">$ 96.700</span></div>
+          <div class="age-row" data-t="90"><span class="k">+90 d</span><span class="bar"><i style="width:34%"></i></span><span class="v num">$ 141.200</span></div>
+        </div>
+        <div class="tbl-scroll">
+          <table class="tbl">
+            <thead>
+              <tr><th>Cliente</th><th>Última compra</th><th class="r">Debe</th><th>Tramo</th></tr>
+            </thead>
+            <tbody>
+              <tr><td class="prod">Corralón San Miguel</td><td>14/07</td><td class="r">$ 223.500</td><td><span class="pill">0-30</span></td></tr>
+              <tr><td class="prod">Herrería Duarte</td><td>02/06</td><td class="r">$ 189.400</td><td><span class="pill pill--warn">61-90</span></td></tr>
+              <tr><td class="prod">Ferretería El Ancla</td><td>28/06</td><td class="r">$ 141.200</td><td><span class="pill pill--warn">+90</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- MOD 3: administración -->
+    <div class="mod">
+      <div class="mod-txt">
+        <span class="eyebrow">Administración</span>
+        <h3>Facturar y saber cómo viene el mes</h3>
+        <p>La información del servicio ya está cargada, así que la administración deja de ser una segunda jornada después de cerrar el taller.</p>
+        <ul class="mod-list">
+          <li><b>Factura electrónica A, B y C</b> con CAE de ARCA, desde la venta ya cargada.</li>
+          <li><b>Presupuestos</b> que no tocan stock y se convierten en venta con un botón.</li>
+          <li><b>Remitos</b> con entregas parciales, listos para imprimir.</li>
+          <li><b>Compras y proveedores</b>, para el otro lado del mostrador.</li>
+          <li><b>Rentabilidad, caja del día y evolución mensual</b> con gráficos de 6 meses.</li>
+          <li><b>Exportación a Excel</b> real: varias hojas, montos con formato de moneda y fechas como fecha.</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <span class="t">Comprobante emitido</span>
+          <span class="s">ARCA · CAE OTORGADO</span>
+        </div>
+        <div class="fisc">
+          <div class="fisc-top">
+            <div>
+              <strong style="display:block;font-family:var(--disp);font-weight:700;letter-spacing:-.015em">Corralón San Miguel</strong>
+              <span style="font-family:var(--mono);font-size:.72rem;color:var(--ink-3)">Responsable Inscripto</span>
+            </div>
+            <span class="cls">B</span>
+          </div>
+          <dl>
+            <dt>Comprobante</dt><dd>0003-00001487</dd>
+            <dt>Fecha</dt><dd>02/08</dd>
+            <dt>Neto</dt><dd>$ 200.826,45</dd>
+            <dt>IVA 21%</dt><dd>$ 42.173,55</dd>
+            <dt>Total</dt><dd style="font-size:1.05rem">$ 242.800,00</dd>
+          </dl>
+        </div>
+        <div class="kpis">
+          <div class="kpi"><span class="k">Vendido (mes)</span><span class="v num">$ 8.412.300</span></div>
+          <div class="kpi"><span class="k">Costo</span><span class="v num">$ 5.106.800</span></div>
+          <div class="kpi"><span class="k">Ganancia</span><span class="v num pos">$ 3.305.500</span></div>
+          <div class="kpi"><span class="k">Margen</span><span class="v num pos">39,3%</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<!-- ==========================================================
+     EN EL MOSTRADOR
+     ========================================================== -->
+<section class="sec sec--tint">
+  <div class="wrap field">
+    <div>
+      <span class="eyebrow">En el mostrador y en la calle</span>
+      <h2>Vendés desde el celular, aunque se caiga internet.</h2>
+      <p class="lead" style="margin-top:18px">La app se instala en el teléfono desde el navegador, con su propio ícono y a pantalla completa. Si te quedás sin señal, seguís vendiendo: las ventas quedan en cola y se sincronizan solas cuando vuelve.</p>
+      <ul class="mod-list" style="margin-top:26px">
+        <li><b>Venta de mostrador</b> sin cargarle ficha a nadie, para el que paga y se va.</li>
+        <li><b>Cola de sincronización</b>: nada se pierde si se corta la conexión.</li>
+        <li><b>Escáner de QR</b> para encontrar el producto sin buscarlo en la lista.</li>
+        <li><b>Permisos por empleado</b>: carga ventas y pagos, pero no ve costos ni rentabilidad.</li>
+        <li><b>Comprobante</b> para imprimir o mandar por WhatsApp en el momento.</li>
+      </ul>
+    </div>
+
+    <div class="phone" aria-label="La aplicación en un celular">
+      <div class="ph-status"><span>9:41</span><span>StockApp</span></div>
+      <div class="ph-off"><span class="blip"></span> Sin conexión · 2 ventas en cola</div>
+      <div class="ph-body">
+        <div class="ph-ttl">Venta de mostrador</div>
+        <div class="ph-sub">LISTA POR MENOR</div>
+        <div class="ph-item"><span><span class="n">Maza de 3 kg</span><span class="q">2 × $ 38.400</span></span><span class="p num">$ 76.800</span></div>
+        <div class="ph-item"><span><span class="n">Cortafierro 3/4"</span><span class="q">1 × $ 21.900</span></span><span class="p num">$ 21.900</span></div>
+        <div class="ph-item"><span><span class="n">Grinfa N° 2</span><span class="q">1 × $ 46.700</span></span><span class="p num">$ 46.700</span></div>
+        <div class="ph-tot"><span class="k">Total</span><span class="v num">$ 145.400</span></div>
+        <button class="btn btn--pri btn--wide btn--sm" type="button">Cobrar $ 145.400</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==========================================================
+     PRECIOS
+     ========================================================== -->
+<section class="sec" id="precios">
+  <div class="wrap">
+    <div class="sec-head" style="max-width:64ch">
+      <span class="eyebrow">Precios</span>
+      <h2>Un plan por cada etapa del taller.</h2>
+      <p class="lead">Antes de que decidas nada, te mostramos el sistema andando con los productos y los clientes de tu taller.</p>
+      <div class="toggle" role="group" aria-label="Forma de pago">
+        <button type="button" id="btn-mes" aria-pressed="true">Mensual</button>
+        <button type="button" id="btn-anio" aria-pressed="false">Anual <span class="off">-20%</span></button>
+      </div>
+    </div>
+
+    <div class="plans">
+      <article class="plan">
+        <div>
+          <div class="nom">Taller</div>
+          <p class="para">Para el taller chico que quiere dejar el cuaderno.</p>
+        </div>
+        <div>
+          <div class="price"><span class="cur">AR$</span><span class="amt num" data-mes="50.000" data-anio="40.000">50.000</span><span class="per">/mes</span></div>
+          <div class="antes" data-antes><s>&nbsp;</s></div>
+        </div>
+        <a target="_blank" rel="noopener noreferrer" class="btn btn--sec btn--wide" href="https://wa.me/5491134947557?text=Hola%21%20Quiero%20una%20demo%20de%20StockApp%20%28plan%20Taller%29.">Pedir una demo</a>
+        <hr>
+        <span class="inc">Incluye</span>
+        <ul>
+          <li>Stock con mínimo y alerta</li>
+          <li>Ventas y comprobante imprimible</li>
+          <li>Cuenta corriente con imputación automática</li>
+          <li>Cobranzas por antigüedad</li>
+          <li>Exportación a Excel y respaldo</li>
+          <li>1 usuario</li>
+        </ul>
+      </article>
+
+      <article class="plan plan--best">
+        <span class="flag">Recomendado</span>
+        <div>
+          <div class="nom">Producción</div>
+          <p class="para">Para el taller que fabrica y tiene gente trabajando.</p>
+        </div>
+        <div>
+          <div class="price"><span class="cur">AR$</span><span class="amt num" data-mes="100.000" data-anio="80.000">100.000</span><span class="per">/mes</span></div>
+          <div class="antes" data-antes><s>&nbsp;</s></div>
+        </div>
+        <a target="_blank" rel="noopener noreferrer" class="btn btn--pri btn--wide" href="https://wa.me/5491134947557?text=Hola%21%20Quiero%20una%20demo%20de%20StockApp%20%28plan%20Producci%C3%B3n%29.">Pedir una demo</a>
+        <hr>
+        <span class="inc">Todo en Taller, y además</span>
+        <ul>
+          <li>Producción con costo por lote</li>
+          <li>Plan de producción sugerido</li>
+          <li>Presupuestos y remitos</li>
+          <li>Compras y proveedores</li>
+          <li>Rentabilidad y caja del día</li>
+          <li>3 usuarios con permisos por módulo</li>
+        </ul>
+      </article>
+
+      <article class="plan">
+        <div>
+          <div class="nom">Full</div>
+          <p class="para">Todo el sistema, con facturación electrónica.</p>
+        </div>
+        <div>
+          <div class="price"><span class="cur">AR$</span><span class="amt num" data-mes="150.000" data-anio="120.000">150.000</span><span class="per">/mes</span></div>
+          <div class="antes" data-antes><s>&nbsp;</s></div>
+        </div>
+        <a target="_blank" rel="noopener noreferrer" class="btn btn--sec btn--wide" href="https://wa.me/5491134947557?text=Hola%21%20Quiero%20una%20demo%20de%20StockApp%20%28plan%20Full%29.">Pedir una demo</a>
+        <hr>
+        <span class="inc">Todo en Producción, y además</span>
+        <ul>
+          <li>Factura A, B y C con CAE de ARCA</li>
+          <li>Auditoría de quién hizo qué</li>
+          <li>Backup nocturno en la nube, 30 días</li>
+          <li>Dominio propio</li>
+          <li>Usuarios ilimitados</li>
+          <li>Soporte prioritario</li>
+        </ul>
+      </article>
+    </div>
+
+    <div class="cmp">
+      <div class="tbl-scroll">
+        <table>
+          <caption>Comparación de planes</caption>
+          <thead>
+            <tr><th>Función</th><th>Taller</th><th>Producción</th><th>Full</th></tr>
+          </thead>
+          <tbody>
+            <tr class="grp"><td colspan="4">Stock y productos</td></tr>
+            <tr><td>Stock, rubros y precios por lista</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+            <tr><td>Producción y costo por lote</td><td class="no">—</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+            <tr><td>Plan de producción sugerido</td><td class="no">—</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+            <tr class="grp"><td colspan="4">Ventas y cobranza</td></tr>
+            <tr><td>Cuenta corriente e imputación automática</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+            <tr><td>Presupuestos y remitos</td><td class="no">—</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+            <tr><td>Factura electrónica con CAE</td><td class="no">—</td><td class="no">—</td><td class="yes">✓</td></tr>
+            <tr class="grp"><td colspan="4">Equipo y datos</td></tr>
+            <tr><td>Usuarios</td><td>1</td><td>3</td><td>Ilimitados</td></tr>
+            <tr><td>Reportes</td><td>Básicos</td><td>Rentabilidad</td><td>Completos</td></tr>
+            <tr><td>Respaldo</td><td>Manual</td><td>Manual</td><td>Automático</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<!-- ==========================================================
+     PREGUNTAS
+     ========================================================== -->
+<section class="sec" id="preguntas">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">Preguntas frecuentes</span>
+      <h2>Lo que nos preguntan siempre</h2>
+    </div>
+
+    <div class="faq">
+      <details open>
+        <summary>¿Cómo es la demo?</summary>
+        <p class="ans">Lo arreglamos por WhatsApp y te mostramos el sistema andando, en una videollamada de unos 20 minutos. Si querés, la hacemos con tus propios productos y clientes cargados, para que veas cómo te quedaría a vos. No tenés que instalar nada ni dejar datos de pago.</p>
+      </details>
+      <details>
+        <summary>¿Tengo que instalar algo?</summary>
+        <p class="ans">No. Entrás desde el navegador de cualquier computadora. En el celular la agregás a la pantalla de inicio y funciona como una app, con su ícono y a pantalla completa.</p>
+      </details>
+      <details>
+        <summary>¿Qué pasa si en el taller se corta internet?</summary>
+        <p class="ans">Podés seguir vendiendo desde el celular. Las ventas quedan en una cola local y se sincronizan solas apenas vuelve la conexión. Los datos de stock y cuenta corriente siempre se piden frescos, nunca te muestra una versión vieja.</p>
+      </details>
+      <details>
+        <summary>¿Puedo pasar mis productos desde un Excel?</summary>
+        <p class="ans">Sí. Hay importación desde Excel o CSV: subís el archivo, revisás cómo quedaron las columnas y confirmás. Es lo primero que hacemos juntos cuando arrancás.</p>
+      </details>
+      <details>
+        <summary>¿La facturación electrónica de ARCA está integrada?</summary>
+        <p class="ans">Sí, en el plan Full: factura A, B y C con CAE. No tenés que instalar certificados ni pelearte con la clave fiscal — nos delegás el permiso desde tu cuenta de ARCA y el sistema factura por vos.</p>
+      </details>
+      <details>
+        <summary>¿Mis empleados ven los costos y la ganancia?</summary>
+        <p class="ans">No, salvo que vos quieras. Hay roles y permisos por módulo: un empleado carga ventas, pagos, stock y presupuestos, pero los costos y la rentabilidad no le llegan ni siquiera desde el servidor. Tampoco puede exportar la base ni crear usuarios.</p>
+      </details>
+      <details>
+        <summary>¿Sirve si mi taller es chico?</summary>
+        <p class="ans">Sí, es para lo que se construyó. Arrancó como el sistema de un taller de tres personas que fabrica y vende herramientas. Si hoy llevás el fiado en un cuaderno, el plan Taller ya te ordena eso solo.</p>
+      </details>
+      <details>
+        <summary>¿Qué pasa con mis datos si dejo de usarlo?</summary>
+        <p class="ans">Son tuyos y te los llevás cuando quieras, no solo al final: respaldo completo en un archivo y exportación a Excel con todas las hojas. No hay que pedir permiso ni esperar a nadie.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- ==========================================================
+     CTA FINAL
+     ========================================================== -->
+<section class="final" id="demo">
+  <div class="wrap final-in">
+    <h2>Empezá a ordenar el taller esta semana.</h2>
+    <p class="lead" style="margin-top:18px">Pedinos una demo y te mostramos StockApp funcionando con los productos y los clientes de tu taller. Si te sirve, te ayudamos a cargar la primera lista.</p>
+    <div class="btns">
+      <a target="_blank" rel="noopener noreferrer" class="btn btn--pri" href="https://wa.me/5491134947557?text=Hola%21%20Quiero%20ver%20una%20demo%20de%20StockApp.">Pedir una demo por WhatsApp</a>
+      <a class="btn btn--sec" href="#como">Ver cómo funciona</a>
+    </div>
+    <p class="hero-fine">Por videollamada o en tu taller · Sin compromiso · 11 3494-7557</p>
+  </div>
+</section>
+
+<footer class="foot" id="contacto">
+  <div class="wrap foot-in">
+    <div>
+      <a class="brand" href="#top" style="margin-bottom:12px">
+        <svg width="24" height="24" viewBox="0 0 26 26" aria-hidden="true">
+          <rect x="1" y="1" width="24" height="24" rx="6" fill="var(--accent)"></rect>
+          <rect x="6.5" y="15.5" width="13" height="3.2" rx="1.1" fill="var(--on-accent)"></rect>
+          <rect x="6.5" y="10.6" width="9" height="3.2" rx="1.1" fill="var(--on-accent)" opacity=".72"></rect>
+          <rect x="6.5" y="5.7" width="5" height="3.2" rx="1.1" fill="var(--on-accent)" opacity=".45"></rect>
+        </svg>
+        StockApp
+      </a>
+      <p class="legal">Control de stock, producción y cuenta corriente para talleres que fabrican y venden. Hecho en Argentina.</p>
+    </div>
+    <div class="cols">
+      <div class="col">
+        <b>Producto</b>
+        <a href="#como">Cómo funciona</a>
+        <a href="#modulos">Módulos</a>
+        <a href="#precios">Precios</a>
+        <a href="#preguntas">Preguntas</a>
+      </div>
+      <div class="col">
+        <b>Contacto</b>
+        <a target="_blank" rel="noopener noreferrer" href="https://wa.me/5491134947557">WhatsApp 11 3494-7557</a>
+        <a target="_blank" rel="noopener noreferrer" href="https://wa.me/5491134947557?text=Hola%21%20Quiero%20ver%20una%20demo%20de%20StockApp.">Pedir una demo</a>
+      </div>
+      <div class="col">
+        <b>Cuenta</b>
+        <a href="#entrar">Entrar</a>
+        <a href="#demo">Pedir una demo</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+
+  var quieto = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* ---------- formato de plata, estilo argentino ---------- */
+  function plata(centavosEnPesos){
+    return "$ " + Math.round(centavosEnPesos).toLocaleString("es-AR");
+  }
+
+  /* ==========================================================
+     DEMO: imputación FIFO
+     Tres ventas impagas y un pago a cuenta de $300.000 que las
+     va tapando de la más vieja a la más nueva. Es exactamente lo
+     que hace el sistema.
+     ========================================================== */
+  var VENTAS = [
+    { ref:"Venta #1042", fecha:"12/06", total:184500 },
+    { ref:"Venta #1067", fecha:"28/06", total:96200  },
+    { ref:"Venta #1103", fecha:"14/07", total:242800 }
+  ];
+  var PAGO = 300000;
+  var TOTAL = VENTAS.reduce(function(a,v){ return a + v.total; }, 0);
+
+  var rowsEl  = document.getElementById("rows");
+  var pagoEl  = document.getElementById("pago");
+  var saldoEl = document.getElementById("saldo");
+  var replay  = document.getElementById("replay");
+  var timers  = [];
+  var rafId   = null;
+  var finId   = null;
+
+  VENTAS.forEach(function(v, i){
+    var r = document.createElement("div");
+    r.className = "row";
+    r.setAttribute("data-i", String(i));
+    r.innerHTML =
+      '<span class="ref">' + v.ref + '</span>' +
+      '<span class="fecha">' + v.fecha + '</span>' +
+      '<span class="monto num">' + plata(v.total) + '</span>' +
+      '<span class="estado"><span class="pill pill--bad">impaga</span><span class="detalle"></span></span>';
+    rowsEl.appendChild(r);
+  });
+  var filas = Array.prototype.slice.call(rowsEl.children);
+
+  function pintar(fila, aplicado, total){
+    var pill = fila.querySelector(".pill");
+    var det  = fila.querySelector(".detalle");
+    fila.style.setProperty("--fill", (aplicado / total).toFixed(4));
+    fila.classList.remove("partial");
+    if (aplicado <= 0){
+      fila.classList.remove("touched");
+      pill.className = "pill pill--bad"; pill.textContent = "impaga";
+      det.textContent = "";
+    } else if (aplicado >= total){
+      fila.classList.add("touched");
+      pill.className = "pill pill--ok"; pill.textContent = "pagada";
+      det.textContent = "";
+    } else {
+      fila.classList.add("touched","partial");
+      pill.className = "pill pill--warn"; pill.textContent = "parcial";
+      det.textContent = "pagó " + plata(aplicado) + " de " + plata(total);
+    }
+  }
+
+  function contarSaldo(desde, hasta, ms){
+    if (rafId){ cancelAnimationFrame(rafId); rafId = null; }
+    if (finId){ clearTimeout(finId); finId = null; }
+
+    function fijar(){
+      if (rafId){ cancelAnimationFrame(rafId); rafId = null; }
+      saldoEl.classList.remove("moving");
+      saldoEl.textContent = plata(hasta);
+    }
+    if (quieto || document.hidden){ fijar(); return; }
+
+    var t0 = null;
+    saldoEl.classList.add("moving");
+    function paso(t){
+      if (t0 === null) t0 = t;
+      var p = Math.min((t - t0) / ms, 1);
+      var e = 1 - Math.pow(1 - p, 3);
+      saldoEl.textContent = plata(desde + (hasta - desde) * e);
+      if (p < 1){ rafId = requestAnimationFrame(paso); }
+      else { fijar(); }
+    }
+    rafId = requestAnimationFrame(paso);
+
+    /* requestAnimationFrame se congela si la pestana pasa a segundo plano, y el
+       saldo quedaria clavado en un numero intermedio que contradice las filas.
+       setTimeout si corre igual, asi que este plazo garantiza el valor final. */
+    finId = setTimeout(fijar, ms + 150);
+  }
+
+  function limpiar(){
+    timers.forEach(clearTimeout); timers = [];
+    if (rafId){ cancelAnimationFrame(rafId); rafId = null; }
+    if (finId){ clearTimeout(finId); finId = null; }
+  }
+
+  function estadoFinal(){
+    var resto = PAGO;
+    VENTAS.forEach(function(v,i){
+      var ap = Math.min(resto, v.total); resto -= ap;
+      pintar(filas[i], ap, v.total);
+    });
+    saldoEl.classList.remove("moving");
+    saldoEl.textContent = plata(TOTAL - PAGO);
+    pagoEl.classList.add("on");
+  }
+
+  function reiniciar(){
+    limpiar();
+    pagoEl.classList.remove("on");
+    saldoEl.classList.remove("moving");
+    saldoEl.textContent = plata(TOTAL);
+    VENTAS.forEach(function(v,i){ pintar(filas[i], 0, v.total); });
+  }
+
+  function correr(){
+    if (quieto){ estadoFinal(); return; }
+    reiniciar();
+    timers.push(setTimeout(function(){ pagoEl.classList.add("on"); }, 450));
+    var resto = PAGO, acumulado = 0, t = 1150;
+    VENTAS.forEach(function(v,i){
+      var ap = Math.min(resto, v.total); resto -= ap; acumulado += ap;
+      if (ap <= 0) return;
+      timers.push(setTimeout((function(idx, aplicado){
+        return function(){ pintar(filas[idx], aplicado, VENTAS[idx].total); };
+      })(i, ap), t));
+      t += 700;
+    });
+    timers.push(setTimeout(function(){
+      contarSaldo(TOTAL, TOTAL - PAGO, 1500);
+    }, 1150));
+  }
+
+  reiniciar();
+
+  /* Arranca una sola vez. Si la pestana esta en segundo plano el observer no
+     reporta nada, asi que hay dos redes: un plazo maximo y el volver a la
+     pestana. Sin esto, quien abre la pagina en una pestana de fondo se
+     encuentra la demo congelada en "impaga". */
+  var arrancado = false;
+  function arrancar(){
+    if (arrancado) return;
+    arrancado = true;
+    correr();
+  }
+
+  if (quieto){
+    arrancado = true;
+    estadoFinal();
+  } else {
+    if ("IntersectionObserver" in window){
+      var obs = new IntersectionObserver(function(ent){
+        ent.forEach(function(e){ if (e.isIntersecting) { obs.disconnect(); arrancar(); } });
+      }, { threshold:.3 });
+      obs.observe(document.getElementById("demo"));
+    }
+    setTimeout(function(){ if (!document.hidden) arrancar(); }, 1400);
+    document.addEventListener("visibilitychange", function(){
+      if (!document.hidden) arrancar();
+    });
+  }
+  replay.addEventListener("click", correr);
+
+  /* ==========================================================
+     MARQUEE de módulos reales del sistema
+     ========================================================== */
+  var MODULOS = ["Stock","Producción","Cuenta corriente","Ventas","Venta de mostrador",
+    "Presupuestos","Remitos","Compras","Proveedores","Cobranzas","Facturación ARCA",
+    "Lista de precios","Rentabilidad","Caja del día","Reportes","Auditoría","Respaldo automático"];
+  var marq = document.getElementById("marq");
+  function set(){
+    var d = document.createElement("div");
+    d.className = "marq-set";
+    MODULOS.forEach(function(m){
+      var s = document.createElement("span"); s.textContent = m; d.appendChild(s);
+    });
+    return d;
+  }
+  marq.appendChild(set()); marq.appendChild(set());
+
+  /* ==========================================================
+     PRECIOS: mensual / anual
+     ========================================================== */
+  var bMes = document.getElementById("btn-mes");
+  var bAnio = document.getElementById("btn-anio");
+  function precios(modo){
+    bMes.setAttribute("aria-pressed", String(modo === "mes"));
+    bAnio.setAttribute("aria-pressed", String(modo === "anio"));
+    document.querySelectorAll(".plan").forEach(function(p){
+      var amt = p.querySelector(".amt");
+      var antes = p.querySelector("[data-antes]");
+      amt.textContent = amt.getAttribute("data-" + (modo === "mes" ? "mes" : "anio"));
+      antes.innerHTML = modo === "anio"
+        ? "<s>AR$ " + amt.getAttribute("data-mes") + "</s> facturado por año"
+        : "<s>&nbsp;</s>";
+    });
+  }
+  bMes.addEventListener("click", function(){ precios("mes"); });
+  bAnio.addEventListener("click", function(){ precios("anio"); });
+  precios("mes");
+})();
+</script>

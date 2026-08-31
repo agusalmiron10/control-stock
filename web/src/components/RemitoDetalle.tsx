@@ -22,6 +22,7 @@ export function RemitoDetalle({ id, onCerrar, onCambio, onImprimir }: Props) {
   const { data, error, cargando } = useCarga<any>(() => api.get(`/api/remitos/${id}`), [id]);
   const [recibidoPor, setRecibidoPor] = useState("");
   const [anular, setAnular] = useState(false);
+  const [borrar, setBorrar] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [trabajando, setTrabajando] = useState(false);
 
@@ -48,6 +49,19 @@ export function RemitoDetalle({ id, onCerrar, onCambio, onImprimir }: Props) {
     } catch (e: any) {
       setErr(e.message);
       setAnular(false);
+      setTrabajando(false);
+    }
+  }
+
+  async function hacerBorrar() {
+    setErr(null);
+    setTrabajando(true);
+    try {
+      await api.del(`/api/remitos/${id}`);
+      onCambio(`Remito #${r.numero} borrado.`);
+    } catch (e: any) {
+      setErr(e.message);
+      setBorrar(false);
       setTrabajando(false);
     }
   }
@@ -112,8 +126,10 @@ export function RemitoDetalle({ id, onCerrar, onCambio, onImprimir }: Props) {
           <div className="btn-grupo" style={{ justifyContent: "flex-end", marginTop: 18 }}>
             <button className="btn" onClick={onCerrar}>Cerrar</button>
             <button className="btn" onClick={() => onImprimir(id)}>Imprimir</button>
-            {r.estado !== "anulado" && (
+            {r.estado !== "anulado" ? (
               <button className="btn peligro" disabled={trabajando} onClick={() => setAnular(true)}>Anular</button>
+            ) : (
+              <button className="btn peligro" disabled={trabajando} onClick={() => setBorrar(true)}>Borrar</button>
             )}
             {r.estado === "pendiente" && (
               <button className="btn primario" disabled={trabajando} onClick={marcarEntregado}>
@@ -122,6 +138,16 @@ export function RemitoDetalle({ id, onCerrar, onCambio, onImprimir }: Props) {
             )}
           </div>
         </>
+      )}
+
+      {borrar && (
+        <Confirmar
+          mensaje={`¿Borrar el remito #${r?.numero} de la lista? Ya está anulado, así que no cambia stock ni entregas — sólo desaparece del historial. No se puede deshacer.`}
+          textoConfirmar="Borrar"
+          peligro
+          onSi={hacerBorrar}
+          onNo={() => setBorrar(false)}
+        />
       )}
 
       {anular && (

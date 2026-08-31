@@ -1,6 +1,7 @@
 import { api } from "../api";
 import { pesos, fecha, numero } from "../format";
-import { Modal, Error, Cargando, useCarga } from "./ui";
+import { useState } from "react";
+import { Modal, Error, Cargando, Confirmar, useCarga } from "./ui";
 
 const TEXTO_ESTADO: Record<string, string> = {
   autorizada: "Autorizada",
@@ -38,16 +39,31 @@ interface Props {
   onImprimir?: (ventaId: string) => void;
   onVerificar?: () => void;
   onReintentar?: (ventaId: string) => void;
+  /** Sólo se ofrece en los intentos que ARCA rechazó: nunca en una autorizada. */
+  onBorrado?: (mensaje: string) => void;
 }
 
 /** Ficha completa de un comprobante: quién, qué, cuánto y qué dijo ARCA. */
-export function FacturaDetalle({ id, onCerrar, onImprimir, onVerificar, onReintentar }: Props) {
+export function FacturaDetalle({ id, onCerrar, onImprimir, onVerificar, onReintentar, onBorrado }: Props) {
   const { data, error, cargando } = useCarga<any>(() => api.get(`/api/facturacion/facturas/${id}`), [id]);
+  const [borrar, setBorrar] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
   const f = data?.factura;
+
+  async function hacerBorrar() {
+    setErr(null);
+    try {
+      await api.del(`/api/facturacion/facturas/${id}`);
+      onBorrado?.("Intento de facturación borrado.");
+    } catch (e: any) {
+      setErr(e.message);
+      setBorrar(false);
+    }
+  }
 
   return (
     <Modal titulo={f ? `${f.comprobante} ${f.numero_formateado ?? ""}`.trim() : "Comprobante"} ancho onCerrar={onCerrar}>
-      <Error msg={error} />
+      <Error msg={err ?? error} />
       {cargando ? (
         <Cargando />
       ) : !f ? null : (
@@ -164,11 +180,24 @@ export function FacturaDetalle({ id, onCerrar, onImprimir, onVerificar, onReinte
             {f.estado === "huerfano" && onVerificar && (
               <button className="btn primario" onClick={onVerificar}>Verificar con ARCA</button>
             )}
+            {(f.estado === "rechazada" || f.estado === "error") && onBorrado && (
+              <button className="btn peligro" onClick={() => setBorrar(true)}>Borrar</button>
+            )}
             {(f.estado === "rechazada" || f.estado === "error") && onReintentar && (
               <button className="btn primario" onClick={() => onReintentar(f.venta_id)}>Reintentar</button>
             )}
           </div>
         </>
+      )}
+
+      {borrar && (
+        <Confirmar
+          mensaje="¿Borrar este intento de facturación? Nunca llegó a ser un comprobante en ARCA, así que no queda nada colgado. La venta se puede facturar igual después."
+          textoConfirmar="Borrar"
+          peligro
+          onSi={hacerBorrar}
+          onNo={() => setBorrar(false)}
+        />
       )}
     </Modal>
   );
