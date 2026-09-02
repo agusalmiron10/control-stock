@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "../api";
+import { normalizarTexto as normalizar } from "../format";
 import { Modal, Error, Campo } from "./ui";
 import { useVocab } from "../lib/config";
 
@@ -16,9 +17,6 @@ const COLUMNAS: { clave: string; alias: string[]; obligatoria?: boolean }[] = [
   { clave: "rubro", alias: ["rubro", "categoria", "categoría", "familia"] },
 ];
 
-function normalizar(s: string): string {
-  return s.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-}
 
 /**
  * Parte una línea respetando comillas: un nombre como

@@ -6,6 +6,8 @@ import { BuscadorCliente } from "../components/BuscadorCliente";
 import { FacturarTrasVenta } from "../components/FacturarTrasVenta";
 import { useFacturacionLista } from "../lib/facturacion";
 import { navegar } from "../lib/router";
+import { BarraEscaneo } from "../components/BarraEscaneo";
+import { CrearProductoExpress } from "../components/CrearProductoExpress";
 
 interface Reng { herramienta_id: string; cantidad: string; precio: string }
 
@@ -31,9 +33,16 @@ export function NuevaVenta() {
   const [guardando, setGuardando] = useState(false);
   const [confirmarNeg, setConfirmarNeg] = useState<string | null>(null);
   const [ventaGuardada, setVentaGuardada] = useState<{ id: string; numero: number } | null>(null);
+  // Productos creados en el acto desde la caja: se suman a la lista sin
+  // recargarla, así el renglón que se acaba de agregar los encuentra.
+  const [herrExtra, setHerrExtra] = useState<any[]>([]);
+  const [crearExpress, setCrearExpress] = useState<{ codigoBarras: string | null; nombre: string } | null>(null);
   const facturacion = useFacturacionLista();
 
-  const herramientas: any[] = herrQ.data?.herramientas ?? [];
+  const herramientas: any[] = useMemo(
+    () => [...(herrQ.data?.herramientas ?? []), ...herrExtra],
+    [herrQ.data, herrExtra]
+  );
   const hMap = useMemo(() => new Map(herramientas.map((h) => [String(h.id), h])), [herramientas]);
 
   // Cálculos de montos (en centavos).
@@ -88,6 +97,24 @@ export function NuevaVenta() {
       })
     );
   }
+  /**
+   * Suma un producto a la venta. Si ya está en un renglón le sube la cantidad
+   * (que es lo que uno espera al pasar dos veces el mismo artículo por el
+   * lector) y si no, ocupa el primer renglón vacío antes de crear uno nuevo.
+   */
+  function sumarProducto(h: any) {
+    setItems((arr) => {
+      const i = arr.findIndex((it) => it.herramienta_id === h.id);
+      if (i >= 0) {
+        return arr.map((it, j) => (j === i ? { ...it, cantidad: String((Number(it.cantidad) || 0) + 1) } : it));
+      }
+      const reng: Reng = { herramienta_id: h.id, cantidad: "1", precio: String(aPesos(precioDe(h))) };
+      const vacio = arr.findIndex((it) => !it.herramienta_id);
+      if (vacio >= 0) return arr.map((it, j) => (j === vacio ? reng : it));
+      return [...arr, reng];
+    });
+  }
+
   function agregarReng() { setItems((a) => [...a, { herramienta_id: "", cantidad: "1", precio: "" }]); }
   function quitarReng(i: number) { setItems((a) => (a.length > 1 ? a.filter((_, j) => j !== i) : a)); }
 
@@ -194,7 +221,14 @@ export function NuevaVenta() {
       </div>
 
       <div className="card">
-        <h2>Renglones</h2>
+        <h2>Productos</h2>
+        <div className="card-body" style={{ paddingBottom: 0 }}>
+          <BarraEscaneo
+            herramientas={herramientas}
+            onElegir={sumarProducto}
+            onNoEncontrado={(d) => setCrearExpress(d)}
+          />
+        </div>
         <div className="tabla-wrap">
           <table className="tabla">
             <thead>
@@ -297,6 +331,19 @@ export function NuevaVenta() {
       {confirmarNeg && (
         <Confirmar mensaje={confirmarNeg} textoConfirmar="Vender igual" peligro
           onSi={() => enviar(true)} onNo={() => setConfirmarNeg(null)} />
+      )}
+
+      {crearExpress && (
+        <CrearProductoExpress
+          codigoBarras={crearExpress.codigoBarras}
+          nombreInicial={crearExpress.nombre}
+          onCerrar={() => setCrearExpress(null)}
+          onCreado={(h) => {
+            setHerrExtra((arr) => [...arr, h]);
+            sumarProducto(h);
+            setCrearExpress(null);
+          }}
+        />
       )}
 
       {ventaGuardada && (

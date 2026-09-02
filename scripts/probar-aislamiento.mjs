@@ -256,6 +256,44 @@ const ventaMixta = await a.post("/api/ventas", {
 });
 chequear(ventaMixta.status >= 400, "A no puede vender un producto de B", `devolvió ${ventaMixta.status}`);
 
+// ── 7bis. Mostrador: lector y alta express ─────────────────────
+console.log("\n7bis) Lector de código de barras y alta express");
+
+// Los dos negocios cargan el MISMO código de barras. Es el caso real: dos
+// ferreterías venden el mismo producto del mismo fabricante, así que el EAN
+// se repite entre negocios y no puede haber choque ni cruce.
+const EAN = "7790895000829";
+const altaA = await a.post("/api/herramientas/express", {
+  nombre: "Producto de A", precio: 1000, stock: 5, codigo_barras: EAN,
+});
+const altaB = await b.post("/api/herramientas/express", {
+  nombre: "Producto de B", precio: 2000, stock: 7, codigo_barras: EAN,
+});
+chequear(altaA.status === 200 && altaB.status === 200,
+  "los dos negocios pueden cargar el mismo código de barras",
+  `A=${altaA.status} B=${altaB.status}`);
+
+const leeA = await a.get(`/api/herramientas/por-codigo/${EAN}`);
+const leeB = await b.get(`/api/herramientas/por-codigo/${EAN}`);
+chequear(leeA.datos.herramienta?.nombre === "Producto de A",
+  "al escanear, A carga SU producto", JSON.stringify(leeA.datos).slice(0, 120));
+chequear(leeB.datos.herramienta?.nombre === "Producto de B",
+  "al escanear, B carga SU producto", JSON.stringify(leeB.datos).slice(0, 120));
+
+// El código interno de B tampoco tiene que ser visible desde A.
+const codigoB = altaB.datos.herramienta?.codigo;
+const leeAjeno = await a.get(`/api/herramientas/por-codigo/${encodeURIComponent(codigoB)}`);
+chequear(leeAjeno.status === 404 || leeAjeno.datos.herramienta?.id !== altaB.datos.herramienta.id,
+  "A no encuentra el producto de B por su código interno",
+  `devolvió ${leeAjeno.status}`);
+
+// El catálogo maestro es global A PROPÓSITO: no tiene datos de nadie.
+const catA = await a.get("/api/catalogo?q=torni");
+chequear(catA.status === 200 && (catA.datos.articulos?.length ?? 0) > 0,
+  "el catálogo maestro responde igual en cualquier negocio");
+chequear(!JSON.stringify(catA.datos).includes("Producto de B"),
+  "el catálogo maestro no expone productos de ningún negocio");
+
 // ── 8. Totales del panel y reportes ────────────────────────────
 console.log("\n8) Panel y reportes cuentan sólo lo propio");
 const panelA = await a.get("/api/panel");

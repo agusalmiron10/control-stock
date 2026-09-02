@@ -131,6 +131,8 @@ export interface Factura {
 export interface Herramienta {
   id: string;
   codigo: string;
+  /** EAN-13 del fabricante. Opcional: lo que se vende suelto no tiene. */
+  codigo_barras: string | null;
   nombre: string;
   precio: number; // minorista, centavos
   precio_mayor: number; // mayorista, centavos

@@ -1173,3 +1173,102 @@ table.tabla tbody tr:hover { background: color-mix(in srgb, var(--acento) 9%, tr
 .comp-firmas { display: flex; gap: 40px; margin-top: 48px; }
 .comp-firma { flex: 1; text-align: center; font-size: 12px; color: var(--texto-suave); }
 .comp-firma-linea { border-top: 1px solid var(--texto); margin-bottom: 6px; }
+
+/* ── Mostrador: barra de escaneo y alta express ────────────────────── */
+
+/* La barra es lo primero que mira el cajero: tiene que gritar dónde escanear. */
+.barra-escaneo { margin-bottom: 12px; }
+
+.be-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 2px solid var(--acento);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--acento) 6%, var(--panel));
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.06);
+}
+.be-form:focus-within {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--acento) 20%, transparent);
+}
+
+.be-icono {
+  font-size: 18px;
+  letter-spacing: -3px;
+  color: var(--acento);
+  flex: none;
+}
+
+.be-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--texto);
+  font-size: 16px;   /* 16px o más: si no, el celular hace zoom al enfocar. */
+  padding: 6px 0;
+}
+.be-input:focus { outline: none; }
+
+.be-sugerencias {
+  margin-top: 6px;
+  box-shadow: var(--sombra-media);
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.be-sug {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-bottom: 1px solid var(--borde);
+  background: var(--panel);
+  color: var(--texto);
+  text-align: left;
+  cursor: pointer;
+  font-size: 14px;
+}
+.be-sug:last-child { border-bottom: none; }
+.be-sug:hover { background: color-mix(in srgb, var(--acento) 8%, transparent); }
+.be-sug-nombre { font-weight: 600; }
+.be-sug-precio { font-variant-numeric: tabular-nums; font-weight: 600; }
+.be-crear { display: block; color: var(--acento); font-weight: 600; background: var(--panel); }
+
+/* Autocompletado del catálogo maestro, en el alta express. */
+.sugerencias {
+  margin-top: 6px;
+  box-shadow: var(--sombra-media);
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  overflow: hidden;
+  max-height: 210px;
+  overflow-y: auto;
+}
+.sugerencia {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 11px;
+  border: none;
+  border-bottom: 1px solid var(--borde);
+  background: var(--panel);
+  color: var(--texto);
+  text-align: left;
+  cursor: pointer;
+  font-size: 14px;
+}
+.sugerencia:last-child { border-bottom: none; }
+.sugerencia:hover { background: color-mix(in srgb, var(--acento) 8%, transparent); }
+
+@media (max-width: 560px) {
+  .be-sug { grid-template-columns: 1fr auto; }
+  .be-sug .mut { grid-column: 1 / -1; font-size: 12px; }
+}

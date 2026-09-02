@@ -75,6 +75,136 @@ herramientas.post("/", async (c) => {
   return c.json({ id });
 });
 
+// ── Mostrador ágil ─────────────────────────────────────────
+//
+// El ferretero no puede irse de la pantalla de venta para cargar un producto:
+// tiene al cliente esperando en el mostrador. Estos dos endpoints existen para
+// eso — buscar por lo que dice el lector, y crear en el acto lo que no está.
+
+/**
+ * Busca un producto por lo que llegó del lector de código de barras.
+ *
+ * Busca por EAN y por código interno, porque muchos usan el código de barras
+ * como código y muchos otros no cargan el EAN nunca. Se consulta al servidor y
+ * no a la lista ya cargada en el navegador para que ande igual con 20.000
+ * productos, donde el front no los tiene todos en memoria.
+ */
+herramientas.get("/por-codigo/:codigo", async (c) => {
+  const cod = texto(c.req.param("codigo"), "código", { max: 40 })!;
+  const h = await c.env.DB.prepare(
+    // El EAN gana si un producto lo tiene y otro usa ese mismo texto como código interno.
+    `SELECT * FROM herramientas
+     WHERE negocio_id = ?1 AND activo = 1
+       AND (codigo_barras = ?2 OR codigo = ?2 COLLATE NOCASE)
+     ORDER BY (codigo_barras = ?2) DESC LIMIT 1`
+  )
+    .bind(negocioDe(c), cod)
+    .first<Herramienta>();
+
+  if (!h) return c.json({ encontrada: false, codigo: cod }, 404);
+  return c.json({ encontrada: true, herramienta: paraRol(h, c.get("usuario").rol) });
+});
+
+/**
+ * Alta express desde la caja: nombre, precio y cantidad. Nada más.
+ *
+ * Todo lo demás (rubro, costo, mínimo, mayorista) se completa después con
+ * calma desde la ficha. Pedirlo acá sería la forma más rápida de que el
+ * ferretero decida que el sistema le hace perder tiempo y vuelva al cuaderno.
+ *
+ * El código interno se inventa solo si no vino: es obligatorio en la tabla,
+ * pero nadie lo va a pensar con un cliente enfrente.
+ */
+herramientas.post("/express", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const neg = negocioDe(c);
+
+  const nombre = texto(b.nombre, "nombre", { max: 120 })!;
+  const precio = entero(b.precio ?? 0, "precio", { min: 0 });
+  const stock = entero(b.stock ?? 0, "cantidad", { min: 0 });
+  const codigoBarras = texto(b.codigo_barras, "código de barras", { requerido: false, max: 40 });
+  const rubro = texto(b.rubro, "rubro", { requerido: false, max: 60 });
+
+  // Si el EAN ya está cargado, esto no es un producto nuevo: es el mismo de
+  // antes. Devolverlo en vez de crear un duplicado invisible.
+  if (codigoBarras) {
+    const ya = await c.env.DB.prepare(
+      `SELECT * FROM herramientas WHERE negocio_id = ? AND codigo_barras = ?`
+    )
+      .bind(neg, codigoBarras)
+      .first<Herramienta>();
+    if (ya) {
+      throw new HttpError(409, `Ese código de barras ya es de "${ya.nombre}".`);
+    }
+  }
+
+  const codigo = texto(b.codigo, "código", { requerido: false, max: 40 })
+    ?? (await codigoLibre(c.env, neg, codigoBarras));
+
+  const dup = await c.env.DB.prepare(`SELECT id FROM herramientas WHERE negocio_id = ? AND codigo = ?`)
+    .bind(neg, codigo)
+    .first();
+  if (dup) throw new HttpError(409, `Ya existe un producto con el código "${codigo}".`);
+
+  const id = crypto.randomUUID();
+  const stmts: D1PreparedStatement[] = [
+    c.env.DB.prepare(
+      `INSERT INTO herramientas (id, negocio_id, codigo, codigo_barras, nombre, precio, precio_mayor, rubro, costo, stock, stock_minimo)
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?, 0, ?, 0)`
+    ).bind(id, neg, codigo, codigoBarras, nombre, precio, rubro, stock),
+  ];
+  if (stock !== 0) {
+    stmts.push(
+      c.env.DB.prepare(
+        `INSERT INTO movimientos_stock (negocio_id, herramienta_id, fecha, tipo, cantidad, stock_resultante, motivo)
+         VALUES (?, ?, ?, 'alta', ?, ?, 'Alta rápida en el mostrador')`
+      ).bind(neg, id, hoy(), stock, stock)
+    );
+  }
+  stmts.push(
+    auditar(c.env, neg, c.get("usuario").usuario, "alta_express", "herramienta", id, `${nombre} (stock ${stock})`)
+  );
+  await c.env.DB.batch(stmts);
+
+  // El catálogo aprende de lo que se elige: lo más usado sube en las
+  // sugerencias del próximo alta.
+  if (b.catalogo_id) {
+    await c.env.DB
+      .prepare(`UPDATE catalogo_maestro SET veces_usado = veces_usado + 1 WHERE id = ?`)
+      .bind(entero(b.catalogo_id, "artículo del catálogo", { min: 1 }))
+      .run();
+  }
+
+  const creada = await c.env.DB.prepare(`SELECT * FROM herramientas WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, id)
+    .first<Herramienta>();
+  return c.json({ herramienta: creada });
+});
+
+/**
+ * Un código interno que no choque con los que ya hay. Usa el EAN si vino
+ * (queda prolijo y es único de por sí); si no, numera correlativo.
+ */
+async function codigoLibre(env: Env, neg: string, ean: string | null): Promise<string> {
+  if (ean) return ean;
+  const r = await env.DB
+    .prepare(`SELECT COUNT(*) AS n FROM herramientas WHERE negocio_id = ?`)
+    .bind(neg)
+    .first<{ n: number }>();
+  let n = (r?.n ?? 0) + 1;
+  // El contador puede chocar si antes se borró algo: se corre hasta encontrar uno libre.
+  for (let i = 0; i < 200; i++) {
+    const cod = `P${String(n).padStart(4, "0")}`;
+    const ocupado = await env.DB
+      .prepare(`SELECT id FROM herramientas WHERE negocio_id = ? AND codigo = ?`)
+      .bind(neg, cod)
+      .first();
+    if (!ocupado) return cod;
+    n++;
+  }
+  return `P${Date.now()}`;
+}
+
 herramientas.put("/:id", async (c) => {
   const id = c.req.param("id");
   const b = await c.req.json().catch(() => ({}));
@@ -92,11 +222,12 @@ herramientas.put("/:id", async (c) => {
 
   // OJO: los precios NO se cambian acá (tienen su propio endpoint con historial).
   await c.env.DB.prepare(
-    `UPDATE herramientas SET codigo=?, nombre=?, rubro=?, costo=?, stock_minimo=?, notas=?
+    `UPDATE herramientas SET codigo=?, codigo_barras=?, nombre=?, rubro=?, costo=?, stock_minimo=?, notas=?
      WHERE negocio_id=? AND id=?`
   )
     .bind(
       codigo,
+      texto(b.codigo_barras, "código de barras", { requerido: false, max: 40 }),
       texto(b.nombre, "nombre", { max: 120 }),
       texto(b.rubro, "rubro", { requerido: false, max: 60 }),
       entero(b.costo ?? h.costo, "costo", { min: 0 }),

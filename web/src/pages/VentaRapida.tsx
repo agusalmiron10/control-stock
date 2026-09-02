@@ -10,6 +10,7 @@ import { waVenta } from "../lib/whatsapp";
 import { navegar } from "../lib/router";
 import { Cargando } from "../components/ui";
 import { EscanerQR, hayEscanerQr } from "../components/EscanerQR";
+import { CrearProductoExpress } from "../components/CrearProductoExpress";
 import { idDeClienteDesdeQr } from "../lib/qr";
 
 interface ItemCarrito { herramienta_id: string; nombre: string; cantidad: number; precio: number }
@@ -34,6 +35,7 @@ export function VentaRapida() {
   const [guardada, setGuardada] = useState<{ cliente: any; items: ItemCarrito[]; total: number; pagado: number; id: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [escaneando, setEscaneando] = useState(false);
+  const [crearExpress, setCrearExpress] = useState<string | null>(null);
   const [facturable, setFacturable] = useState<string | null>(null);
   const [facturando, setFacturando] = useState(false);
   const [avisoFactura, setAvisoFactura] = useState<string | null>(null);
@@ -324,8 +326,25 @@ export function VentaRapida() {
                   </button>
                 );
               })}
-              {herrFiltradas.length === 0 && <p className="mut">No hay herramientas para mostrar.</p>}
+              {herrFiltradas.length === 0 && !buscarHerr.trim() && (
+                <p className="mut">No hay herramientas para mostrar.</p>
+              )}
             </div>
+
+            {/* Lo que se busca y no está: se crea acá mismo. Ir a Productos,
+                cargarlo y volver, con el cliente esperando, es el momento en
+                que el sistema se abandona. */}
+            {buscarHerr.trim() !== "" && herrFiltradas.length === 0 && (
+              deCache ? (
+                <p className="mut">
+                  No hay ninguno que coincida. Para cargar un producto nuevo hace falta señal.
+                </p>
+              ) : (
+                <button className="vr-fila-cliente vr-nuevo" onClick={() => setCrearExpress(buscarHerr.trim())}>
+                  + Crear "{buscarHerr.trim()}" y agregarlo a la venta
+                </button>
+              )
+            )}
           </div>
         </div>
       )}
@@ -362,6 +381,19 @@ export function VentaRapida() {
       )}
 
       {escaneando && <EscanerQR onDetectar={alEscanearQr} onCerrar={() => setEscaneando(false)} />}
+
+      {crearExpress !== null && (
+        <CrearProductoExpress
+          nombreInicial={crearExpress}
+          onCerrar={() => setCrearExpress(null)}
+          onCreado={(h) => {
+            setHerramientas((arr) => [...arr, h]);
+            agregarHerramienta(h);
+            setBuscarHerr("");
+            setCrearExpress(null);
+          }}
+        />
+      )}
     </div>
   );
 }

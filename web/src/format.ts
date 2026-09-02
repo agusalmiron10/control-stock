@@ -78,3 +78,8 @@ export function mesLargo(aaaaMm: string): string {
   if (!m) return aaaaMm;
   return `${MESES[Number(m[2]) - 1] ?? m[2]} ${m[1]}`;
 }
+
+/** Para buscar sin que molesten acentos ni mayúsculas: "cañeria" = "Cañería". */
+export function normalizarTexto(s: string): string {
+  return s.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}

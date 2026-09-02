@@ -19,6 +19,7 @@ import { config } from "./routes/config";
 import { facturacion } from "./routes/facturacion";
 import { compras } from "./routes/compras";
 import { remitos } from "./routes/remitos";
+import { catalogo } from "./routes/catalogo";
 import { scheduled } from "./scheduled";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -90,6 +91,7 @@ api.route("/config", config);
 api.route("/facturacion", facturacion);
 api.route("/compras", compras);
 api.route("/remitos", remitos);
+api.route("/catalogo", catalogo);
 app.route("/api", api);
 
 // Cualquier otra ruta /api que no exista.
