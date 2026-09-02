@@ -1,12 +1,15 @@
 /**
  * Respaldo de UN negocio: el ferretero se lleva sus datos cuando quiera.
  *
- * Dos caminos:
- *   - manual: baja un .json con todo lo suyo y lo puede volver a subir.
- *   - automático: el cron deja una copia diaria en R2 y acá se lista y se baja.
+ * El ferretero baja un .json con todo lo suyo cuando quiere, y lo puede
+ * volver a subir. No se le guarda nada: se arma en el momento y se descarga.
  *
- * En los dos casos el negocio sale de la sesión, nunca de lo que mande el
- * navegador: un cliente no puede pedir el respaldo de otro.
+ * Las copias diarias que deja el cron en R2 NO se listan acá. Las administra
+ * el proveedor desde su panel (src/routes/super.ts), que es quien las tiene
+ * que conservar y entregar si un cliente las necesita.
+ *
+ * El negocio sale siempre de la sesión, nunca de lo que mande el navegador:
+ * un cliente no puede pedir el respaldo de otro.
  */
 import { Hono } from "hono";
 import type { Env, Variables } from "../types";
@@ -45,43 +48,6 @@ export async function armarRespaldo(env: Env, negocioId: string) {
 /** Descarga todos los datos del negocio como JSON. */
 backup.get("/", async (c) => {
   return c.json(await armarRespaldo(c.env, negocioDe(c)));
-});
-
-// ── Copias automáticas ─────────────────────────────────────
-
-/** Las copias diarias que el sistema guardó de este negocio. */
-backup.get("/automaticos", async (c) => {
-  const neg = negocioDe(c);
-  if (!c.env.BACKUPS) return c.json({ copias: [], disponible: false });
-
-  const listado = await c.env.BACKUPS.list({ prefix: `negocios/${neg}/` });
-  const copias = listado.objects
-    .map((o) => ({
-      fecha: o.key.slice(o.key.lastIndexOf("/") + 1).replace(/\.json$/, ""),
-      tamano: o.size,
-    }))
-    .sort((a, b) => b.fecha.localeCompare(a.fecha));
-
-  return c.json({ copias, disponible: true });
-});
-
-/** Baja una copia puntual. */
-backup.get("/automaticos/:fecha", async (c) => {
-  const fecha = c.req.param("fecha");
-  // Se valida a rajatabla: este texto arma una ruta, y algo como "../otro"
-  // dejaría leer la carpeta de otro negocio.
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw new HttpError(400, "Fecha inválida.");
-  if (!c.env.BACKUPS) throw new HttpError(404, "No hay copias automáticas configuradas.");
-
-  const obj = await c.env.BACKUPS.get(rutaEnR2(negocioDe(c), fecha));
-  if (!obj) throw new HttpError(404, "No hay una copia de esa fecha.");
-
-  return new Response(obj.body, {
-    headers: {
-      "content-type": "application/json",
-      "content-disposition": `attachment; filename="respaldo-${fecha}.json"`,
-    },
-  });
 });
 
 // ── Restaurar ──────────────────────────────────────────────

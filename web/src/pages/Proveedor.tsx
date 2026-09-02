@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { Modal, Campo, Error, Cargando, Vacio, useCarga } from "../components/ui";
+import { CopiasProveedor } from "../components/CopiasProveedor";
 import { MODULOS, INFO_MODULOS, type Modulo } from "../lib/config";
 import { pesos, aCentavos, aPesos, hoyISO } from "../format";
 
@@ -184,6 +185,13 @@ export function Proveedor({ onEntrar }: { onEntrar: () => void }) {
             </div>
           ))}
         </div></div>}
+
+        {negocios.length > 0 && (
+          <div className="card">
+            <h2>Copias de seguridad</h2>
+            <div className="card-body"><CopiasProveedor /></div>
+          </div>
+        )}
       </main>
 
       {modo?.t === "alta" && <FormAlta onCerrar={cerrar} />}

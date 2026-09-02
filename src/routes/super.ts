@@ -337,3 +337,71 @@ superAdmin.post("/salir", async (c) => {
   await crearSesion(c, u.uid, u.usuario, "super", null);
   return c.json({ ok: true });
 });
+
+// ── Copias diarias ─────────────────────────────────────────
+//
+// Las guarda el cron en R2, una por negocio y por día (30 días de retención).
+// Sólo las ve el proveedor: el cliente no las tiene en su pantalla, y si
+// alguna vez necesita una, se la entrega el proveedor desde acá.
+//
+// No ocupan lugar en la base: R2 es almacenamiento aparte de D1.
+
+/** Todas las copias que hay, agrupadas por negocio. */
+superAdmin.get("/copias", async (c) => {
+  if (!c.env.BACKUPS) return c.json({ negocios: [], disponible: false });
+
+  const nombres = await c.env.DB.prepare(`SELECT id, nombre FROM negocios`).all<{ id: string; nombre: string }>();
+  const porId = new Map((nombres.results ?? []).map((n) => [n.id, n.nombre]));
+
+  // R2 pagina de a 1000: hay que seguir el cursor o faltan copias en la lista.
+  const porNegocio = new Map<string, { fecha: string; tamano: number }[]>();
+  let cursor: string | undefined;
+  do {
+    const listado = await c.env.BACKUPS.list({ prefix: "negocios/", cursor });
+    for (const obj of listado.objects) {
+      const m = /^negocios\/([^/]+)\/(\d{4}-\d{2}-\d{2})\.json$/.exec(obj.key);
+      if (!m) continue;
+      const arr = porNegocio.get(m[1]) ?? [];
+      arr.push({ fecha: m[2], tamano: obj.size });
+      porNegocio.set(m[1], arr);
+    }
+    cursor = listado.truncated ? listado.cursor : undefined;
+  } while (cursor);
+
+  const negocios = [...porNegocio.entries()]
+    .map(([id, copias]) => ({
+      id,
+      // Un negocio dado de baja deja de estar en la tabla pero sus copias
+      // siguen en R2 hasta que vencen: hay que poder verlas igual.
+      nombre: porId.get(id) ?? "(negocio dado de baja)",
+      copias: copias.sort((a, b) => b.fecha.localeCompare(a.fecha)),
+      total: copias.reduce((s, x) => s + x.tamano, 0),
+    }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+
+  return c.json({
+    negocios,
+    disponible: true,
+    ocupado: negocios.reduce((s, n) => s + n.total, 0),
+  });
+});
+
+/** Baja una copia puntual de cualquier negocio. */
+superAdmin.get("/copias/:negocioId/:fecha", async (c) => {
+  const negocioId = c.req.param("negocioId");
+  const fecha = c.req.param("fecha");
+  // Los dos arman una ruta de R2: sin validar, un "../" leería otra carpeta.
+  if (!/^[0-9a-fA-F-]{16,40}$/.test(negocioId)) throw new HttpError(400, "Negocio inválido.");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw new HttpError(400, "Fecha inválida.");
+  if (!c.env.BACKUPS) throw new HttpError(404, "No hay copias configuradas.");
+
+  const obj = await c.env.BACKUPS.get(`negocios/${negocioId}/${fecha}.json`);
+  if (!obj) throw new HttpError(404, "No hay una copia de esa fecha.");
+
+  return new Response(obj.body, {
+    headers: {
+      "content-type": "application/json",
+      "content-disposition": `attachment; filename="respaldo-${negocioId.slice(0, 8)}-${fecha}.json"`,
+    },
+  });
+});

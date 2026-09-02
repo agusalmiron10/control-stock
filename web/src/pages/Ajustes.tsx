@@ -3,7 +3,6 @@ import { api } from "../api";
 import { hoyISO, fecha } from "../format";
 import { Campo, Error, Confirmar, Modal, useCarga } from "../components/ui";
 import { exportarGeneral } from "../excel";
-import { CopiasAutomaticas } from "../components/CopiasAutomaticas";
 import { useRol, esDueno } from "../lib/rol";
 import { useConfig, useModulo, MODULOS, INFO_MODULOS, type ConfigNegocio, type Modulo } from "../lib/config";
 
@@ -90,15 +89,13 @@ export function Ajustes() {
                 <button className="btn" onClick={() => fileRef.current?.click()}>⬆ Restaurar respaldo</button>
                 <input ref={fileRef} type="file" accept="application/json,.json" style={{ display: "none" }} onChange={elegirArchivo} />
               </div>
+              <p className="mut" style={{ marginTop: 12 }}>
+                Además, todas las madrugadas se guarda una copia de tus datos fuera del sistema.
+                Si alguna vez necesitás recuperar un día anterior, pedísela a quien te dio el sistema.
+              </p>
             </div>
           </div>
 
-          <div className="card">
-            <h2>Copias automáticas</h2>
-            <div className="card-body">
-              <CopiasAutomaticas />
-            </div>
-          </div>
         </>
       )}
 
