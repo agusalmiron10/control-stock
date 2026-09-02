@@ -33,6 +33,33 @@ const EXCEPCIONES = [
   { archivo: "src/routes/backup.ts", motivo: "arma el WHERE por interpolación de tabla, ya filtrado" },
 ];
 
+/**
+ * Toda tabla de negocio tiene que estar declarada en src/tablas.ts: o entra
+ * en el respaldo, o está en la lista de exclusiones con su motivo.
+ *
+ * Esto existe porque ya pasó: se agregaron facturación, compras y remitos, y
+ * las listas de respaldo —escritas a mano en dos archivos distintos— quedaron
+ * viejas. Durante meses el respaldo se bajaba sin las facturas ni los remitos
+ * y nadie se enteraba, porque el archivo se generaba igual.
+ */
+function revisarCoberturaDeRespaldo() {
+  const src = readFileSync("src/tablas.ts", "utf8");
+  const enRespaldo = new Set([...src.matchAll(/nombre:\s*"([a-z_]+)"/g)].map((m) => m[1]));
+  const excluidas = new Set(
+    [...src.slice(src.indexOf("FUERA_DEL_RESPALDO")).matchAll(/^\s{2}([a-z_]+):/gm)].map((m) => m[1])
+  );
+  const faltan = TABLAS.filter((t) => !enRespaldo.has(t) && !excluidas.has(t));
+  if (faltan.length > 0) {
+    console.log("\n✗ Tablas de negocio que no están declaradas en src/tablas.ts:");
+    for (const t of faltan) console.log(`    ${t}`);
+    console.log("  Agregalas a TABLAS_RESPALDO (respetando el orden de las claves");
+    console.log("  foráneas) o a FUERA_DEL_RESPALDO explicando por qué no van.");
+    return faltan.length;
+  }
+  console.log(`Tablas de negocio cubiertas por el respaldo: ${enRespaldo.size} (${excluidas.size} excluidas a propósito).`);
+  return 0;
+}
+
 function archivosTs(dir) {
   const out = [];
   for (const nombre of readdirSync(dir)) {
@@ -94,5 +121,7 @@ if (problemas === 0) {
   console.log("✓ Todas filtran por negocio_id (o están justificadas como excepción).");
 } else {
   console.log(`✗ ${problemas} consulta(s) sin filtrar por negocio_id.`);
-  process.exit(1);
 }
+
+const sinRespaldo = revisarCoberturaDeRespaldo();
+if (problemas > 0 || sinRespaldo > 0) process.exit(1);

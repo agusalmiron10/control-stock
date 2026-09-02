@@ -2,22 +2,15 @@
  * Cron Trigger diario (ver wrangler.jsonc → triggers.crons).
  * 1) Calcula el resumen del día anterior y lo guarda en resumenes_diarios
  *    (lo lee el Panel para mostrar la tarjeta "Resumen de ayer").
- * 2) Sube un backup completo de la base a R2, con retención de 30 días.
+ * 2) Deja en R2 una copia de los datos DE CADA NEGOCIO, con retención de
+ *    30 días. Una copia por ferretería y no un archivo con todo junto: así
+ *    cada una se puede bajar o restaurar sola, sin tocar a las demás, y sin
+ *    que nadie tenga que abrir un archivo con datos de todos para recuperar
+ *    los de uno.
  */
 import type { Env } from "./types";
 import { calcularResumenDia } from "./routes/reportes";
-
-const TABLAS = [
-  "clientes",
-  "herramientas",
-  "ventas",
-  "venta_items",
-  "pagos",
-  "movimientos_stock",
-  "precios_historial",
-  "presupuestos",
-  "presupuesto_items",
-] as const;
+import { armarRespaldo, rutaEnR2 } from "./routes/backup";
 
 const RETENCION_DIAS = 30;
 
@@ -54,22 +47,58 @@ async function guardarResumenDeAyer(env: Env, negocioId: string): Promise<void> 
     .run();
 }
 
-async function backupAR2(env: Env): Promise<void> {
-  const data: Record<string, unknown[]> = {};
-  for (const t of TABLAS) {
-    const rows = await env.DB.prepare(`SELECT * FROM ${t}`).all();
-    data[t] = rows.results ?? [];
+/**
+ * Una copia por negocio en R2: negocios/<id>/<fecha>.json
+ *
+ * Devuelve cuántas salieron bien, porque si una falla las demás tienen que
+ * guardarse igual — es lo último que uno quiere descubrir el día que hace
+ * falta restaurar.
+ */
+async function backupPorNegocio(env: Env, negocios: string[]): Promise<{ ok: number; fallaron: number }> {
+  if (!env.BACKUPS) {
+    console.error("No hay bucket de backups configurado: no se guardó ninguna copia.");
+    return { ok: 0, fallaron: negocios.length };
   }
   const hoy = new Date().toISOString().slice(0, 10);
-  const dump = { _meta: { app: "control-stock", version: 1, exportado_en: new Date().toISOString() }, ...data };
-  await env.BACKUPS.put(`backup-${hoy}.json`, JSON.stringify(dump), {
-    httpMetadata: { contentType: "application/json" },
-  });
+  let ok = 0;
+  let fallaron = 0;
 
-  // Retención: borra backups de más de RETENCION_DIAS días.
+  for (const id of negocios) {
+    try {
+      const dump = await armarRespaldo(env, id);
+      await env.BACKUPS.put(rutaEnR2(id, hoy), JSON.stringify(dump), {
+        httpMetadata: { contentType: "application/json" },
+      });
+      ok++;
+    } catch (e) {
+      fallaron++;
+      console.error(`No se pudo respaldar el negocio ${id}:`, e);
+    }
+  }
+
+  await limpiarViejos(env);
+  return { ok, fallaron };
+}
+
+/** Retención: se borran las copias de más de RETENCION_DIAS días. */
+async function limpiarViejos(env: Env): Promise<void> {
   const limite = new Date(Date.now() - RETENCION_DIAS * 86400000).toISOString().slice(0, 10);
-  const listado = await env.BACKUPS.list({ prefix: "backup-" });
-  for (const obj of listado.objects) {
+  // R2 pagina: hay que seguir el cursor o quedan copias viejas sin borrar
+  // acumulándose para siempre.
+  let cursor: string | undefined;
+  do {
+    const listado = await env.BACKUPS.list({ prefix: "negocios/", cursor });
+    for (const obj of listado.objects) {
+      const m = /\/(\d{4}-\d{2}-\d{2})\.json$/.exec(obj.key);
+      if (m && m[1] < limite) await env.BACKUPS.delete(obj.key);
+    }
+    cursor = listado.truncated ? listado.cursor : undefined;
+  } while (cursor);
+
+  // Barrido de los backups viejos del esquema anterior (un archivo global por
+  // día). Ya no se generan; esto los va limpiando.
+  const viejos = await env.BACKUPS.list({ prefix: "backup-" });
+  for (const obj of viejos.objects) {
     const m = /^backup-(\d{4}-\d{2}-\d{2})\.json$/.exec(obj.key);
     if (m && m[1] < limite) await env.BACKUPS.delete(obj.key);
   }
@@ -106,6 +135,7 @@ export async function scheduled(_event: ScheduledEvent, env: Env, ctx: Execution
       const negocios = await env.DB
         .prepare(`SELECT id FROM negocios WHERE estado IN ('prueba','activo')`)
         .all<{ id: string }>();
+      const ids = (negocios.results ?? []).map((n) => n.id);
       for (const n of negocios.results ?? []) {
         // Que un negocio falle no debe frenar a los demás.
         await guardarResumenDeAyer(env, n.id).catch((e) =>
@@ -114,7 +144,9 @@ export async function scheduled(_event: ScheduledEvent, env: Env, ctx: Execution
       }
       // Que falle el corte no debe impedir el backup, ni al revés.
       await suspenderVencidos(env).catch((e) => console.error("No se pudo revisar vencimientos:", e));
-      await backupAR2(env);
+
+      const r = await backupPorNegocio(env, ids);
+      console.log(`Copias guardadas: ${r.ok} de ${ids.length}` + (r.fallaron ? ` (${r.fallaron} fallaron)` : ""));
     })()
   );
 }
