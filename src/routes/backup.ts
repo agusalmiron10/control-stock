@@ -73,6 +73,7 @@ export async function guardarCopias(env: Env, negocios: string[]): Promise<{ ok:
       });
       ok++;
       await registrarEjecucion(env, id, hoy, "ok", { tamano: cuerpo.length, duracionMs: Date.now() - arranco });
+      await registrarUso(env, id, hoy, dump, cuerpo.length);
     } catch (e) {
       fallaron++;
       const mensaje = e instanceof Error ? e.message : String(e);
@@ -104,6 +105,37 @@ async function registrarEjecucion(
     // Que falle el REGISTRO del resultado no puede tirar abajo el resultado
     // en sí: la copia ya se guardó (o falló) en R2, eso es lo que importa.
     console.error(`No se pudo registrar la ejecución de copia de ${negocioId}:`, e);
+  }
+}
+
+/**
+ * Cuánto pesa el negocio, sacado del mismo volcado que ya se armó para la
+ * copia — no es una consulta nueva, es leer lo que ya está en memoria.
+ * `filas` y `bytes_estimados` son el tamaño REAL de la copia de ESE
+ * negocio, no una aproximación: la única imprecisión es que JSON pesa más
+ * que las filas en SQLite (comillas, comas, nombres de columna repetidos),
+ * así que sirve para comparar negocios entre sí, no como medida exacta de
+ * lo que ocupan en D1.
+ */
+async function registrarUso(
+  env: Env, negocioId: string, fecha: string, dump: Record<string, unknown>, bytes: number
+): Promise<void> {
+  try {
+    let filas = 0;
+    for (const [clave, valor] of Object.entries(dump)) {
+      if (clave === "_meta" || !Array.isArray(valor)) continue;
+      filas += valor.length;
+    }
+    const ventas = Array.isArray(dump.ventas) ? dump.ventas.length : 0;
+    const facturas = Array.isArray(dump.facturas) ? dump.facturas.length : 0;
+    const remitos = Array.isArray(dump.remitos) ? dump.remitos.length : 0;
+
+    await env.DB.prepare(
+      `INSERT OR REPLACE INTO uso_diario (negocio_id, fecha, filas, bytes_estimados, ventas, facturas, remitos)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(negocioId, fecha, filas, bytes, ventas, facturas, remitos).run();
+  } catch (e) {
+    console.error(`No se pudo registrar el uso de ${negocioId}:`, e);
   }
 }
 

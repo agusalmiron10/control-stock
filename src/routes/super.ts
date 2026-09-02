@@ -651,3 +651,70 @@ superAdmin.get("/arca", async (c) => {
 
   return c.json({ certificado, clientes });
 });
+
+// ── Métricas globales: cuánto pesa cada negocio ─────────────
+//
+// No hay forma de leer "uso de D1 por tenant" desde el Worker: D1 informa
+// el tamaño de la base ENTERA, no por negocio, y los números reales de
+// lecturas/escrituras viven en la Analytics API de Cloudflare —un llamado
+// externo con su propio token, que no vale la pena mantener para vigilar
+// un límite que hoy está al 0,1%. Ver la propuesta original.
+//
+// Lo que sí se puede dar es una ESTIMACIÓN real por negocio: uso_diario se
+// completa gratis con el volcado que ya se arma para la copia de cada uno
+// (ver registrarUso en routes/backup.ts), así que no es una consulta nueva.
+
+superAdmin.get("/metricas", async (c) => {
+  const hoy = new Date().toISOString().slice(0, 10);
+  const haceUnaSemana = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+
+  const nombres = await c.env.DB.prepare(`SELECT id, nombre FROM negocios`).all<{ id: string; nombre: string }>();
+  const porId = new Map((nombres.results ?? []).map((n) => [n.id, n.nombre]));
+
+  // La fila más reciente de cada negocio (no siempre es "hoy": si el cron
+  // falló, sigue siendo la última información real que hay).
+  const ultimas = await c.env.DB
+    .prepare(
+      `SELECT u.* FROM uso_diario u
+       INNER JOIN (SELECT negocio_id, MAX(fecha) AS fecha FROM uso_diario GROUP BY negocio_id) t
+         ON t.negocio_id = u.negocio_id AND t.fecha = u.fecha`
+    )
+    .all<{ negocio_id: string; fecha: string; filas: number; bytes_estimados: number; ventas: number; facturas: number; remitos: number }>();
+
+  // Para la tendencia: lo que había hace 7 días o antes, si existe (la fila
+  // más reciente que no sea más nueva que ese corte).
+  const previas = await c.env.DB
+    .prepare(
+      `SELECT u.negocio_id, u.filas FROM uso_diario u
+       INNER JOIN (SELECT negocio_id, MAX(fecha) AS fecha FROM uso_diario WHERE fecha <= ? GROUP BY negocio_id) t
+         ON t.negocio_id = u.negocio_id AND t.fecha = u.fecha`
+    )
+    .bind(haceUnaSemana)
+    .all<{ negocio_id: string; filas: number }>();
+  const porFilasPrevias = new Map((previas.results ?? []).map((p) => [p.negocio_id, p.filas]));
+
+  const negocios = (ultimas.results ?? [])
+    .map((u) => {
+      const previo = porFilasPrevias.get(u.negocio_id);
+      return {
+        negocio_id: u.negocio_id,
+        negocio_nombre: porId.get(u.negocio_id) ?? "(negocio dado de baja)",
+        fecha: u.fecha,
+        al_dia: u.fecha === hoy,
+        filas: u.filas,
+        bytes_estimados: u.bytes_estimados,
+        ventas: u.ventas,
+        facturas: u.facturas,
+        remitos: u.remitos,
+        // Positivo = creció esta semana. null = todavía no hay una semana de historia.
+        variacion_filas: previo != null ? u.filas - previo : null,
+      };
+    })
+    .sort((a, b) => b.bytes_estimados - a.bytes_estimados);
+
+  return c.json({
+    negocios,
+    total_filas: negocios.reduce((s, n) => s + n.filas, 0),
+    total_bytes_estimados: negocios.reduce((s, n) => s + n.bytes_estimados, 0),
+  });
+});

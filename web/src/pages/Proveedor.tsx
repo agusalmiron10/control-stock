@@ -4,6 +4,7 @@ import { Modal, Campo, Error, Cargando, Vacio, useCarga } from "../components/ui
 import { CopiasProveedor } from "../components/CopiasProveedor";
 import { RegistroProveedor } from "../components/RegistroProveedor";
 import { SaludArca } from "../components/SaludArca";
+import { MetricasProveedor } from "../components/MetricasProveedor";
 import { MODULOS, INFO_MODULOS, type Modulo } from "../lib/config";
 import { pesos, aCentavos, aPesos, hoyISO } from "../format";
 
@@ -187,6 +188,13 @@ export function Proveedor({ onEntrar }: { onEntrar: () => void }) {
             </div>
           ))}
         </div></div>}
+
+        {negocios.length > 0 && (
+          <div className="card">
+            <h2>Uso por cliente</h2>
+            <div className="card-body"><MetricasProveedor /></div>
+          </div>
+        )}
 
         {negocios.length > 0 && (
           <div className="card">
