@@ -123,11 +123,12 @@ backup.post("/restore", async (c) => {
   const stmts: D1PreparedStatement[] = [];
 
   // Borrar al revés del orden de inserción, por las claves foráneas.
-  for (const t of [...TABLAS_RESPALDO].reverse()) {
+  const restaurables = TABLAS_RESPALDO.filter((t) => !t.soloExportar);
+  for (const t of [...restaurables].reverse()) {
     stmts.push(c.env.DB.prepare(`DELETE FROM ${t.nombre} WHERE negocio_id = ?`).bind(neg));
   }
 
-  for (const t of TABLAS_RESPALDO) {
+  for (const t of restaurables) {
     const crudas = Array.isArray((body as any)[t.nombre])
       ? ((body as any)[t.nombre] as Record<string, unknown>[])
       : [];
@@ -149,5 +150,5 @@ backup.post("/restore", async (c) => {
   }
 
   await c.env.DB.batch(stmts);
-  return c.json({ ok: true, tablas: NOMBRES_RESPALDO.length });
+  return c.json({ ok: true, tablas: restaurables.length });
 });

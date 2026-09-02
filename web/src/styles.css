@@ -1272,3 +1272,36 @@ table.tabla tbody tr:hover { background: color-mix(in srgb, var(--acento) 9%, tr
   .be-sug { grid-template-columns: 1fr auto; }
   .be-sug .mut { grid-column: 1 / -1; font-size: 12px; }
 }
+
+/* ── Visita de soporte: mirar vs. editar ───────────────────────────── */
+
+/* Los dos modos tienen que distinguirse de un vistazo. Si el proveedor cree
+   que está mirando cuando en realidad puede escribir, el modo lectura no
+   sirvió de nada.
+
+   Azul es mirar, naranja es tocar. Los dos van con texto blanco: la barra base
+   hereda color ámbar, que sobre estos fondos oscuros no se lee. */
+.barra-soporte.solo-lectura,
+.barra-soporte.editando {
+  color: #ffffff;
+}
+.barra-soporte.solo-lectura {
+  background: #1e3a5f;
+  border-bottom: 2px solid #60a5fa;
+}
+.barra-soporte.editando {
+  background: #7c2d12;
+  border-bottom: 2px solid #fb923c;
+}
+.barra-soporte.solo-lectura strong,
+.barra-soporte.editando strong { color: #ffffff; }
+
+.barra-soporte.solo-lectura button {
+  background: #3b82f6;
+  color: #ffffff;
+}
+.barra-soporte.editando button {
+  background: #ea580c;
+  color: #ffffff;
+}
+.bs-acciones { display: flex; gap: 8px; align-items: center; }

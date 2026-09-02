@@ -42,6 +42,10 @@ export interface Variables {
      * puede usar las rutas de /api/super.
      */
      negocioId: string | null;
+    /** Id de la visita de soporte, si el proveedor entró a un negocio ajeno. */
+    sesionSoporte: string | null;
+    /** Visita de soporte en modo mirar y no tocar. */
+    soloLectura: boolean;
   };
 }
 

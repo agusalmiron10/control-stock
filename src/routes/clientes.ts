@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Env, Variables, Cliente, Venta, Pago } from "../types";
 import { HttpError, texto, boolOpt, uuidOpt, decimalOpt, enumerado , normalizarBusqueda } from "../validate";
 import { estadoDeCuenta, estadoDeCuentaTodos } from "../cuenta";
-import { auditar } from "../auditoria";
+import { auditarDe } from "../auditoria";
 import { negocioDe } from "../types";
 
 export const clientes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -240,7 +240,7 @@ clientes.post("/:id/archivar", async (c) => {
   }
   await c.env.DB.batch([
     c.env.DB.prepare(`UPDATE clientes SET activo = ? WHERE negocio_id = ? AND id = ?`).bind(activo, neg, id),
-    auditar(c.env, neg, c.get("usuario").usuario, activo ? "reactivar_cliente" : "archivar_cliente", "cliente", id),
+    auditarDe(c, activo ? "reactivar_cliente" : "archivar_cliente", "cliente", id),
   ]);
   return c.json({ ok: true });
 });

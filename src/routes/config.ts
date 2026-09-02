@@ -3,7 +3,7 @@ import type { Env, Variables } from "../types";
 import { texto } from "../validate";
 import { requireDueno } from "../auth";
 import { leerConfig } from "../config";
-import { auditar } from "../auditoria";
+import { auditarDe } from "../auditoria";
 import { negocioDe } from "../types";
 
 export const config = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -35,7 +35,7 @@ config.put("/panel", requireDueno, async (c) => {
   await c.env.DB.batch([
     guardar("panel_url", texto(b.url, "URL del panel", { requerido: false, max: 200 }) ?? ""),
     guardar("panel_token", texto(b.token, "token", { requerido: false, max: 120 }) ?? ""),
-    auditar(c.env, neg, c.get("usuario").usuario, "cambiar_panel", "config", null),
+    auditarDe(c, "cambiar_panel", "config", null),
   ]);
   return c.json({ ok: true });
 });
@@ -73,7 +73,7 @@ config.put("/", requireDueno, async (c) => {
   }
 
   if (stmts.length > 0) {
-    stmts.push(auditar(c.env, neg, c.get("usuario").usuario, "cambiar_config", "config", null));
+    stmts.push(auditarDe(c, "cambiar_config", "config", null));
     await c.env.DB.batch(stmts);
   }
   return c.json(await leerConfig(c.env, neg));

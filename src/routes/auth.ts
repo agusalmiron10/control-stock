@@ -64,6 +64,11 @@ auth.get("/status", async (c) => {
     negocio,
     modulosPermitidos: permitidos,
     foto: propia?.foto ?? null,
+    // Visita de soporte: la pantalla necesita saber en qué modo está para
+    // avisarlo. Igual el que manda es el servidor — la UI sólo lo muestra.
+    soporte: sesion?.sesionSoporte
+      ? { modo: sesion.soloLectura ? "lectura" : "edicion" }
+      : null,
   });
 });
 

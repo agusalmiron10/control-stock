@@ -4,7 +4,7 @@ import { HttpError, texto, entero, enumerado, fechaISO, normalizarBusqueda } fro
 import { negocioDe } from "../types";
 import { requireDueno } from "../auth";
 import { requireModulo } from "../config";
-import { auditar } from "../auditoria";
+import { auditarDe } from "../auditoria";
 import { armarAnulacionVenta } from "../ventas-anular";
 import { cifrarClavePrivada } from "../facturacion/certificados";
 import { obtenerTicketAcceso } from "../facturacion/wsaa";
@@ -585,7 +585,7 @@ facturacion.delete("/facturas/:id", async (c) => {
 
   await c.env.DB.batch([
     c.env.DB.prepare(`DELETE FROM facturas WHERE negocio_id = ? AND id = ?`).bind(neg, id),
-    auditar(c.env, neg, c.get("usuario").usuario, "borrar_factura", "factura", id,
+    auditarDe(c, "borrar_factura", "factura", id,
       `Intento ${f.estado}${f.numero ? ` · ${f.punto_venta}-${f.numero}` : ""}`),
   ]);
   return c.json({ ok: true });
@@ -694,7 +694,7 @@ facturacion.post("/huerfanos/verificar", async (c) => {
              observaciones = ?, autorizado_en = datetime('now')
            WHERE negocio_id = ? AND id = ?`
         ).bind(enArca.cae, enArca.caeVencimiento, enArca.observaciones, neg, f.id),
-        auditar(c.env, neg, c.get("usuario").usuario, "recuperar_factura", "factura", f.id,
+        auditarDe(c, "recuperar_factura", "factura", f.id,
           `La factura ${f.punto_venta}-${f.numero} sí estaba autorizada en ARCA · CAE ${enArca.cae}`),
       ]);
       autorizados++;
@@ -839,7 +839,7 @@ facturacion.post("/ventas/:ventaId/emitir", async (c) => {
            observaciones = ?, autorizado_en = datetime('now')
          WHERE negocio_id = ? AND id = ?`
       ).bind(resultado.cae, resultado.caeVencimiento, resultado.observaciones, neg, facturaId),
-      auditar(c.env, neg, c.get("usuario").usuario, "emitir_factura", "factura", facturaId,
+      auditarDe(c, "emitir_factura", "factura", facturaId,
         `Factura ${letra} ${cfg.punto_venta}-${resultado.numero} · Venta #${venta.numero} · CAE ${resultado.cae}`),
     ]);
 
@@ -906,7 +906,7 @@ facturacion.post("/ventas/:ventaId/nota-credito", async (c) => {
 
   // ARCA ya autorizó la NC — recién ahora se anula la venta de verdad (stock,
   // pagos, estado), en el mismo batch atómico que deja registrada la NC.
-  const stmtsAnulacion = await armarAnulacionVenta(c.env, neg, c.get("usuario").usuario, venta);
+  const stmtsAnulacion = await armarAnulacionVenta(c.env, neg, c.get("usuario").usuario, c.get("usuario").sesionSoporte, venta);
 
   await c.env.DB.batch([
     c.env.DB.prepare(
@@ -919,7 +919,7 @@ facturacion.post("/ventas/:ventaId/nota-credito", async (c) => {
       resultado.cae, resultado.caeVencimiento, original.neto_gravado, original.iva, original.total,
       original.iva_porcentaje, original.doc_tipo, original.doc_numero
     ),
-    auditar(c.env, neg, c.get("usuario").usuario, "emitir_nota_credito", "factura", ncId,
+    auditarDe(c, "emitir_nota_credito", "factura", ncId,
       `NC ${letra} ${cfg.punto_venta}-${resultado.numero} sobre factura ${original.id} · Venta #${venta.numero}`),
     ...stmtsAnulacion,
   ]);

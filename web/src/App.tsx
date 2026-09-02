@@ -48,6 +48,8 @@ interface Estado {
   rol: Rol | null;
   /** El negocio de esta sesión. null = proveedor que todavía no entró a ninguno. */
   negocio: { id: string; nombre: string; codigo: string } | null;
+  /** Presente sólo cuando el proveedor entró a la cuenta de un cliente. */
+  soporte?: { modo: "lectura" | "edicion" } | null;
   /** Módulos que el dueño le habilitó a este usuario. null = sin restricción. */
   modulosPermitidos: string[] | null;
   /** Foto de perfil de ESTA sesión — cada usuario sube y borra la suya propia. */
@@ -318,14 +320,37 @@ export function App() {
   // Estoy mirando los datos de un cliente: tiene que quedar clarísimo, para
   // no confundir su negocio con el mío ni cargar algo en el lugar equivocado.
   const enSoporte = estado.rol === "super" && !!estado.negocio;
+  const soloLectura = estado.soporte?.modo === "lectura";
+  const nombreCliente = estado.negocio?.nombre ?? "este cliente";
+
+  async function activarEdicion() {
+    const motivo = window.prompt(
+      `Vas a poder modificar los datos de ${nombreCliente}.\n\n` +
+      "¿Por qué necesitás editar? Queda registrado junto con todo lo que cambies."
+    );
+    if (!motivo?.trim()) return;
+    try {
+      await api.post("/api/super/soporte/editar", { motivo: motivo.trim() });
+      cargarEstado();
+    } catch (e: any) {
+      window.alert(e.message);
+    }
+  }
 
 
   return (
-    <div className={`app ${enSoporte ? "modo-soporte" : ""}`}>
+    <div className={`app ${enSoporte ? "modo-soporte" : ""} ${soloLectura ? "modo-lectura" : ""}`}>
       {enSoporte && (
-        <div className="barra-soporte" ref={barraSoporte}>
-          <span>Estás dentro de <strong>{estado.negocio!.nombre}</strong> como proveedor.</span>
-          <button onClick={volverAProveedor}>Volver a mis clientes</button>
+        <div className={`barra-soporte ${soloLectura ? "solo-lectura" : "editando"}`} ref={barraSoporte}>
+          <span>
+            {soloLectura ? "👁 Mirando " : "✏️ Editando "}
+            <strong>{estado.negocio!.nombre}</strong>
+            {soloLectura ? " — no podés cambiar nada." : " — lo que toques queda registrado."}
+          </span>
+          <div className="bs-acciones">
+            {soloLectura && <button onClick={activarEdicion}>Necesito editar</button>}
+            <button onClick={volverAProveedor}>Volver a mis clientes</button>
+          </div>
         </div>
       )}
       <header className="topbar-movil">

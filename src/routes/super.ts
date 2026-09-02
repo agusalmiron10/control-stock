@@ -313,6 +313,13 @@ superAdmin.post("/negocios/:id/clave", async (c) => {
  * Queda registrado en la auditoría del cliente: si entro a mirar sus datos,
  * el dueño tiene que poder verlo.
  */
+/**
+ * Entrar a la instalación de un cliente para dar soporte.
+ *
+ * Entra SIEMPRE en modo sólo lectura. Antes entraba con escritura completa sin
+ * preguntar nada, que es la forma más fácil de romperle los datos a un cliente
+ * con un click al lado mientras se está mirando un problema.
+ */
 superAdmin.post("/negocios/:id/entrar", async (c) => {
   const id = c.req.param("id");
   const negocio = await c.env.DB.prepare(`SELECT id, nombre, codigo FROM negocios WHERE id = ?`)
@@ -321,22 +328,121 @@ superAdmin.post("/negocios/:id/entrar", async (c) => {
   if (!negocio) throw new HttpError(404, "Ese negocio no existe.");
 
   const u = c.get("usuario");
-  await c.env.DB.prepare(
-    `INSERT INTO auditoria (negocio_id, usuario, accion, entidad, entidad_id, detalle)
-     VALUES (?, ?, 'soporte_entra', 'negocio', ?, ?)`
-  )
-    .bind(id, u.usuario, id, "Acceso de soporte del proveedor del sistema")
-    .run();
+  const sesion = crypto.randomUUID();
 
-  await crearSesion(c, u.uid, u.usuario, "super", id);
-  return c.json({ ok: true, negocio });
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `INSERT INTO sesiones_soporte (id, negocio_id, admin, modo) VALUES (?, ?, ?, 'lectura')`
+    ).bind(sesion, id, u.usuario),
+    auditar(c.env, id, u.usuario, "soporte_entra", "negocio", id, "Entró en modo sólo lectura"),
+  ]);
+
+  await crearSesion(c, u.uid, u.usuario, "super", id, { sesion, soloLectura: true });
+  return c.json({ ok: true, negocio, modo: "lectura" });
 });
+
+/**
+ * Pasar la visita a modo edición. Pide motivo a propósito: obliga a decidir
+ * que se va a tocar algo, y deja escrito por qué antes de tocarlo.
+ */
+superAdmin.post("/soporte/editar", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const motivo = texto(b.motivo, "motivo", { max: 300 })!;
+  const u = c.get("usuario");
+  if (!u.negocioId || !u.sesionSoporte) {
+    throw new HttpError(409, "No estás dentro de la cuenta de ningún cliente.");
+  }
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE sesiones_soporte SET modo = 'edicion', motivo = ? WHERE id = ? AND cerrada_en IS NULL`
+    ).bind(motivo, u.sesionSoporte),
+    auditar(c.env, u.negocioId, u.usuario, "soporte_edita", "negocio", u.negocioId, motivo),
+  ]);
+
+  await crearSesion(c, u.uid, u.usuario, "super", u.negocioId, {
+    sesion: u.sesionSoporte,
+    soloLectura: false,
+  });
+  return c.json({ ok: true, modo: "edicion" });
+});
+
 
 /** Volver a la vista de proveedor (salir del negocio del cliente). */
 superAdmin.post("/salir", async (c) => {
   const u = c.get("usuario");
+  if (u.sesionSoporte) {
+    await c.env.DB
+      .prepare(`UPDATE sesiones_soporte SET cerrada_en = datetime('now') WHERE id = ? AND cerrada_en IS NULL`)
+      .bind(u.sesionSoporte)
+      .run();
+  }
   await crearSesion(c, u.uid, u.usuario, "super", null);
   return c.json({ ok: true });
+});
+
+/**
+ * Historial de visitas de soporte, con lo que se tocó en cada una.
+ *
+ * Es la respuesta a "¿qué cambió mientras estabas adentro?": la auditoría trae
+ * el id de la visita, así que los cambios se cuentan solos.
+ */
+superAdmin.get("/soporte/sesiones", async (c) => {
+  const r = await c.env.DB.prepare(
+    `SELECT s.*, n.nombre AS negocio_nombre,
+            (SELECT COUNT(*) FROM auditoria a WHERE a.sesion_soporte = s.id) AS cambios
+     FROM sesiones_soporte s
+     LEFT JOIN negocios n ON n.id = s.negocio_id
+     ORDER BY s.iniciada_en DESC
+     LIMIT 100`
+  ).all();
+  return c.json({ sesiones: r.results ?? [] });
+});
+
+/**
+ * Auditoría cruzando todos los clientes.
+ *
+ * Es la única consulta del sistema que mira la auditoría sin filtrar por
+ * negocio, y por eso vive acá: este archivo es el que a propósito opera sobre
+ * todos los negocios, detrás de requireSuper.
+ */
+superAdmin.get("/auditoria", async (c) => {
+  const negocio = c.req.query("negocio");
+  const accion = c.req.query("accion");
+  const desde = c.req.query("desde");
+
+  const cond: string[] = [];
+  const args: unknown[] = [];
+  if (negocio) { cond.push("a.negocio_id = ?"); args.push(negocio); }
+  if (accion) { cond.push("a.accion = ?"); args.push(accion); }
+  if (desde) { cond.push("a.creado_en >= ?"); args.push(fechaISO(desde, "desde")); }
+
+  const r = await c.env.DB.prepare(
+    `SELECT a.*, n.nombre AS negocio_nombre
+     FROM auditoria a
+     LEFT JOIN negocios n ON n.id = a.negocio_id
+     ${cond.length ? "WHERE " + cond.join(" AND ") : ""}
+     ORDER BY a.id DESC
+     LIMIT 300`
+  ).bind(...args).all();
+
+  // Para armar el filtro sin inventar la lista de acciones a mano.
+  const acciones = await c.env.DB
+    .prepare(`SELECT DISTINCT accion FROM auditoria ORDER BY accion`)
+    .all<{ accion: string }>();
+
+  return c.json({
+    movimientos: r.results ?? [],
+    acciones: (acciones.results ?? []).map((x) => x.accion),
+  });
+});
+
+/** Qué se tocó exactamente en una visita. */
+superAdmin.get("/soporte/sesiones/:id", async (c) => {
+  const r = await c.env.DB.prepare(
+    `SELECT * FROM auditoria WHERE sesion_soporte = ? ORDER BY id`
+  ).bind(c.req.param("id")).all();
+  return c.json({ cambios: r.results ?? [] });
 });
 
 // ── Copias diarias ─────────────────────────────────────────

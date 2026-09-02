@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { Env, Variables } from "./types";
 import { HttpError } from "./validate";
-import { requireAuth, requireNegocio } from "./auth";
+import { requireAuth, requireNegocio, bloquearSiSoloLectura } from "./auth";
 import { superAdmin } from "./routes/super";
 import { auth } from "./routes/auth";
 import { clientes } from "./routes/clientes";
@@ -76,6 +76,9 @@ app.route("/api/super", sup);
 const api = new Hono<{ Bindings: Env; Variables: Variables }>();
 api.use("*", requireAuth);
 api.use("*", requireNegocio);
+// Y si es una visita de soporte en sólo lectura, no dejan escribir. Va acá,
+// una sola vez, para que ninguna ruta futura pueda olvidarse.
+api.use("*", bloquearSiSoloLectura);
 api.route("/clientes", clientes);
 api.route("/herramientas", herramientas);
 api.route("/ventas", ventas);

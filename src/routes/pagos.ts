@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { Env, Variables, Pago } from "../types";
 import { HttpError, texto, entero, fechaISO, enumerado, uuid, uuidOpt } from "../validate";
-import { auditar } from "../auditoria";
+import { auditarDe } from "../auditoria";
 import { negocioDe } from "../types";
 
 export const pagos = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -137,7 +137,7 @@ pagos.delete("/:id", async (c) => {
   if (!pago) throw new HttpError(404, "Pago no encontrado.");
   await c.env.DB.batch([
     c.env.DB.prepare(`DELETE FROM pagos WHERE negocio_id = ? AND id = ?`).bind(neg, id),
-    auditar(c.env, neg, c.get("usuario").usuario, "borrar_pago", "pago", id, `Monto $${(pago.monto / 100).toFixed(2)}`),
+    auditarDe(c, "borrar_pago", "pago", id, `Monto $${(pago.monto / 100).toFixed(2)}`),
   ]);
   return c.json({ ok: true });
 });

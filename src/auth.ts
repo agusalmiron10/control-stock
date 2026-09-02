@@ -80,6 +80,14 @@ interface SessionPayload {
   rol: Rol;
   /** Negocio de esta sesión. null = super admin que todavía no entró a ninguno. */
   neg: string | null;
+  /** Sesión de soporte, cuando el proveedor entró a un negocio ajeno. */
+  ses?: string;
+  /**
+   * Sólo lectura. Va en el token —firmado con HMAC— y no en la base, para que
+   * cada request lo sepa sin una consulta extra y el navegador no lo pueda
+   * cambiar.
+   */
+  ro?: boolean;
   exp: number; // epoch segundos
 }
 
@@ -120,10 +128,14 @@ function esHttps(c: { req: { url: string } }): boolean {
 }
 
 export async function crearSesion(
-  c: any, uid: number, usuario: string, rol: Rol, negocioId: string | null
+  c: any, uid: number, usuario: string, rol: Rol, negocioId: string | null,
+  soporte?: { sesion: string; soloLectura: boolean }
 ): Promise<void> {
   const exp = Math.floor(Date.now() / 1000) + SESSION_TTL_S;
-  const token = await signToken({ uid, usuario, rol, neg: negocioId, exp }, c.env.SESSION_SECRET);
+  const token = await signToken(
+    { uid, usuario, rol, neg: negocioId, exp, ses: soporte?.sesion, ro: soporte?.soloLectura },
+    c.env.SESSION_SECRET
+  );
   setCookie(c, COOKIE, token, {
     httpOnly: true,
     secure: esHttps(c),
@@ -140,11 +152,17 @@ export function cerrarSesion(c: any): void {
 /** Lee la sesión si existe y es válida; si no, devuelve null. No corta la request. */
 export async function leerSesionOpcional(
   c: any
-): Promise<{ uid: number; usuario: string; rol: Rol; negocioId: string | null } | null> {
+): Promise<{
+  uid: number; usuario: string; rol: Rol; negocioId: string | null;
+  sesionSoporte: string | null; soloLectura: boolean;
+} | null> {
   const token = getCookie(c, COOKIE);
   if (!token) return null;
   const p = await verifyToken(token, c.env.SESSION_SECRET);
-  return p ? { uid: p.uid, usuario: p.usuario, rol: p.rol, negocioId: p.neg ?? null } : null;
+  return p
+    ? { uid: p.uid, usuario: p.usuario, rol: p.rol, negocioId: p.neg ?? null,
+        sesionSoporte: p.ses ?? null, soloLectura: p.ro === true }
+    : null;
 }
 
 /** Middleware: exige sesión válida en todas las rutas de datos. */
@@ -158,7 +176,30 @@ export const requireAuth: MiddlewareHandler<{ Bindings: Env; Variables: Variable
     usuario: payload.usuario,
     rol: payload.rol ?? "dueño",
     negocioId: payload.neg ?? null,
+    sesionSoporte: payload.ses ?? null,
+    soloLectura: payload.ro === true,
   });
+  await next();
+};
+
+/**
+ * Middleware: si la visita de soporte es de sólo lectura, no deja escribir.
+ *
+ * Va UNA sola vez, sobre todas las rutas de datos, y no en cada una: así una
+ * ruta nueva no puede olvidarse de respetarlo. Se corta por método HTTP porque
+ * es lo único que no depende de que cada endpoint se acuerde de nada.
+ *
+ * Es una barrera del servidor, no de la pantalla: aunque alguien arme el pedido
+ * a mano, no pasa.
+ */
+export const bloquearSiSoloLectura: MiddlewareHandler<{ Bindings: Env; Variables: Variables }> = async (c, next) => {
+  const u = c.get("usuario");
+  if (u.soloLectura && c.req.method !== "GET" && c.req.method !== "HEAD") {
+    return c.json(
+      { error: "Estás mirando esta cuenta en modo sólo lectura. Para cambiar algo, activá el modo edición.", soloLectura: true },
+      403
+    );
+  }
   await next();
 };
 

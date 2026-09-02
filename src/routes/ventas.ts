@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Env, Variables, Venta, VentaItem, Herramienta } from "../types";
 import { HttpError, texto, entero, fechaISO, enumerado, boolOpt, uuid, uuidOpt } from "../validate";
 import { estadoDeCuenta, estadoDeCuentaTodos } from "../cuenta";
-import { auditar } from "../auditoria";
+import { auditarDe } from "../auditoria";
 import { negocioDe } from "../types";
 import { armarAnulacionVenta } from "../ventas-anular";
 
@@ -282,7 +282,7 @@ ventas.post("/:id/confirmar", async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare(`UPDATE ventas SET estado = 'confirmada', necesita_revision = 0, motivo_revision = NULL
                       WHERE negocio_id = ? AND id = ?`).bind(neg, id),
-    auditar(c.env, neg, c.get("usuario").usuario, "confirmar_venta", "venta", id),
+    auditarDe(c, "confirmar_venta", "venta", id),
   ]);
   return c.json({ ok: true });
 });
@@ -311,7 +311,7 @@ ventas.post("/:id/anular", async (c) => {
     );
   }
 
-  const stmts = await armarAnulacionVenta(c.env, neg, c.get("usuario").usuario, venta);
+  const stmts = await armarAnulacionVenta(c.env, neg, c.get("usuario").usuario, c.get("usuario").sesionSoporte, venta);
   await c.env.DB.batch(stmts);
   return c.json({ ok: true });
 });

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { Env, Variables, Herramienta, MovimientoStock, PrecioHistorial } from "../types";
 import { HttpError, texto, entero, fechaISO, enumerado, boolOpt , normalizarBusqueda } from "../validate";
-import { auditar } from "../auditoria";
+import { auditarDe } from "../auditoria";
 import { requireModulo } from "../config";
 import { negocioDe } from "../types";
 
@@ -162,7 +162,7 @@ herramientas.post("/express", async (c) => {
     );
   }
   stmts.push(
-    auditar(c.env, neg, c.get("usuario").usuario, "alta_express", "herramienta", id, `${nombre} (stock ${stock})`)
+    auditarDe(c, "alta_express", "herramienta", id, `${nombre} (stock ${stock})`)
   );
   await c.env.DB.batch(stmts);
 
@@ -247,7 +247,7 @@ herramientas.post("/:id/archivar", async (c) => {
   const neg = negocioDe(c);
   await c.env.DB.batch([
     c.env.DB.prepare(`UPDATE herramientas SET activo = ? WHERE negocio_id = ? AND id = ?`).bind(activo, neg, id),
-    auditar(c.env, neg, c.get("usuario").usuario, activo ? "reactivar_herramienta" : "archivar_herramienta", "herramienta", id),
+    auditarDe(c, activo ? "reactivar_herramienta" : "archivar_herramienta", "herramienta", id),
   ]);
   return c.json({ ok: true });
 });
@@ -326,7 +326,9 @@ herramientas.post("/:id/ajuste", async (c) => {
       `INSERT INTO movimientos_stock (negocio_id, herramienta_id, fecha, tipo, cantidad, stock_resultante, motivo)
        VALUES (?, ?, ?, 'ajuste', ?, ?, ?)`
     ).bind(neg, id, fecha, cantidad, resultante, motivo),
-    auditar(c.env, neg, c.get("usuario").usuario, "ajustar_stock", "herramienta", id, `${cantidad > 0 ? "+" : ""}${cantidad} → ${resultante}. ${motivo}`),
+    auditarDe(c, "ajustar_stock", "herramienta", id,
+      `${cantidad > 0 ? "+" : ""}${cantidad} → ${resultante}. ${motivo}`,
+      { anterior: { stock: h.stock }, nuevo: { stock: resultante } }),
   ]);
   return c.json({ ok: true, stock: resultante });
 });
@@ -347,11 +349,16 @@ herramientas.post("/:id/precio", async (c) => {
 
   const stmts: D1PreparedStatement[] = [];
   let cambio = false;
+  // Lo que había y lo que queda, para que la auditoría sirva de prueba y no
+  // sólo de aviso de que alguien tocó el precio.
+  const antes = { precio: h.precio, precio_mayor: h.precio_mayor };
+  const despues = { precio: h.precio, precio_mayor: h.precio_mayor };
 
   if (b.precio_nuevo != null) {
     const nuevo = entero(b.precio_nuevo, "precio minorista nuevo", { min: 0 });
     if (nuevo !== h.precio) {
       cambio = true;
+      despues.precio = nuevo;
       stmts.push(c.env.DB.prepare(`UPDATE herramientas SET precio = ? WHERE negocio_id = ? AND id = ?`)
         .bind(nuevo, neg, id));
       stmts.push(
@@ -366,6 +373,7 @@ herramientas.post("/:id/precio", async (c) => {
     const nuevo = entero(b.precio_mayor_nuevo, "precio mayorista nuevo", { min: 0 });
     if (nuevo !== h.precio_mayor) {
       cambio = true;
+      despues.precio_mayor = nuevo;
       stmts.push(c.env.DB.prepare(`UPDATE herramientas SET precio_mayor = ? WHERE negocio_id = ? AND id = ?`)
         .bind(nuevo, neg, id));
       stmts.push(
@@ -378,7 +386,7 @@ herramientas.post("/:id/precio", async (c) => {
   }
 
   if (!cambio) throw new HttpError(400, "No hay cambios de precio para guardar.");
-  stmts.push(auditar(c.env, neg, c.get("usuario").usuario, "cambiar_precio", "herramienta", id, motivo));
+  stmts.push(auditarDe(c, "cambiar_precio", "herramienta", id, motivo, { anterior: antes, nuevo: despues }));
   await c.env.DB.batch(stmts);
   return c.json({ ok: true });
 });
@@ -648,7 +656,7 @@ herramientas.post("/importar", async (c) => {
   if (stmts.length === 0) throw new HttpError(400, "Ninguna fila del archivo se pudo importar. Revisá los errores.");
 
   stmts.push(
-    auditar(c.env, neg, c.get("usuario").usuario, "importar_productos", "herramienta", null,
+    auditarDe(c, "importar_productos", "herramienta", null,
       `${creados} creados, ${actualizados} actualizados`)
   );
   await c.env.DB.batch(stmts);

@@ -27,6 +27,14 @@ export interface TablaRespaldo {
    * Filas que tienen que insertarse primero (las que se apuntan a sí mismas).
    */
   primero?: (fila: Record<string, unknown>) => boolean;
+  /**
+   * Entra en el archivo que se descarga, pero la restauración no la toca.
+   * Es para la auditoría: es append-only por trigger, así que el DELETE que
+   * hace restaurar abortaría — y además reescribir el registro de lo que pasó
+   * a partir de un archivo subido a mano sería exactamente lo que el
+   * append-only viene a impedir.
+   */
+  soloExportar?: boolean;
 }
 
 export const TABLAS_RESPALDO: TablaRespaldo[] = [
@@ -60,7 +68,7 @@ export const TABLAS_RESPALDO: TablaRespaldo[] = [
   { nombre: "resumenes_diarios" },
   { nombre: "config" },
   { nombre: "operaciones" },
-  { nombre: "auditoria" },
+  { nombre: "auditoria", soloExportar: true },
 ];
 
 /**

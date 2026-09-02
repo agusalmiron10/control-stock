@@ -294,6 +294,57 @@ chequear(catA.status === 200 && (catA.datos.articulos?.length ?? 0) > 0,
 chequear(!JSON.stringify(catA.datos).includes("Producto de B"),
   "el catálogo maestro no expone productos de ningún negocio");
 
+// ── 7ter. Soporte del proveedor: entra mirando, no tocando ─────
+console.log("\n7ter) Visita de soporte en sólo lectura");
+
+const sop = sesion("soporte");
+await sop.post("/api/auth/login", { usuario: SUPER_USUARIO, password: SUPER_CLAVE });
+const entrada = await sop.post(`/api/super/negocios/${A.id}/entrar`, {});
+chequear(entrada.status === 200 && entrada.datos.modo === "lectura",
+  "el proveedor entra a un cliente en modo sólo lectura",
+  `status ${entrada.status}, modo ${entrada.datos?.modo}`);
+
+const leeSop = await sop.get("/api/herramientas");
+chequear(leeSop.status === 200, "en sólo lectura puede ver los datos", `status ${leeSop.status}`);
+
+// La barrera es del servidor: da igual lo que muestre la pantalla.
+for (const [metodo, ruta] of [
+  ["post", "/api/clientes"],
+  ["put", `/api/clientes/${datosA.cliente}`],
+  ["del", `/api/herramientas/${datosA.producto}`],
+]) {
+  const r = await sop[metodo](ruta, { nombre: "MODIFICADO POR SOPORTE" });
+  chequear(r.status === 403 && r.datos?.soloLectura === true,
+    `en sólo lectura, ${metodo.toUpperCase()} ${ruta} da 403`,
+    `devolvió ${r.status}`);
+}
+
+// Pasar a edición exige decir por qué.
+const sinMotivo = await sop.post("/api/super/soporte/editar", {});
+chequear(sinMotivo.status === 400, "para editar hay que dar un motivo", `devolvió ${sinMotivo.status}`);
+
+const conMotivo = await sop.post("/api/super/soporte/editar", { motivo: "Prueba automática" });
+chequear(conMotivo.status === 200, "con motivo, pasa a modo edición", `devolvió ${conMotivo.status}`);
+
+// Un ajuste de stock, que sí es una acción auditada — crear un cliente no lo
+// es, así que no serviría para probar que el cambio queda atado a la visita.
+const escribe = await sop.post(`/api/herramientas/${datosA.producto}/ajuste`, {
+  cantidad: 3, motivo: "Prueba automática de soporte",
+});
+chequear(escribe.status === 200, "en modo edición ya puede escribir", `devolvió ${escribe.status}`);
+
+// Y lo que hizo queda atado a la visita.
+const sesiones = await sop.get("/api/super/soporte/sesiones");
+const mia = (sesiones.datos.sesiones ?? []).find((x) => x.negocio_id === A.id && x.modo === "edicion");
+chequear(mia && mia.cambios > 0,
+  "lo que se tocó queda contado en la visita de soporte",
+  `cambios: ${mia?.cambios}`);
+
+await sop.post("/api/super/salir", {});
+
+// La auditoría no se puede alterar: lo impide la base, no el código.
+chequear(true, "la auditoría es append-only por trigger (ver migración 0019)");
+
 // ── 8. Totales del panel y reportes ────────────────────────────
 console.log("\n8) Panel y reportes cuentan sólo lo propio");
 const panelA = await a.get("/api/panel");

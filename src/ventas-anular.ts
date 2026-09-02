@@ -17,6 +17,8 @@ export async function armarAnulacionVenta(
   env: Env,
   negocioId: string,
   usuario: string,
+  /** Visita de soporte, si la anulación la hace el proveedor dentro de la cuenta. */
+  sesionSoporte: string | null,
   venta: Venta
 ): Promise<D1PreparedStatement[]> {
   const items = await env.DB.prepare(`SELECT * FROM venta_items WHERE negocio_id = ? AND venta_id = ?`)
@@ -51,7 +53,14 @@ export async function armarAnulacionVenta(
   }
 
   stmts.push(env.DB.prepare(`UPDATE pagos SET venta_id = NULL WHERE negocio_id = ? AND venta_id = ?`).bind(negocioId, venta.id));
-  stmts.push(auditar(env, negocioId, usuario, "anular_venta", "venta", venta.id, `Venta #${venta.numero} por $${(venta.total / 100).toFixed(2)}`));
+  stmts.push(
+    auditar(
+      env, negocioId, usuario, "anular_venta", "venta", venta.id,
+      `Venta #${venta.numero} por $${(venta.total / 100).toFixed(2)}`,
+      { anterior: { estado: venta.estado, total: venta.total }, nuevo: { estado: "anulada" } },
+      sesionSoporte
+    )
+  );
 
   return stmts;
 }

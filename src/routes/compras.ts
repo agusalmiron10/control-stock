@@ -12,7 +12,7 @@ import type { Env, Variables, Herramienta, Compra, Proveedor } from "../types";
 import { HttpError, texto, entero, fechaISO, uuid, uuidOpt, boolOpt } from "../validate";
 import { negocioDe } from "../types";
 import { requireModulo } from "../config";
-import { auditar } from "../auditoria";
+import { auditarDe } from "../auditoria";
 
 export const compras = new Hono<{ Bindings: Env; Variables: Variables }>();
 compras.use("*", requireModulo("compras"));
@@ -69,7 +69,7 @@ compras.post("/proveedores", async (c) => {
       texto(b.cuit, "CUIT", { requerido: false, max: 20 }),
       texto(b.notas, "notas", { requerido: false, max: 1000 })
     ),
-    auditar(c.env, neg, c.get("usuario").usuario, "crear_proveedor", "proveedor", id, nombre),
+    auditarDe(c, "crear_proveedor", "proveedor", id, nombre),
   ]);
   return c.json({ id });
 });
@@ -112,7 +112,7 @@ compras.post("/proveedores/:id/archivar", async (c) => {
   const neg = negocioDe(c);
   await c.env.DB.batch([
     c.env.DB.prepare(`UPDATE proveedores SET activo = ? WHERE negocio_id = ? AND id = ?`).bind(activo, neg, id),
-    auditar(c.env, neg, c.get("usuario").usuario, activo ? "reactivar_proveedor" : "archivar_proveedor", "proveedor", id),
+    auditarDe(c, activo ? "reactivar_proveedor" : "archivar_proveedor", "proveedor", id),
   ]);
   return c.json({ ok: true });
 });
@@ -254,7 +254,7 @@ compras.post("/", async (c) => {
   }
 
   stmts.push(
-    auditar(c.env, neg, c.get("usuario").usuario, "registrar_compra", "compra", compraId,
+    auditarDe(c, "registrar_compra", "compra", compraId,
       `Compra #${numero} a ${proveedor.nombre} por ${(total / 100).toFixed(2)}`)
   );
 
@@ -299,7 +299,7 @@ compras.post("/:id/anular", async (c) => {
     );
   }
 
-  stmts.push(auditar(c.env, neg, c.get("usuario").usuario, "anular_compra", "compra", id, `Compra #${compra.numero}`));
+  stmts.push(auditarDe(c, "anular_compra", "compra", id, `Compra #${compra.numero}`, { anterior: { estado: compra.estado }, nuevo: { estado: "anulada" } }));
   await c.env.DB.batch(stmts);
   return c.json({ ok: true });
 });
@@ -327,7 +327,7 @@ compras.delete("/:id", async (c) => {
     c.env.DB.prepare(`DELETE FROM movimientos_stock WHERE negocio_id = ? AND compra_id = ?`).bind(neg, id),
     c.env.DB.prepare(`DELETE FROM compra_items WHERE negocio_id = ? AND compra_id = ?`).bind(neg, id),
     c.env.DB.prepare(`DELETE FROM compras WHERE negocio_id = ? AND id = ?`).bind(neg, id),
-    auditar(c.env, neg, c.get("usuario").usuario, "borrar_compra", "compra", id, `Compra #${co.numero}`),
+    auditarDe(c, "borrar_compra", "compra", id, `Compra #${co.numero}`),
   ]);
   return c.json({ ok: true });
 });

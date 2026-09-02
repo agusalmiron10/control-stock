@@ -10,7 +10,7 @@ import type { Env, Variables, Venta, VentaItem, Remito } from "../types";
 import { HttpError, texto, entero, fechaISO, enumerado, uuid, normalizarBusqueda } from "../validate";
 import { negocioDe } from "../types";
 import { requireModulo } from "../config";
-import { auditar } from "../auditoria";
+import { auditarDe } from "../auditoria";
 
 export const remitos = new Hono<{ Bindings: Env; Variables: Variables }>();
 remitos.use("*", requireModulo("remitos"));
@@ -229,7 +229,7 @@ remitos.post("/", async (c) => {
     );
   }
   stmts.push(
-    auditar(c.env, neg, c.get("usuario").usuario, "crear_remito", "remito", remitoId,
+    auditarDe(c, "crear_remito", "remito", remitoId,
       `Remito #${numero} · Venta #${venta.numero}`)
   );
 
@@ -256,7 +256,7 @@ remitos.post("/:id/estado", async (c) => {
          entregado_en = CASE WHEN ? = 'entregado' THEN datetime('now') ELSE NULL END
        WHERE negocio_id = ? AND id = ?`
     ).bind(estado, texto(b.recibido_por, "recibido por", { requerido: false, max: 120 }), estado, neg, id),
-    auditar(c.env, neg, c.get("usuario").usuario, "estado_remito", "remito", id, `Remito #${r.numero} → ${estado}`),
+    auditarDe(c, "estado_remito", "remito", id, `Remito #${r.numero} → ${estado}`),
   ]);
   return c.json({ ok: true });
 });
@@ -273,7 +273,7 @@ remitos.post("/:id/anular", async (c) => {
 
   await c.env.DB.batch([
     c.env.DB.prepare(`UPDATE remitos SET estado = 'anulado' WHERE negocio_id = ? AND id = ?`).bind(neg, id),
-    auditar(c.env, neg, c.get("usuario").usuario, "anular_remito", "remito", id, `Remito #${r.numero}`),
+    auditarDe(c, "anular_remito", "remito", id, `Remito #${r.numero}`, { anterior: { estado: r.estado }, nuevo: { estado: "anulado" } }),
   ]);
   return c.json({ ok: true });
 });
@@ -300,7 +300,7 @@ remitos.delete("/:id", async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare(`DELETE FROM remito_items WHERE negocio_id = ? AND remito_id = ?`).bind(neg, id),
     c.env.DB.prepare(`DELETE FROM remitos WHERE negocio_id = ? AND id = ?`).bind(neg, id),
-    auditar(c.env, neg, c.get("usuario").usuario, "borrar_remito", "remito", id, `Remito #${r.numero}`),
+    auditarDe(c, "borrar_remito", "remito", id, `Remito #${r.numero}`),
   ]);
   return c.json({ ok: true });
 });
