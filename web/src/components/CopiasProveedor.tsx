@@ -4,7 +4,11 @@ import { fecha } from "../format";
 import { Cargando, Error, useCarga } from "./ui";
 
 interface Copia { fecha: string; tamano: number }
-interface NegocioCopias { id: string; nombre: string; copias: Copia[]; total: number }
+interface Ejecucion { fecha: string; estado: "ok" | "error"; error: string | null }
+interface NegocioCopias {
+  id: string; nombre: string; copias: Copia[]; total: number;
+  ultima_ejecucion: Ejecucion | null;
+}
 
 function peso(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -61,10 +65,25 @@ export function CopiasProveedor() {
   const hoy = new Date().toISOString().slice(0, 10);
   const ayer = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
 
+  // Antes esto sólo existía en los logs de Cloudflare, así que nadie lo veía
+  // hasta el día que hacía falta restaurar y no había nada. Ahora se junta
+  // arriba de todo, de un vistazo, sin tener que abrir cliente por cliente.
+  const conFallo = negocios.filter((n) => n.ultima_ejecucion?.estado === "error");
+
   const cabecera = (
     <>
       <Error msg={errGen} />
       {aviso && <div className="ok-box" onClick={() => setAviso(null)}>{aviso}</div>}
+      {conFallo.length > 0 && (
+        <div className="pill-alerta roja">
+          <b>
+            {conFallo.length === 1
+              ? "A un cliente le falló la última copia:"
+              : `A ${conFallo.length} clientes les falló la última copia:`}
+          </b>{" "}
+          {conFallo.map((n) => n.nombre).join(", ")}.
+        </div>
+      )}
     </>
   );
 
@@ -94,18 +113,31 @@ export function CopiasProveedor() {
       <div className="lista-tarjetas">
         {negocios.map((n) => {
           const ultima = n.copias[0]?.fecha;
-          // Si la última copia no es de hoy ni de ayer, algo falló y hay que verlo.
-          const alDia = ultima === hoy || ultima === ayer;
+          const ej = n.ultima_ejecucion;
+          const fallo = ej?.estado === "error";
+          // Con registro de ejecución (etapa 4) el estado es exacto: "ok" y
+          // de hoy/ayer es al día. Sin registro (copias de antes de esta
+          // migración) se cae al viejo criterio, sólo por la fecha del
+          // archivo en R2.
+          const alDia = ej ? ej.estado === "ok" && (ej.fecha === hoy || ej.fecha === ayer)
+                            : ultima === hoy || ultima === ayer;
           return (
             <div key={n.id} className="tarjeta-fila">
               <div className="tf-titulo">
                 <strong>{n.nombre}</strong>
-                <span className={`badge ${alDia ? "pagada" : "impaga"}`}>
-                  {alDia
-                    ? `Al día · ${n.copias.length} ${n.copias.length === 1 ? "copia" : "copias"}`
-                    : `Última: ${ultima ? fecha(ultima) : "ninguna"}`}
+                <span className={`badge ${fallo ? "impaga" : alDia ? "pagada" : "parcial"}`}>
+                  {fallo
+                    ? `Falló · ${fecha(ej!.fecha)}`
+                    : alDia
+                      ? `Al día · ${n.copias.length} ${n.copias.length === 1 ? "copia" : "copias"}`
+                      : `Última: ${ultima ? fecha(ultima) : "ninguna"}`}
                 </span>
               </div>
+              {fallo && (
+                <div className="mut" style={{ color: "var(--rojo)", fontSize: 12.5 }}>
+                  {ej!.error ?? "Sin detalle del error."}
+                </div>
+              )}
               <div className="tf-datos">
                 <span className="mut">{peso(n.total)} en total</span>
               </div>

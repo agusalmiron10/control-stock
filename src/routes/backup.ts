@@ -64,20 +64,47 @@ export async function guardarCopias(env: Env, negocios: string[]): Promise<{ ok:
   let fallaron = 0;
 
   for (const id of negocios) {
+    const arranco = Date.now();
     try {
       const dump = await armarRespaldo(env, id);
-      await env.BACKUPS.put(rutaEnR2(id, hoy), JSON.stringify(dump), {
+      const cuerpo = JSON.stringify(dump);
+      await env.BACKUPS.put(rutaEnR2(id, hoy), cuerpo, {
         httpMetadata: { contentType: "application/json" },
       });
       ok++;
+      await registrarEjecucion(env, id, hoy, "ok", { tamano: cuerpo.length, duracionMs: Date.now() - arranco });
     } catch (e) {
       fallaron++;
+      const mensaje = e instanceof Error ? e.message : String(e);
       console.error(`No se pudo respaldar el negocio ${id}:`, e);
+      await registrarEjecucion(env, id, hoy, "error", { error: mensaje, duracionMs: Date.now() - arranco });
     }
   }
 
   await limpiarViejas(env);
   return { ok, fallaron };
+}
+
+/**
+ * Deja constancia de cómo salió cada copia. INSERT OR REPLACE porque un
+ * mismo negocio puede reintentarse el mismo día (el botón "Generar ahora"
+ * corre encima del cron): el registro que importa es el más reciente, no
+ * un historial de reintentos.
+ */
+async function registrarEjecucion(
+  env: Env, negocioId: string, fecha: string, estado: "ok" | "error",
+  detalle: { tamano?: number; error?: string; duracionMs: number }
+): Promise<void> {
+  try {
+    await env.DB.prepare(
+      `INSERT OR REPLACE INTO copias_ejecuciones (negocio_id, fecha, estado, tamano, error, duracion_ms, terminada_en)
+       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
+    ).bind(negocioId, fecha, estado, detalle.tamano ?? null, detalle.error ?? null, detalle.duracionMs).run();
+  } catch (e) {
+    // Que falle el REGISTRO del resultado no puede tirar abajo el resultado
+    // en sí: la copia ya se guardó (o falló) en R2, eso es lo que importa.
+    console.error(`No se pudo registrar la ejecución de copia de ${negocioId}:`, e);
+  }
 }
 
 /** Retención: se borran las copias de más de RETENCION_DIAS días. */

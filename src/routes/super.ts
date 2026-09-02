@@ -458,6 +458,13 @@ superAdmin.get("/soporte/sesiones/:id", async (c) => {
 superAdmin.get("/copias", async (c) => {
   if (!c.env.BACKUPS) return c.json({ negocios: [], disponible: false });
 
+  // Todos los que el cron respalda cada noche — no sólo los que ya tienen
+  // alguna copia en R2. Si a un negocio le falló SIEMPRE (nunca llegó a
+  // escribir nada), tiene que aparecer igual: es el caso que más importa
+  // detectar, y antes desaparecía en silencio de esta lista.
+  const activos = await c.env.DB
+    .prepare(`SELECT id FROM negocios WHERE estado IN ('prueba','activo')`)
+    .all<{ id: string }>();
   const nombres = await c.env.DB.prepare(`SELECT id, nombre FROM negocios`).all<{ id: string; nombre: string }>();
   const porId = new Map((nombres.results ?? []).map((n) => [n.id, n.nombre]));
 
@@ -476,15 +483,40 @@ superAdmin.get("/copias", async (c) => {
     cursor = listado.truncated ? listado.cursor : undefined;
   } while (cursor);
 
-  const negocios = [...porNegocio.entries()]
-    .map(([id, copias]) => ({
-      id,
-      // Un negocio dado de baja deja de estar en la tabla pero sus copias
-      // siguen en R2 hasta que vencen: hay que poder verlas igual.
-      nombre: porId.get(id) ?? "(negocio dado de baja)",
-      copias: copias.sort((a, b) => b.fecha.localeCompare(a.fecha)),
-      total: copias.reduce((s, x) => s + x.tamano, 0),
-    }))
+  // La última ejecución registrada de cada negocio. Antes esto sólo existía
+  // en console.error, invisible para cualquiera que no fuera a buscar en
+  // los logs de Cloudflare el día mismo del fallo.
+  const ejecuciones = await c.env.DB
+    .prepare(
+      `SELECT ce.negocio_id, ce.fecha, ce.estado, ce.error FROM copias_ejecuciones ce
+       INNER JOIN (SELECT negocio_id, MAX(fecha) AS fecha FROM copias_ejecuciones GROUP BY negocio_id) u
+         ON u.negocio_id = ce.negocio_id AND u.fecha = ce.fecha`
+    )
+    .all<{ negocio_id: string; fecha: string; estado: string; error: string | null }>();
+  const porEjecucion = new Map((ejecuciones.results ?? []).map((e) => [e.negocio_id, e]));
+
+  // Todos los ids relevantes: activos hoy, más cualquiera que tenga copias o
+  // ejecuciones (un negocio dado de baja recién no desaparece del historial).
+  const todosLosIds = new Set([
+    ...(activos.results ?? []).map((n) => n.id),
+    ...porNegocio.keys(),
+    ...porEjecucion.keys(),
+  ]);
+
+  const negocios = [...todosLosIds]
+    .map((id) => {
+      const copias = (porNegocio.get(id) ?? []).sort((a, b) => b.fecha.localeCompare(a.fecha));
+      const ultima = porEjecucion.get(id) ?? null;
+      return {
+        id,
+        // Un negocio dado de baja deja de estar en la tabla pero sus copias
+        // siguen en R2 hasta que vencen: hay que poder verlas igual.
+        nombre: porId.get(id) ?? "(negocio dado de baja)",
+        copias,
+        total: copias.reduce((s, x) => s + x.tamano, 0),
+        ultima_ejecucion: ultima ? { fecha: ultima.fecha, estado: ultima.estado, error: ultima.error } : null,
+      };
+    })
     .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
 
   // Los backups del esquema anterior (un archivo con TODA la base por día).
