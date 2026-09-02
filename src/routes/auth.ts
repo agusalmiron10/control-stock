@@ -125,13 +125,13 @@ interface CandidatoLogin {
  */
 auth.post("/login", async (c) => {
   const ip = ipDe(c);
-  if (!loginPermitido(ip)) {
-    throw new HttpError(429, "Demasiados intentos. Esperá unos minutos y probá de nuevo.");
-  }
-
   const body = await c.req.json().catch(() => ({}));
   const usuario = texto(body.usuario, "usuario", { max: 60 })!;
   const password = texto(body.password, "contraseña", { max: 200 })!;
+
+  if (!(await loginPermitido(c.env, ip, usuario))) {
+    throw new HttpError(429, "Demasiados intentos. Esperá unos minutos y probá de nuevo.");
+  }
   // Sólo se manda cuando el paso anterior devolvió una lista para elegir.
   const negocioElegido = texto(body.negocio_id, "negocio", { requerido: false, max: 64 });
 
@@ -177,7 +177,7 @@ auth.post("/login", async (c) => {
     throw new HttpError(403, "Esta cuenta está suspendida. Comunicate con soporte.");
   }
 
-  resetIntentos(ip);
+  await resetIntentos(c.env, ip, usuario);
   await crearSesion(c, elegido.id, elegido.usuario, elegido.rol, elegido.negocio_id);
   return c.json({ ok: true, usuario: elegido.usuario, rol: elegido.rol });
 });

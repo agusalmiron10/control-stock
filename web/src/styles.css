@@ -431,6 +431,7 @@ table.tabla tr.archivado { color: var(--texto-suave); font-style: italic; }
 .stock-cero { color: var(--rojo); font-weight: 700; }
 .pill-alerta { background: var(--ambar-bg); color: var(--ambar); border: 1px solid #fcd34d; padding: 8px 12px; border-radius: 8px; margin-bottom: 12px; }
 .pill-alerta.roja { background: var(--rojo-bg); color: var(--rojo); border-color: #fca5a5; }
+.pill-alerta.pill-ok { background: var(--verde-bg); color: var(--verde); border-color: #86efac; }
 
 /* ── Botones ────────────────────────────────────────── */
 .btn {

@@ -14,6 +14,7 @@ import { codigoDeNegocio } from "./auth";
 import { MODULOS, leerConfig, type Modulo } from "../config";
 import { auditar } from "../auditoria";
 import { guardarCopias } from "./backup";
+import { leerCertificado } from "../facturacion/certificado-info";
 
 export const superAdmin = new Hono<{ Bindings: Env; Variables: Variables }>();
 superAdmin.use("*", requireSuper);
@@ -560,4 +561,61 @@ superAdmin.get("/copias/:negocioId/:fecha", async (c) => {
       "content-disposition": `attachment; filename="respaldo-${negocioId.slice(0, 8)}-${fecha}.json"`,
     },
   });
+});
+
+
+// ── Salud de facturación ARCA ───────────────────────────────
+//
+// Modelo de delegación: UN certificado para toda la instalación. El día que
+// venza, dejan de facturar todos los clientes a la vez — así que el
+// vencimiento importa más acá que en un sistema con un certificado por CUIT.
+
+superAdmin.get("/arca", async (c) => {
+  const certificado = leerCertificado(c.env.ARCA_CERT_PEM);
+
+  const configs = await c.env.DB.prepare(
+    `SELECT fc.negocio_id, fc.cuit, fc.activo, fc.ambiente, fc.delegacion_verificada_en,
+            n.nombre AS negocio_nombre
+     FROM facturacion_config fc
+     JOIN negocios n ON n.id = fc.negocio_id
+     WHERE fc.activo = 1
+     ORDER BY n.nombre COLLATE NOCASE`
+  ).all<{
+    negocio_id: string; cuit: string; activo: number; ambiente: string;
+    delegacion_verificada_en: string | null; negocio_nombre: string;
+  }>();
+
+  const clientes = [];
+  for (const cfg of configs.results ?? []) {
+    // CAE emitidos vs. rechazados en los últimos 30 días, y el último problema.
+    const stats = await c.env.DB.prepare(
+      `SELECT
+         SUM(CASE WHEN estado = 'autorizada' THEN 1 ELSE 0 END) AS autorizadas,
+         SUM(CASE WHEN estado IN ('rechazada','error') THEN 1 ELSE 0 END) AS con_problema,
+         SUM(CASE WHEN estado = 'huerfano' THEN 1 ELSE 0 END) AS huerfanas
+       FROM facturas
+       WHERE negocio_id = ? AND creado_en >= datetime('now', '-30 days') AND factura_original_id IS NULL`
+    ).bind(cfg.negocio_id).first<{ autorizadas: number; con_problema: number; huerfanas: number }>();
+
+    const ultimoError = await c.env.DB.prepare(
+      `SELECT observaciones, creado_en FROM facturas
+       WHERE negocio_id = ? AND estado IN ('rechazada','error') AND observaciones IS NOT NULL
+       ORDER BY creado_en DESC LIMIT 1`
+    ).bind(cfg.negocio_id).first<{ observaciones: string; creado_en: string }>();
+
+    clientes.push({
+      negocio_id: cfg.negocio_id,
+      negocio_nombre: cfg.negocio_nombre,
+      cuit: cfg.cuit,
+      ambiente: cfg.ambiente,
+      delegacion_verificada_en: cfg.delegacion_verificada_en,
+      autorizadas_30d: stats?.autorizadas ?? 0,
+      con_problema_30d: stats?.con_problema ?? 0,
+      huerfanas: stats?.huerfanas ?? 0,
+      ultimo_error: ultimoError?.observaciones ?? null,
+      ultimo_error_en: ultimoError?.creado_en ?? null,
+    });
+  }
+
+  return c.json({ certificado, clientes });
 });

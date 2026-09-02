@@ -231,22 +231,55 @@ export const requireDueno: MiddlewareHandler<{ Bindings: Env; Variables: Variabl
   await next();
 };
 
-// ── Rate limiting básico del login (en memoria del isolate) ──
-const intentos = new Map<string, { count: number; resetAt: number }>();
+// ── Rate limiting del login, persistente en D1 ──────────────
+//
+// Antes vivía en un Map() en memoria del isolate: Cloudflare recicla
+// isolates constantemente y corre varios en paralelo, así que el contador se
+// reiniciaba solo — el límite estaba en el código pero no bloqueaba de
+// verdad a nadie. Ahora vive en la tabla intentos_login (migración 0020).
+//
+// Se cuenta por IP Y por usuario a la vez, y hace falta pasar los dos: si
+// sólo se contara por IP, alguien detrás de la misma IP que muchos clientes
+// (una oficina, un proxy) quedaría bloqueado por otro. Si sólo se contara
+// por usuario, un atacante podría probar contraseñas contra una cuenta
+// rotando de IP sin que nada lo frene.
 const MAX_INTENTOS = 8;
 const VENTANA_MS = 5 * 60 * 1000;
 
-export function loginPermitido(ip: string): boolean {
+async function intentoContra(env: Env, clave: string): Promise<boolean> {
+  const fila = await env.DB
+    .prepare(`SELECT intentos, ultimo_en FROM intentos_login WHERE clave = ?`)
+    .bind(clave)
+    .first<{ intentos: number; ultimo_en: string }>();
+
   const ahora = Date.now();
-  const reg = intentos.get(ip);
-  if (!reg || reg.resetAt < ahora) {
-    intentos.set(ip, { count: 1, resetAt: ahora + VENTANA_MS });
-    return true;
-  }
-  reg.count++;
-  return reg.count <= MAX_INTENTOS;
+  // El timestamp de SQLite no lleva zona: se interpreta como UTC a mano.
+  const ultimo = fila ? new Date(fila.ultimo_en.replace(" ", "T") + "Z").getTime() : 0;
+  const dentroDeLaVentana = fila && ahora - ultimo < VENTANA_MS;
+
+  const nuevos = dentroDeLaVentana ? fila!.intentos + 1 : 1;
+  await env.DB
+    .prepare(
+      `INSERT INTO intentos_login (clave, intentos, ultimo_en) VALUES (?, ?, datetime('now'))
+       ON CONFLICT(clave) DO UPDATE SET intentos = excluded.intentos, ultimo_en = excluded.ultimo_en`
+    )
+    .bind(clave, nuevos)
+    .run();
+
+  return nuevos <= MAX_INTENTOS;
 }
 
-export function resetIntentos(ip: string): void {
-  intentos.delete(ip);
+export async function loginPermitido(env: Env, ip: string, usuario: string): Promise<boolean> {
+  // Ambas cuentan siempre —no hay cortocircuito—, para que un intento
+  // fallido por IP no deje de sumarle al contador del usuario ni viceversa.
+  const okIp = await intentoContra(env, `ip:${ip}`);
+  const okUsuario = await intentoContra(env, `u:${usuario.toLowerCase()}`);
+  return okIp && okUsuario;
+}
+
+export async function resetIntentos(env: Env, ip: string, usuario: string): Promise<void> {
+  await env.DB
+    .prepare(`DELETE FROM intentos_login WHERE clave IN (?, ?)`)
+    .bind(`ip:${ip}`, `u:${usuario.toLowerCase()}`)
+    .run();
 }
