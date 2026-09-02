@@ -103,6 +103,43 @@ ventas.get("/:id", async (c) => {
   });
 });
 
+/**
+ * Editar una venta ya confirmada: sólo fecha y nota, nada que mueva plata ni
+ * stock. Los productos, cantidades, precios y el cliente NO se tocan acá —
+ * cambiar eso en una venta que ya movió stock, pagos y a veces una factura
+ * es la clase de edición que conviene resolver anulando y recreando, no con
+ * un PUT silencioso. Funciona en cualquier estado, anulada incluida: la
+ * fecha y la nota son datos administrativos, no afectan lo que ya se movió.
+ */
+ventas.put("/:id", async (c) => {
+  const id = c.req.param("id");
+  const neg = negocioDe(c);
+  const b = await c.req.json().catch(() => ({}));
+
+  const actual = await c.env.DB.prepare(`SELECT fecha, nota, numero FROM ventas WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, id)
+    .first<{ fecha: string; nota: string | null; numero: number }>();
+  if (!actual) throw new HttpError(404, "Venta no encontrada.");
+
+  const fecha = fechaISO(b.fecha, "fecha");
+  const nota = texto(b.nota, "nota", { requerido: false, max: 500 });
+
+  if (fecha === actual.fecha && nota === actual.nota) {
+    return c.json({ ok: true });
+  }
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(`UPDATE ventas SET fecha = ?, nota = ? WHERE negocio_id = ? AND id = ?`)
+      .bind(fecha, nota, neg, id),
+    auditarDe(c, "editar_venta", "venta", id, `Venta #${actual.numero}`, {
+      anterior: { fecha: actual.fecha, nota: actual.nota },
+      nuevo: { fecha, nota },
+    }),
+  ]);
+
+  return c.json({ ok: true });
+});
+
 interface ItemEntrada {
   herramienta_id: string;
   cantidad: number;

@@ -232,6 +232,9 @@ chequear(bor.status === 404, "A no puede borrar el producto de B", `devolvió ${
 const modProv = await a.put(`/api/compras/proveedores/${datosB.proveedor}`, { nombre: "HACKEADO" });
 chequear(modProv.status === 404, "A no puede editar el proveedor de B", `devolvió ${modProv.status}`);
 
+const modVenta = await a.put(`/api/ventas/${datosB.venta}`, { fecha: "2020-01-01", nota: "HACKEADO" });
+chequear(modVenta.status === 404, "A no puede editar la fecha/nota de la venta de B", `devolvió ${modVenta.status}`);
+
 const anulComp = await a.post(`/api/compras/${datosB.compra}/anular`, {});
 chequear(anulComp.status === 404, "A no puede anular la compra de B", `devolvió ${anulComp.status}`);
 

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { api } from "../api";
 import { pesos, fecha } from "../format";
-import { Cargando, Error, Vacio, Confirmar, Modal, useCarga } from "../components/ui";
+import { Cargando, Error, Vacio, Confirmar, Modal, Campo, useCarga } from "../components/ui";
 import { FormCliente } from "./Clientes";
 import { FormPago } from "../components/FormPago";
 import { Comprobante } from "../components/Comprobante";
@@ -24,6 +24,7 @@ export function ClienteFicha({ id }: { id: string }) {
   const [pagoEditar, setPagoEditar] = useState<any | null>(null);
   const [pagoBorrar, setPagoBorrar] = useState<any | null>(null);
   const [ventaAnular, setVentaAnular] = useState<any | null>(null);
+  const [ventaEditar, setVentaEditar] = useState<any | null>(null);
   const [comprobante, setComprobante] = useState<string | null>(null);
   const [archivar, setArchivar] = useState(false);
   const [verQr, setVerQr] = useState(false);
@@ -145,6 +146,7 @@ export function ClienteFicha({ id }: { id: string }) {
                     <td className="acc">
                       <div className="btn-grupo" style={{ justifyContent: "flex-end" }}>
                         <button className="btn chico" onClick={() => setComprobante(v.id)}>Comprobante</button>
+                        <button className="btn chico" onClick={() => setVentaEditar(v)}>Editar</button>
                         {v.estado !== "anulada" && (
                           <button className="btn chico peligro" onClick={() => setVentaAnular(v)}>Anular</button>
                         )}
@@ -171,6 +173,7 @@ export function ClienteFicha({ id }: { id: string }) {
                 </div>
                 <div className="tf-datos" style={{ marginTop: 8 }}>
                   <button className="btn chico" onClick={() => setComprobante(v.id)}>Comprobante</button>
+                  <button className="btn chico" onClick={() => setVentaEditar(v)}>Editar</button>
                   {v.estado !== "anulada" && (
                     <button className="btn chico peligro" onClick={() => setVentaAnular(v)}>Anular</button>
                   )}
@@ -258,6 +261,56 @@ export function ClienteFicha({ id }: { id: string }) {
           <div style={{ maxWidth: 260, margin: "0 auto" }} dangerouslySetInnerHTML={{ __html: qrClienteSvg(id) }} />
         </Modal>
       )}
+
+      {ventaEditar && (
+        <FormEditarVenta venta={ventaEditar} onCerrar={(m) => { setVentaEditar(null); if (m) actualizar(m); }} />
+      )}
     </div>
+  );
+}
+
+/**
+ * Sólo fecha y nota. Los productos, cantidades, precios y el cliente de una
+ * venta ya confirmada no se tocan desde acá: ya movieron stock y a veces
+ * pagos o una factura. Si algo de eso está mal, se anula y se recarga.
+ */
+function FormEditarVenta({ venta, onCerrar }: { venta: any; onCerrar: (mensaje?: string) => void }) {
+  const [fecha, setFecha] = useState(venta.fecha);
+  const [nota, setNota] = useState(venta.nota ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+
+  async function guardar() {
+    setError(null);
+    setGuardando(true);
+    try {
+      await api.put(`/api/ventas/${venta.id}`, { fecha, nota: nota.trim() || null });
+      onCerrar(`Venta #${venta.numero} actualizada.`);
+    } catch (e: any) {
+      setError(e.message);
+      setGuardando(false);
+    }
+  }
+
+  return (
+    <Modal titulo={`Editar venta #${venta.numero}`} onCerrar={() => onCerrar()}>
+      <Error msg={error} />
+      <p className="mut" style={{ marginTop: 0 }}>
+        Sólo se puede corregir la fecha y la nota. Los productos, cantidades y precios ya movieron
+        stock{venta.estado !== "anulada" ? " y pagos" : ""}: para cambiarlos, anulá la venta y cargala de nuevo.
+      </p>
+      <Campo label="Fecha">
+        <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+      </Campo>
+      <Campo label="Nota (opcional)">
+        <input value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Sin nota" />
+      </Campo>
+      <div className="btn-grupo" style={{ justifyContent: "flex-end", marginTop: 14 }}>
+        <button className="btn" onClick={() => onCerrar()}>Cancelar</button>
+        <button className="btn primario" disabled={guardando} onClick={guardar}>
+          {guardando ? "Guardando…" : "Guardar"}
+        </button>
+      </div>
+    </Modal>
   );
 }
