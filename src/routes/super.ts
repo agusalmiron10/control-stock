@@ -13,6 +13,7 @@ import { hashPassword, crearSesion, requireSuper } from "../auth";
 import { codigoDeNegocio } from "./auth";
 import { MODULOS, leerConfig, type Modulo } from "../config";
 import { auditar } from "../auditoria";
+import { guardarCopias } from "./backup";
 
 export const superAdmin = new Hono<{ Bindings: Env; Variables: Variables }>();
 superAdmin.use("*", requireSuper);
@@ -379,10 +380,59 @@ superAdmin.get("/copias", async (c) => {
     }))
     .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
 
+  // Los backups del esquema anterior (un archivo con TODA la base por día).
+  // Ya no se generan, pero los que quedaron siguen siendo recuperables y
+  // tienen que verse: son los únicos que cubren las fechas previas al cambio.
+  const globales: { fecha: string; tamano: number }[] = [];
+  let c2: string | undefined;
+  do {
+    const l = await c.env.BACKUPS.list({ prefix: "backup-", cursor: c2 });
+    for (const obj of l.objects) {
+      const m = /^backup-(\d{4}-\d{2}-\d{2})\.json$/.exec(obj.key);
+      if (m) globales.push({ fecha: m[1], tamano: obj.size });
+    }
+    c2 = l.truncated ? l.cursor : undefined;
+  } while (c2);
+  globales.sort((a, b) => b.fecha.localeCompare(a.fecha));
+
   return c.json({
     negocios,
+    globales,
     disponible: true,
-    ocupado: negocios.reduce((s, n) => s + n.total, 0),
+    ocupado:
+      negocios.reduce((s, n) => s + n.total, 0) + globales.reduce((s, g) => s + g.tamano, 0),
+  });
+});
+
+/**
+ * Genera las copias de todos los clientes en el momento.
+ *
+ * El cron las hace una vez por madrugada; esto sirve para el rato en que
+ * todavía no corrió, y sobre todo para forzar una copia antes de tocar algo
+ * delicado — que es justo cuando uno no quiere esperar hasta mañana.
+ */
+superAdmin.post("/copias/generar", async (c) => {
+  if (!c.env.BACKUPS) throw new HttpError(400, "No hay un bucket de copias configurado.");
+  const negocios = await c.env.DB
+    .prepare(`SELECT id FROM negocios WHERE estado IN ('prueba','activo')`)
+    .all<{ id: string }>();
+  const ids = (negocios.results ?? []).map((n) => n.id);
+  const r = await guardarCopias(c.env, ids);
+  return c.json({ ...r, total: ids.length });
+});
+
+/** Baja uno de los backups globales viejos (toda la base en un archivo). */
+superAdmin.get("/copias/globales/:fecha", async (c) => {
+  const fecha = c.req.param("fecha");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw new HttpError(400, "Fecha inválida.");
+  if (!c.env.BACKUPS) throw new HttpError(404, "No hay copias configuradas.");
+  const obj = await c.env.BACKUPS.get(`backup-${fecha}.json`);
+  if (!obj) throw new HttpError(404, "No hay un backup de esa fecha.");
+  return new Response(obj.body, {
+    headers: {
+      "content-type": "application/json",
+      "content-disposition": `attachment; filename="backup-completo-${fecha}.json"`,
+    },
   });
 });
 

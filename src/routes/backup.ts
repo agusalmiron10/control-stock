@@ -45,6 +45,65 @@ export async function armarRespaldo(env: Env, negocioId: string) {
   };
 }
 
+export const RETENCION_DIAS = 30;
+
+/**
+ * Una copia por negocio en R2: negocios/<id>/<fecha>.json
+ *
+ * Devuelve cuántas salieron bien, porque si una falla las demás tienen que
+ * guardarse igual — es lo último que uno quiere descubrir el día que hace
+ * falta restaurar.
+ */
+export async function guardarCopias(env: Env, negocios: string[]): Promise<{ ok: number; fallaron: number }> {
+  if (!env.BACKUPS) {
+    console.error("No hay bucket de backups configurado: no se guardó ninguna copia.");
+    return { ok: 0, fallaron: negocios.length };
+  }
+  const hoy = new Date().toISOString().slice(0, 10);
+  let ok = 0;
+  let fallaron = 0;
+
+  for (const id of negocios) {
+    try {
+      const dump = await armarRespaldo(env, id);
+      await env.BACKUPS.put(rutaEnR2(id, hoy), JSON.stringify(dump), {
+        httpMetadata: { contentType: "application/json" },
+      });
+      ok++;
+    } catch (e) {
+      fallaron++;
+      console.error(`No se pudo respaldar el negocio ${id}:`, e);
+    }
+  }
+
+  await limpiarViejas(env);
+  return { ok, fallaron };
+}
+
+/** Retención: se borran las copias de más de RETENCION_DIAS días. */
+async function limpiarViejas(env: Env): Promise<void> {
+  const limite = new Date(Date.now() - RETENCION_DIAS * 86400000).toISOString().slice(0, 10);
+  // R2 pagina: hay que seguir el cursor o quedan copias viejas sin borrar
+  // acumulándose para siempre.
+  let cursor: string | undefined;
+  do {
+    const listado = await env.BACKUPS.list({ prefix: "negocios/", cursor });
+    for (const obj of listado.objects) {
+      const m = /\/(\d{4}-\d{2}-\d{2})\.json$/.exec(obj.key);
+      if (m && m[1] < limite) await env.BACKUPS.delete(obj.key);
+    }
+    cursor = listado.truncated ? listado.cursor : undefined;
+  } while (cursor);
+
+  // Barrido de los backups viejos del esquema anterior (un archivo global por
+  // día). Ya no se generan; esto los va limpiando.
+  const viejos = await env.BACKUPS.list({ prefix: "backup-" });
+  for (const obj of viejos.objects) {
+    const m = /^backup-(\d{4}-\d{2}-\d{2})\.json$/.exec(obj.key);
+    if (m && m[1] < limite) await env.BACKUPS.delete(obj.key);
+  }
+}
+
 /** Descarga todos los datos del negocio como JSON. */
 backup.get("/", async (c) => {
   return c.json(await armarRespaldo(c.env, negocioDe(c)));
