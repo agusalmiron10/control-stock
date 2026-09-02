@@ -1316,3 +1316,57 @@ table.tabla tbody tr:hover { background: color-mix(in srgb, var(--acento) 9%, tr
   color: #ffffff;
 }
 .bs-acciones { display: flex; gap: 8px; align-items: center; }
+
+/* ── Ticket de venta (POS de escritorio) ───────────────────────────── */
+/* Cada renglón agregado por escaneo/búsqueda se ve como una línea de
+   ticket: nombre fijo + stepper, no un formulario para volver a elegir lo
+   que ya se eligió al escanear. Sólo el renglón manual (fallback) trae un
+   <select>. */
+.ticket-venta {
+  display: flex; flex-direction: column;
+  border-top: 1px solid var(--borde);
+}
+.ticket-fila {
+  display: grid;
+  grid-template-columns: 1fr auto 110px 100px auto;
+  align-items: center; gap: 14px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--borde);
+}
+.ticket-fila:hover { background: var(--superficie); }
+.ticket-fila-manual { grid-template-columns: 1fr 80px 110px 100px auto; }
+.ticket-nombre { font-size: 14px; font-weight: 500; min-width: 0; }
+.ticket-stepper { display: flex; align-items: center; gap: 6px; justify-self: center; }
+.ticket-stepper button {
+  width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--borde-fuerte);
+  background: var(--panel); font-size: 16px; line-height: 1; cursor: pointer; flex: none;
+}
+.ticket-stepper button:hover { border-color: var(--acento); color: var(--acento); }
+.ticket-stepper input { width: 46px; text-align: center; padding: 4px; }
+.ticket-precio { width: 100%; }
+.ticket-sub { font-weight: 600; }
+
+@media (max-width: 720px) {
+  .ticket-fila, .ticket-fila-manual {
+    grid-template-columns: 1fr auto;
+    row-gap: 8px;
+  }
+  .ticket-nombre, .ticket-fila-manual select { grid-column: 1 / -1; }
+}
+
+/* Total y "Confirmar venta" fijos abajo: siempre a la vista sin bajar hasta
+   el final de la página, como en cualquier caja rápida. */
+.barra-total-venta {
+  position: sticky; bottom: 0; z-index: 5;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  background: var(--panel); border: 1px solid var(--borde-fuerte); border-radius: var(--radio);
+  padding: 14px 18px; margin: 16px 0;
+  box-shadow: var(--sombra-alta);
+}
+.btv-cifras { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.btv-total { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.barra-total-venta .btn.primario { font-size: 16px; padding: 12px 26px; flex: none; }
+
+@media (max-width: 560px) {
+  .barra-total-venta { flex-wrap: wrap; }
+}

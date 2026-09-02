@@ -9,7 +9,16 @@ import { navegar } from "../lib/router";
 import { BarraEscaneo } from "../components/BarraEscaneo";
 import { CrearProductoExpress } from "../components/CrearProductoExpress";
 
-interface Reng { herramienta_id: string; cantidad: string; precio: string }
+interface Reng {
+  herramienta_id: string;
+  cantidad: string;
+  precio: string;
+  /** Renglón agregado por el escáner o el buscador: se muestra como ticket
+   *  (nombre fijo + stepper), no como fila para elegir de un desplegable.
+   *  Sólo el renglón manual (el que abre "+ Agregar manualmente") es un
+   *  <select> — es el único caso donde de verdad hace falta elegir. */
+  manual: boolean;
+}
 
 const MEDIOS = ["efectivo", "transferencia", "cheque", "otro"];
 
@@ -22,7 +31,10 @@ export function NuevaVenta() {
   const [clienteId, setClienteId] = useState("");
   const [fecha, setFecha] = useState(hoyISO());
   const [tipoPrecio, setTipoPrecio] = useState<"minorista" | "mayorista">("minorista");
-  const [items, setItems] = useState<Reng[]>([{ herramienta_id: "", cantidad: "1", precio: "" }]);
+  // Empieza vacío a propósito: la primera acción tiene que ser escanear o
+  // buscar, no completar un formulario. El desplegable manual es un
+  // agregado deliberado (botón aparte), no el punto de partida.
+  const [items, setItems] = useState<Reng[]>([]);
   const [descTipo, setDescTipo] = useState<"monto" | "porcentaje">("monto");
   const [descValor, setDescValor] = useState("");
   const [nota, setNota] = useState("");
@@ -98,9 +110,9 @@ export function NuevaVenta() {
     );
   }
   /**
-   * Suma un producto a la venta. Si ya está en un renglón le sube la cantidad
-   * (que es lo que uno espera al pasar dos veces el mismo artículo por el
-   * lector) y si no, ocupa el primer renglón vacío antes de crear uno nuevo.
+   * Suma un producto a la venta. Si ya está en el ticket le sube la
+   * cantidad (que es lo que uno espera al pasar dos veces el mismo
+   * artículo por el lector); si no, agrega un renglón de ticket nuevo.
    */
   function sumarProducto(h: any) {
     setItems((arr) => {
@@ -108,20 +120,28 @@ export function NuevaVenta() {
       if (i >= 0) {
         return arr.map((it, j) => (j === i ? { ...it, cantidad: String((Number(it.cantidad) || 0) + 1) } : it));
       }
-      const reng: Reng = { herramienta_id: h.id, cantidad: "1", precio: String(aPesos(precioDe(h))) };
-      const vacio = arr.findIndex((it) => !it.herramienta_id);
-      if (vacio >= 0) return arr.map((it, j) => (j === vacio ? reng : it));
-      return [...arr, reng];
+      return [...arr, { herramienta_id: h.id, cantidad: "1", precio: String(aPesos(precioDe(h))), manual: false }];
     });
   }
 
-  function agregarReng() { setItems((a) => [...a, { herramienta_id: "", cantidad: "1", precio: "" }]); }
-  function quitarReng(i: number) { setItems((a) => (a.length > 1 ? a.filter((_, j) => j !== i) : a)); }
+  /** Sube o baja de a uno con el stepper. Llegar a 0 saca el renglón. */
+  function cambiarCantidad(i: number, delta: number) {
+    setItems((arr) =>
+      arr
+        .map((it, j) => (j === i ? { ...it, cantidad: String(Math.max(0, (Number(it.cantidad) || 0) + delta)) } : it))
+        .filter((it) => Number(it.cantidad) > 0)
+    );
+  }
+
+  /** El renglón manual: para el caso raro de no tener el código a mano y no
+   *  encontrarlo por nombre. Es el único que se elige de un desplegable. */
+  function agregarReng() { setItems((a) => [...a, { herramienta_id: "", cantidad: "1", precio: "", manual: true }]); }
+  function quitarReng(i: number) { setItems((a) => a.filter((_, j) => j !== i)); }
 
   function validar(): string | null {
     if (!clienteId) return "Elegí un cliente.";
     const validos = items.filter((it) => it.herramienta_id && Number(it.cantidad) > 0);
-    if (validos.length === 0) return "Agregá al menos un renglón con herramienta y cantidad.";
+    if (validos.length === 0) return "Escaneá o agregá al menos un producto.";
     return null;
   }
 
@@ -229,43 +249,67 @@ export function NuevaVenta() {
             onNoEncontrado={(d) => setCrearExpress(d)}
           />
         </div>
-        <div className="tabla-wrap">
-          <table className="tabla">
-            <thead>
-              <tr><th style={{ minWidth: 200 }}>Herramienta</th><th className="num">Cantidad</th>
-                <th className="num">Precio unit. ($)</th><th className="num">Subtotal</th><th></th></tr>
-            </thead>
-            <tbody>
-              {items.map((it, i) => {
-                const cant = Number(it.cantidad) || 0;
-                const sub = cant * aCentavos(it.precio || "0");
-                const h = hMap.get(it.herramienta_id);
-                const falta = h && cant > h.stock;
+
+        {items.length === 0 ? (
+          <div className="card-body">
+            <p className="mut" style={{ margin: 0 }}>
+              Escaneá o buscá arriba para empezar a cargar el ticket.
+            </p>
+          </div>
+        ) : (
+          <div className="ticket-venta">
+            {items.map((it, i) => {
+              const cant = Number(it.cantidad) || 0;
+              const sub = cant * aCentavos(it.precio || "0");
+              const h = hMap.get(it.herramienta_id);
+              const falta = h && cant > h.stock;
+
+              if (it.manual) {
+                // El único caso donde de verdad hace falta elegir de una
+                // lista: no se sabe el código ni se encontró por nombre.
                 return (
-                  <tr key={i}>
-                    <td>
-                      <select value={it.herramienta_id} onChange={(e) => elegirHerramienta(i, e.target.value)}>
-                        <option value="">Elegí…</option>
-                        {herramientas.map((hh) => <option key={hh.id} value={hh.id}>{hh.codigo} — {hh.nombre} (stock {hh.stock})</option>)}
-                      </select>
-                      {falta && <div className="stock-bajo" style={{ fontSize: 12 }}>Stock insuficiente (hay {numero(h!.stock)})</div>}
-                    </td>
-                    <td className="num" style={{ maxWidth: 110 }}>
-                      <input className="num" type="number" min={1} value={it.cantidad} onChange={(e) => setItem(i, { cantidad: e.target.value })} />
-                    </td>
-                    <td className="num" style={{ maxWidth: 140 }}>
-                      <input className="num" type="number" step="0.01" min={0} value={it.precio} onChange={(e) => setItem(i, { precio: e.target.value })} />
-                    </td>
-                    <td className="num">{pesos(sub)}</td>
-                    <td className="acc"><button className="btn chico" onClick={() => quitarReng(i)} disabled={items.length === 1}>✕</button></td>
-                  </tr>
+                  <div className="ticket-fila ticket-fila-manual" key={i}>
+                    <select value={it.herramienta_id} onChange={(e) => elegirHerramienta(i, e.target.value)}>
+                      <option value="">Elegí un producto…</option>
+                      {herramientas.map((hh) => <option key={hh.id} value={hh.id}>{hh.codigo} — {hh.nombre} (stock {hh.stock})</option>)}
+                    </select>
+                    <input className="num" type="number" min={1} value={it.cantidad}
+                      onChange={(e) => setItem(i, { cantidad: e.target.value })} style={{ maxWidth: 80 }} />
+                    <input className="num" type="number" step="0.01" min={0} value={it.precio}
+                      onChange={(e) => setItem(i, { precio: e.target.value })} style={{ maxWidth: 110 }} placeholder="Precio" />
+                    <span className="num ticket-sub">{pesos(sub)}</span>
+                    <button className="btn chico" onClick={() => quitarReng(i)} aria-label="Quitar">✕</button>
+                  </div>
                 );
-              })}
-            </tbody>
-          </table>
-        </div>
+              }
+
+              return (
+                <div className="ticket-fila" key={i}>
+                  <div className="ticket-nombre">
+                    {h?.nombre ?? "Producto"}
+                    {falta && <div className="stock-bajo" style={{ fontSize: 12 }}>Stock insuficiente (hay {numero(h!.stock)})</div>}
+                  </div>
+                  <div className="ticket-stepper">
+                    <button type="button" onClick={() => cambiarCantidad(i, -1)} aria-label="Restar uno">−</button>
+                    <input className="num" type="number" min={1} value={it.cantidad}
+                      onChange={(e) => setItem(i, { cantidad: e.target.value })} />
+                    <button type="button" onClick={() => cambiarCantidad(i, 1)} aria-label="Sumar uno">+</button>
+                  </div>
+                  <input className="num ticket-precio" type="number" step="0.01" min={0} value={it.precio}
+                    onChange={(e) => setItem(i, { precio: e.target.value })} />
+                  <span className="num ticket-sub">{pesos(sub)}</span>
+                  <button className="btn chico" onClick={() => quitarReng(i)} aria-label="Quitar">✕</button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         <div className="card-body">
-          <button className="btn" onClick={agregarReng}>+ Agregar renglón</button>
+          <button className="btn" onClick={agregarReng}>+ Agregar manualmente</button>
+          <span className="mut" style={{ fontSize: 12.5, marginLeft: 8 }}>
+            Para cuando no tenés el código a mano y no lo encontrás por nombre.
+          </span>
         </div>
       </div>
 
@@ -313,19 +357,20 @@ export function NuevaVenta() {
         </div>
       )}
 
-      <div className="card">
-        <div className="card-body totales-envio">
-          <div className="dt-list" style={{ gridTemplateColumns: "auto auto" }}>
-            <dt>Subtotal</dt><dd>{pesos(subtotal)}</dd>
-            <dt>Descuento</dt><dd>{pesos(descuento)}</dd>
-            <dt><b>Total</b></dt><dd><b>{pesos(total)}</b></dd>
-            {pagoModo !== "nada" && (<><dt>Paga ahora</dt><dd className="saldado">{pesos(pagoCent)}</dd>
-              <dt>Queda debiendo</dt><dd className={total - pagoCent > 0 ? "debe" : "saldado"}>{pesos(Math.max(0, total - pagoCent))}</dd></>)}
-          </div>
-          <button className="btn primario" style={{ fontSize: 16, padding: "10px 20px" }} disabled={guardando || total < 0} onClick={() => enviar(false)}>
-            {guardando ? "Guardando…" : "Confirmar venta"}
-          </button>
+      {/* Fija abajo de todo: el total y el botón de cerrar la venta siempre a
+          la vista, sin tener que bajar hasta el final de la página. */}
+      <div className="barra-total-venta">
+        <div className="btv-cifras">
+          <span className="mut">
+            {items.length} producto{items.length === 1 ? "" : "s"}
+            {descuento > 0 && ` · Desc. ${pesos(descuento)}`}
+            {pagoModo !== "nada" && total - pagoCent > 0 && ` · Debe ${pesos(Math.max(0, total - pagoCent))}`}
+          </span>
+          <span className="btv-total">{pesos(total)}</span>
         </div>
+        <button className="btn primario" disabled={guardando || total < 0 || items.length === 0} onClick={() => enviar(false)}>
+          {guardando ? "Guardando…" : "Confirmar venta"}
+        </button>
       </div>
 
       {confirmarNeg && (
