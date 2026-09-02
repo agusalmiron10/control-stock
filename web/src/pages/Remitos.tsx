@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { api } from "../api";
 import { fecha, numero } from "../format";
-import { Cargando, Error, Vacio, useCarga } from "../components/ui";
+import { Cargando, Error, Vacio, Confirmar, useCarga } from "../components/ui";
 import { FiltroComprobantes, FILTROS_VACIOS, comoQuery, type Filtros } from "../components/FiltroComprobantes";
 import { RemitoDetalle } from "../components/RemitoDetalle";
 import { NuevoRemito } from "../components/NuevoRemito";
@@ -29,12 +29,55 @@ export function Remitos() {
   const [nuevo, setNuevo] = useState(false);
   const [imprimir, setImprimir] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
+  // Acciones directo desde la tarjeta, sin pasar por el detalle: anular y
+  // borrar cada uno con su propia confirmación (son irreversibles o casi),
+  // más el remito que está procesando ahora mismo para no dejar doble click.
+  const [anularId, setAnularId] = useState<string | null>(null);
+  const [borrarId, setBorrarId] = useState<string | null>(null);
+  const [procesando, setProcesando] = useState<string | null>(null);
+  const [errAccion, setErrAccion] = useState<string | null>(null);
 
   const qs = comoQuery(filtros, { estado });
   const { data, error, cargando, recargar } = useCarga<any>(() => api.get(`/api/remitos?${qs}`), [qs]);
 
   const lista = data?.remitos ?? [];
   const hayFiltro = qs !== "";
+  const remitoAnular = lista.find((r: any) => r.id === anularId);
+  const remitoBorrar = lista.find((r: any) => r.id === borrarId);
+
+  async function hacerAnular() {
+    if (!remitoAnular) return;
+    setErrAccion(null);
+    setProcesando(remitoAnular.id);
+    try {
+      await api.post(`/api/remitos/${remitoAnular.id}/anular`);
+      setAnularId(null);
+      setAviso(`Remito #${remitoAnular.numero} anulado. Lo que llevaba vuelve a quedar pendiente de entrega.`);
+      recargar();
+    } catch (e: any) {
+      setErrAccion(e.message);
+      setAnularId(null);
+    } finally {
+      setProcesando(null);
+    }
+  }
+
+  async function hacerBorrar() {
+    if (!remitoBorrar) return;
+    setErrAccion(null);
+    setProcesando(remitoBorrar.id);
+    try {
+      await api.del(`/api/remitos/${remitoBorrar.id}`);
+      setBorrarId(null);
+      setAviso(`Remito #${remitoBorrar.numero} borrado.`);
+      recargar();
+    } catch (e: any) {
+      setErrAccion(e.message);
+      setBorrarId(null);
+    } finally {
+      setProcesando(null);
+    }
+  }
 
   return (
     <div>
@@ -56,6 +99,7 @@ export function Remitos() {
       </FiltroComprobantes>
 
       {error && <Error msg={error} />}
+      <Error msg={errAccion} />
 
       {lista.length > 0 && (
         <p className="mut" style={{ marginTop: -4 }}>
@@ -88,35 +132,60 @@ export function Remitos() {
         />
       ) : (
         <div className="grid-comprobantes">
-          {lista.map((r: any) => (
-            <button key={r.id} className={`comp-card ${franja(r.estado)}`} onClick={() => setDetalle(r.id)}>
-              <div className="comp-card-top">
-                <div>
-                  <div className="comp-card-tipo">Remito #{r.numero}</div>
-                  <div className="comp-card-nro">{fecha(r.fecha)} · Venta #{r.venta_numero}</div>
+          {lista.map((r: any) => {
+            const ocupado = procesando === r.id;
+            return (
+              <div
+                key={r.id}
+                className={`comp-card ${franja(r.estado)}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => setDetalle(r.id)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDetalle(r.id); } }}
+              >
+                <div className="comp-card-top">
+                  <div>
+                    <div className="comp-card-tipo">Remito #{r.numero}</div>
+                    <div className="comp-card-nro">{fecha(r.fecha)} · Venta #{r.venta_numero}</div>
+                  </div>
+                  <span className={`badge ${BADGE[r.estado] ?? ""}`}>{r.estado}</span>
                 </div>
-                <span className={`badge ${BADGE[r.estado] ?? ""}`}>{r.estado}</span>
-              </div>
 
-              <div className="comp-card-cliente">{r.cliente_nombre}</div>
+                <div className="comp-card-cliente">{r.cliente_nombre}</div>
 
-              {r.transporte && (
-                <div className="mut" style={{ fontSize: 12.5 }}>Transporte: {r.transporte}</div>
-              )}
+                {r.transporte && (
+                  <div className="mut" style={{ fontSize: 12.5 }}>Transporte: {r.transporte}</div>
+                )}
 
-              <div className="comp-card-pie">
-                <span className="comp-card-total">
-                  {numero(r.bultos)} <span style={{ fontSize: 13, fontWeight: 500 }}>
-                    unidad{r.bultos === 1 ? "" : "es"}
+                <div className="comp-card-pie">
+                  <span className="comp-card-total">
+                    {numero(r.bultos)} <span style={{ fontSize: 13, fontWeight: 500 }}>
+                      unidad{r.bultos === 1 ? "" : "es"}
+                    </span>
                   </span>
-                </span>
-                <span className="comp-card-fecha">
-                  {r.renglones} producto{r.renglones === 1 ? "" : "s"}
-                  {r.recibido_por ? ` · Recibió ${r.recibido_por}` : ""}
-                </span>
+                  <span className="comp-card-fecha">
+                    {r.renglones} producto{r.renglones === 1 ? "" : "s"}
+                    {r.recibido_por ? ` · Recibió ${r.recibido_por}` : ""}
+                  </span>
+                </div>
+
+                {/* Directo desde la tarjeta: no hace falta entrar al remito
+                    para imprimirlo, anularlo o borrarlo. */}
+                <div className="comp-card-acciones" onClick={(e) => e.stopPropagation()}>
+                  <button className="btn chico" onClick={() => setImprimir(r.id)}>Imprimir</button>
+                  {r.estado !== "anulado" ? (
+                    <button className="btn chico peligro" disabled={ocupado} onClick={() => setAnularId(r.id)}>
+                      Anular
+                    </button>
+                  ) : (
+                    <button className="btn chico peligro" disabled={ocupado} onClick={() => setBorrarId(r.id)}>
+                      Borrar
+                    </button>
+                  )}
+                </div>
               </div>
-            </button>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -132,6 +201,25 @@ export function Remitos() {
         <NuevoRemito onCerrar={(mensaje) => { setNuevo(false); if (mensaje) { setAviso(mensaje); recargar(); } }} />
       )}
       {imprimir && <RemitoImprimible remitoId={imprimir} onCerrar={() => setImprimir(null)} />}
+
+      {remitoAnular && (
+        <Confirmar
+          mensaje={`¿Anular el remito #${remitoAnular.numero}? Lo que llevaba vuelve a quedar pendiente de entrega y se puede remitar de nuevo. El stock no se toca.`}
+          textoConfirmar="Anular"
+          peligro
+          onSi={hacerAnular}
+          onNo={() => setAnularId(null)}
+        />
+      )}
+      {remitoBorrar && (
+        <Confirmar
+          mensaje={`¿Borrar el remito #${remitoBorrar.numero} de la lista? Ya está anulado, así que no cambia stock ni entregas — sólo desaparece del historial. No se puede deshacer.`}
+          textoConfirmar="Borrar"
+          peligro
+          onSi={hacerBorrar}
+          onNo={() => setBorrarId(null)}
+        />
+      )}
     </div>
   );
 }

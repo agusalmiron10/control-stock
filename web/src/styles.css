@@ -966,6 +966,16 @@ table.tabla td.acc .btn-grupo { flex-wrap: nowrap; }
 }
 .comp-card-fecha { font-size: 12.5px; color: var(--texto-suave); }
 
+/* Acciones directo en la tarjeta: no hace falta entrar al detalle para
+   imprimir, anular o borrar. Los botones cortan la propagación del click
+   de la tarjeta, así que van en su propia fila, separada visualmente. */
+.comp-card-acciones {
+  display: flex; gap: 8px; flex-wrap: wrap;
+  border-top: 1px solid var(--borde); padding-top: 10px; margin-top: 2px;
+  cursor: default; /* la tarjeta entera es cursor:pointer; esta fila no abre nada al click */
+}
+.comp-card-acciones .btn { flex: 1; min-width: 0; }
+
 /* Filas de datos del detalle: etiqueta a la izquierda, valor a la derecha. */
 .detalle-filas { display: flex; flex-direction: column; gap: 0; }
 .detalle-fila {
