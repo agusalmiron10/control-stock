@@ -629,7 +629,10 @@ table.tabla td.acc .btn-grupo { flex-wrap: nowrap; }
   background: var(--panel); cursor: pointer; min-height: 64px;
 }
 .vr-tarjeta-herr:hover { border-color: var(--acento); }
-.vr-tarjeta-herr.vr-en-carrito { background: #eff6ff; border-color: var(--acento); cursor: default; }
+/* --acento-suave (no un hex fijo): en tema oscuro es un azul oscuro, no un
+   celeste clarito — con el hex fijo el texto claro del tema oscuro quedaba
+   casi invisible sobre un fondo casi blanco. */
+.vr-tarjeta-herr.vr-en-carrito { background: var(--acento-suave); border-color: var(--acento); cursor: default; }
 .vr-nombre-herr { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
 .vr-stepper { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
 .vr-stepper button {
