@@ -127,8 +127,8 @@ interface ConfigFiscal {
   punto_venta?: number | null;
   ambiente?: "homologacion" | "produccion";
   iva_porcentaje_defecto?: number;
+  /** Del sistema entero, no de este negocio — ver el comentario en el panel. */
   tiene_certificado?: boolean;
-  cert_subido_en?: string | null;
 }
 
 /**
@@ -147,10 +147,6 @@ function FacturacionElectronicaPanel({ onOk, onError }: { onOk: (m: string) => v
   const [guardando, setGuardando] = useState(false);
   const [probando, setProbando] = useState(false);
   const [resultadoPrueba, setResultadoPrueba] = useState<string | null>(null);
-  const crtRef = useRef<HTMLInputElement>(null);
-  const keyRef = useRef<HTMLInputElement>(null);
-  const [crtTexto, setCrtTexto] = useState<string | null>(null);
-  const [keyTexto, setKeyTexto] = useState<string | null>(null);
 
   useEffect(() => {
     if (data?.configurado && !tocado) {
@@ -188,30 +184,6 @@ function FacturacionElectronicaPanel({ onOk, onError }: { onOk: (m: string) => v
     } catch (err: any) { onError(err.message); } finally { setGuardando(false); }
   }
 
-  function leerArchivo(setter: (texto: string) => void) {
-    return (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => setter(String(reader.result));
-      reader.readAsText(file);
-    };
-  }
-
-  async function subirCertificado() {
-    if (!crtTexto || !keyTexto) return;
-    onError(null);
-    try {
-      await api.post("/api/facturacion/certificado", { cert: crtTexto, key: keyTexto });
-      setCrtTexto(null);
-      setKeyTexto(null);
-      if (crtRef.current) crtRef.current.value = "";
-      if (keyRef.current) keyRef.current.value = "";
-      onOk("Certificado cargado.");
-      recargar();
-    } catch (err: any) { onError(err.message); }
-  }
-
   async function alternarActivo() {
     onError(null);
     try {
@@ -240,8 +212,9 @@ function FacturacionElectronicaPanel({ onOk, onError }: { onOk: (m: string) => v
       <h2>Facturación electrónica (ARCA)</h2>
       <div className="card-body">
         <p className="mut" style={{ marginTop: 0 }}>
-          Emitir Factura A/B/C con CAE real desde una venta. Necesitás el CUIT de este negocio y el
-          certificado digital que se tramita en ARCA con la clave fiscal.
+          Emitir Factura A/B/C con CAE real desde una venta. Cargá el CUIT y los datos fiscales de
+          este negocio, y desde ARCA delegale el servicio de Facturación Electrónica al CUIT del
+          proveedor del sistema — sin certificado propio ni clave fiscal de terceros.
         </p>
 
         {data?.configurado && (
@@ -250,9 +223,17 @@ function FacturacionElectronicaPanel({ onOk, onError }: { onOk: (m: string) => v
             <span className={`badge ${data.ambiente === "produccion" ? "impaga" : "parcial"}`}>
               Ambiente: {data.ambiente === "produccion" ? "PRODUCCIÓN — facturas reales" : "Modo prueba"}
             </span>
-            {data.tiene_certificado && <span className="mut">Certificado cargado{data.cert_subido_en ? ` el ${data.cert_subido_en.slice(0, 10)}` : ""}</span>}
           </div>
         )}
+
+        {/* El certificado es del proveedor, uno solo para toda la instalación
+            — nada que este negocio tenga que subir. Sólo se informa si está
+            cargado del lado del sistema. */}
+        <div className={`pill-alerta ${data?.tiene_certificado ? "" : "roja"}`} style={{ marginBottom: 14 }}>
+          {data?.tiene_certificado
+            ? "Certificado del sistema: cargado. Falta que este negocio delegue el servicio desde ARCA."
+            : "El sistema todavía no tiene cargado su certificado de ARCA. Sin eso, ningún negocio puede facturar todavía — es un paso del proveedor, no tuyo."}
+        </div>
 
         <form onSubmit={guardarDatos}>
           <div className="fila fila-fiscal">
@@ -293,27 +274,11 @@ function FacturacionElectronicaPanel({ onOk, onError }: { onOk: (m: string) => v
           <button className="btn primario" disabled={guardando}>{guardando ? "Guardando…" : "Guardar datos fiscales"}</button>
         </form>
 
-        <h3 style={{ fontSize: 14, marginTop: 20, marginBottom: 4 }}>Certificado digital</h3>
-        <p className="mut" style={{ marginTop: 0 }}>
-          Se tramita en ARCA con la clave fiscal del CUIT de este negocio. La clave privada se guarda cifrada — nadie la puede volver a leer, ni siquiera desde acá.
-        </p>
-        <div className="fila fila-fiscal">
-          <div className="campo">
-            <label>Certificado (.crt)</label>
-            <input ref={crtRef} type="file" accept=".crt,.pem" onChange={leerArchivo(setCrtTexto)} />
-          </div>
-          <div className="campo">
-            <label>Clave privada (.key)</label>
-            <input ref={keyRef} type="file" accept=".key,.pem" onChange={leerArchivo(setKeyTexto)} />
-          </div>
-        </div>
-        <button className="btn" disabled={!crtTexto || !keyTexto} onClick={subirCertificado}>Subir certificado</button>
-
         <div className="btn-grupo" style={{ marginTop: 20 }}>
           {data?.configurado && (
             <button className="btn" onClick={alternarActivo}>{data.activo ? "Desactivar" : "Activar"}</button>
           )}
-          <button className="btn" disabled={probando || !data?.tiene_certificado} onClick={probarConexion}>
+          <button className="btn" disabled={probando} onClick={probarConexion}>
             {probando ? "Probando…" : "Probar conexión con ARCA"}
           </button>
         </div>

@@ -6,8 +6,7 @@ import { requireDueno } from "../auth";
 import { requireModulo } from "../config";
 import { auditarDe } from "../auditoria";
 import { armarAnulacionVenta } from "../ventas-anular";
-import { cifrarClavePrivada } from "../facturacion/certificados";
-import { obtenerTicketAcceso } from "../facturacion/wsaa";
+import { obtenerTicketAcceso, hayCertificadoDelProveedor } from "../facturacion/wsaa";
 import { feDummy, feCaeSolicitar, feCompUltimoAutorizado, feCompConsultar, feParamGetPtosVenta, SinDelegacion } from "../facturacion/wsfe";
 import {
   calcularNetoIva,
@@ -130,8 +129,11 @@ facturacion.get("/config", requireDueno, async (c) => {
     punto_venta: cfg.punto_venta,
     ambiente: cfg.ambiente,
     iva_porcentaje_defecto: cfg.iva_porcentaje_defecto,
-    tiene_certificado: !!cfg.cert_pem,
-    cert_subido_en: cfg.cert_subido_en,
+    // El certificado ya no es por negocio: es uno solo, del proveedor,
+    // cargado como secret del Worker. Esto informa si ESE existe, no si
+    // este negocio subió algo — no hay nada que este negocio tenga que
+    // subir.
+    tiene_certificado: hayCertificadoDelProveedor(c.env),
   });
 });
 
@@ -188,8 +190,17 @@ facturacion.put("/config", requireDueno, async (c) => {
 facturacion.post("/activar", requireDueno, async (c) => {
   const neg = negocioDe(c);
   const cfg = await leerConfigFiscal(c.env, neg);
-  if (!cfg || !cfg.cuit || !cfg.cert_pem) {
-    throw new HttpError(409, "Completá los datos fiscales y el certificado antes de activar.");
+  if (!cfg || !cfg.cuit) {
+    throw new HttpError(409, "Completá los datos fiscales antes de activar.");
+  }
+  // El certificado es del proveedor, uno solo para toda la instalación —
+  // sin él, activar igual sería mentirle al dueño: no va a poder emitir
+  // nada hasta que esté cargado del lado del sistema, no del suyo.
+  if (!hayCertificadoDelProveedor(c.env)) {
+    throw new HttpError(
+      409,
+      "El sistema todavía no tiene cargado el certificado de ARCA. Es un paso que hace el proveedor una sola vez, para todos los negocios — avisale."
+    );
   }
   await c.env.DB.prepare(`UPDATE facturacion_config SET activo = 1, actualizado_en = datetime('now') WHERE negocio_id = ?`)
     .bind(neg)
@@ -199,44 +210,6 @@ facturacion.post("/activar", requireDueno, async (c) => {
 
 facturacion.post("/desactivar", requireDueno, async (c) => {
   await c.env.DB.prepare(`UPDATE facturacion_config SET activo = 0, actualizado_en = datetime('now') WHERE negocio_id = ?`)
-    .bind(negocioDe(c))
-    .run();
-  return c.json({ ok: true });
-});
-
-// ── Certificado ────────────────────────────────────────────
-facturacion.post("/certificado", requireDueno, async (c) => {
-  const b = await c.req.json().catch(() => ({}));
-  const neg = negocioDe(c);
-  const certPem = texto(b.cert, "certificado (.crt)", { max: 8000 })!;
-  const clavePem = texto(b.key, "clave privada (.key)", { max: 8000 })!;
-  if (!certPem.includes("BEGIN CERTIFICATE")) throw new HttpError(400, "Ese archivo no parece un certificado (.crt) válido.");
-  if (!clavePem.includes("PRIVATE KEY")) throw new HttpError(400, "Ese archivo no parece una clave privada (.key) válida.");
-
-  const cifrada = await cifrarClavePrivada(c.env, clavePem);
-
-  const existe = await leerConfigFiscal(c.env, neg);
-  if (!existe) throw new HttpError(409, "Cargá primero los datos fiscales (CUIT, condición de IVA, punto de venta).");
-
-  await c.env.DB.prepare(
-    `UPDATE facturacion_config
-     SET cert_pem=?, clave_privada_enc=?, clave_privada_iv=?, cert_subido_en=datetime('now'),
-         wsaa_token=NULL, wsaa_sign=NULL, wsaa_expira_en=NULL, actualizado_en=datetime('now')
-     WHERE negocio_id=?`
-  )
-    .bind(certPem, cifrada.ciphertext, cifrada.iv, neg)
-    .run();
-
-  return c.json({ ok: true });
-});
-
-facturacion.delete("/certificado", requireDueno, async (c) => {
-  await c.env.DB.prepare(
-    `UPDATE facturacion_config
-     SET cert_pem=NULL, clave_privada_enc=NULL, clave_privada_iv=NULL, cert_subido_en=NULL,
-         wsaa_token=NULL, wsaa_sign=NULL, wsaa_expira_en=NULL, activo=0, actualizado_en=datetime('now')
-     WHERE negocio_id=?`
-  )
     .bind(negocioDe(c))
     .run();
   return c.json({ ok: true });
