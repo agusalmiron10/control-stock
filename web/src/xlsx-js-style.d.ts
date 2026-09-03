@@ -16,6 +16,10 @@ declare module "xlsx-js-style" {
     encode_range(range: { s: { r: number; c: number }; e: { r: number; c: number } }): string;
     book_new(): WorkBook;
     book_append_sheet(wb: WorkBook, ws: WorkSheet, name: string): void;
+    /** Convierte una hoja ya leída a texto CSV (para reusar el parser de CSV que ya existe). */
+    sheet_to_csv(ws: WorkSheet, opts?: { FS?: string }): string;
   };
   export function writeFile(wb: WorkBook, filename: string): void;
+  /** Lee un .xlsx/.xls subido por el usuario (ArrayBuffer del archivo). */
+  export function read(data: ArrayBuffer | Uint8Array, opts?: { type?: "array" | "binary" }): WorkBook;
 }

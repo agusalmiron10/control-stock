@@ -1,4 +1,5 @@
 import { useState } from "react";
+import * as XLSX from "xlsx-js-style";
 import { api } from "../api";
 import { normalizarTexto as normalizar } from "../format";
 import { Modal, Error, Campo } from "./ui";
@@ -139,9 +140,43 @@ export function ImportarProductos({ onCerrar }: { onCerrar: (mensaje?: string) =
     }
   }
 
+  /**
+   * Un Excel de verdad (.xlsx/.xls), no sólo CSV. Pedirle a un ferretero que
+   * abra su lista, la guarde como CSV y recién ahí la suba es justo el paso
+   * de más que hace que alguien abandone la carga inicial. Se lee el
+   * archivo tal cual lo tiene y se convierte la primera hoja a CSV con la
+   * misma librería que ya usa el sistema para exportar — así el resto del
+   * flujo (detectar columnas, previsualizar, importar) no cambia en nada:
+   * sigue siendo el mismo texto CSV de siempre, sólo que ahora se puede
+   * generar solo, sin que el usuario tenga que hacerlo a mano.
+   */
+  function esExcel(nombre: string): boolean {
+    return /\.xlsx?$/i.test(nombre);
+  }
+
   function alElegirArchivo(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (esExcel(file.name)) {
+      const lector = new FileReader();
+      lector.onload = () => {
+        try {
+          const buffer = lector.result as ArrayBuffer;
+          const libro = XLSX.read(buffer, { type: "array" });
+          const primeraHoja = libro.SheetNames[0];
+          if (!primeraHoja) { setError("Ese Excel no tiene ninguna hoja."); return; }
+          const contenido = XLSX.utils.sheet_to_csv(libro.Sheets[primeraHoja]);
+          setTexto(contenido);
+          void previsualizar(contenido);
+        } catch {
+          setError("No se pudo leer ese archivo. ¿Es un Excel (.xlsx) válido?");
+        }
+      };
+      lector.readAsArrayBuffer(file);
+      return;
+    }
+
     const lector = new FileReader();
     lector.onload = () => {
       const contenido = String(lector.result ?? "");
@@ -165,11 +200,16 @@ export function ImportarProductos({ onCerrar }: { onCerrar: (mensaje?: string) =
             <b>stock</b>, <b>stock_minimo</b>, <b>precio_mayor</b> o <b>rubro</b>, se cargan también.
           </p>
 
-          <Campo label="Opción 1 — subir el archivo (.csv)">
-            <input type="file" accept=".csv,.txt,text/csv" onChange={alElegirArchivo} />
+          <Campo label="Opción 1 — subir el archivo (.xlsx o .csv)">
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv,.txt,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              onChange={alElegirArchivo}
+            />
           </Campo>
           <p className="mut" style={{ marginTop: -4 }}>
-            Si tenés un Excel, abrilo y usá "Guardar como" → CSV.
+            Subís el Excel tal cual lo tenés — no hace falta guardarlo como CSV. Si tiene varias
+            hojas, se usa la primera.
           </p>
 
           <Campo label="Opción 2 — copiar y pegar desde Excel">
