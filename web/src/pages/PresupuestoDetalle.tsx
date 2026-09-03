@@ -5,10 +5,10 @@ import { Cargando, Error, Modal, Campo, Confirmar, useCarga } from "../component
 import { waPresupuesto, waRecordatorioPresupuesto } from "../lib/whatsapp";
 import { navegar } from "../lib/router";
 
-const MEDIOS = ["efectivo", "mercado_pago", "transferencia", "cheque", "otro"];
+const MEDIOS = ["efectivo", "mercado_pago", "tarjeta", "transferencia", "cheque", "otro"];
 const ETIQUETA_MEDIO: Record<string, string> = {
-  efectivo: "Efectivo", mercado_pago: "Mercado Pago", transferencia: "Transferencia",
-  cheque: "Cheque", otro: "Otro",
+  efectivo: "Efectivo", mercado_pago: "Mercado Pago", tarjeta: "Tarjeta",
+  transferencia: "Transferencia", cheque: "Cheque", otro: "Otro",
 };
 
 export function PresupuestoDetalle({ id }: { id: number }) {

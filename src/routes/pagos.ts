@@ -6,7 +6,7 @@ import { negocioDe } from "../types";
 
 export const pagos = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-const MEDIOS = ["efectivo", "mercado_pago", "transferencia", "cheque", "otro"] as const;
+const MEDIOS = ["efectivo", "mercado_pago", "tarjeta", "transferencia", "cheque", "otro"] as const;
 
 function hoy(): string {
   return new Date().toISOString().slice(0, 10);

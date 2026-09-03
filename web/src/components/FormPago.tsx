@@ -3,10 +3,10 @@ import { api } from "../api";
 import { pesos, aCentavos, aPesos, hoyISO } from "../format";
 import { Modal, Campo, Error } from "./ui";
 
-const MEDIOS = ["efectivo", "mercado_pago", "transferencia", "cheque", "otro"];
+const MEDIOS = ["efectivo", "mercado_pago", "tarjeta", "transferencia", "cheque", "otro"];
 const ETIQUETA_MEDIO: Record<string, string> = {
-  efectivo: "Efectivo", mercado_pago: "Mercado Pago", transferencia: "Transferencia",
-  cheque: "Cheque", otro: "Otro",
+  efectivo: "Efectivo", mercado_pago: "Mercado Pago", tarjeta: "Tarjeta",
+  transferencia: "Transferencia", cheque: "Cheque", otro: "Otro",
 };
 
 /**

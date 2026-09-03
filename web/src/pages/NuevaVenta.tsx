@@ -20,13 +20,13 @@ interface Reng {
   manual: boolean;
 }
 
-const MEDIOS = ["efectivo", "mercado_pago", "transferencia", "cheque", "otro"];
-/** Los dos que se usan en el 90% de las ventas de mostrador: botón directo,
+const MEDIOS = ["efectivo", "mercado_pago", "tarjeta", "transferencia", "cheque", "otro"];
+/** Los tres que se usan en casi todas las ventas de mostrador: botón directo,
  *  sin abrir un desplegable. El resto vive detrás de "Otro medio". */
-const MEDIOS_RAPIDOS = ["efectivo", "mercado_pago"];
+const MEDIOS_RAPIDOS = ["efectivo", "mercado_pago", "tarjeta"];
 const ETIQUETA_MEDIO: Record<string, string> = {
-  efectivo: "Efectivo", mercado_pago: "Mercado Pago", transferencia: "Transferencia",
-  cheque: "Cheque", otro: "Otro",
+  efectivo: "Efectivo", mercado_pago: "Mercado Pago", tarjeta: "Tarjeta",
+  transferencia: "Transferencia", cheque: "Cheque", otro: "Otro",
 };
 /** Porcentajes más pedidos en el mostrador. "Otro" abre el monto/porcentaje libre. */
 const DESCUENTOS_RAPIDOS = [0, 5, 10];
@@ -394,7 +394,7 @@ export function NuevaVenta() {
                   <option value="monto">Monto ($)</option>
                   <option value="porcentaje">Porcentaje (%)</option>
                 </select>
-                <input className="num" type="number" step="0.01" min={0} value={descValor} onChange={(e) => setDescValor(e.target.value)} placeholder="0" />
+                <input className="num" type="number" step="0.01" min={0} value={descValor} onChange={(e) => setDescValor(e.target.value)} placeholder="0" style={{ maxWidth: 160 }} />
               </div>
             )}
           </Campo>
