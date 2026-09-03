@@ -1,6 +1,15 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>StockApp</title>
+<title>Stockeate</title>
+<meta name="description" content="Stockeate: stock, ventas y cuenta corriente para talleres que fabrican y venden. Facturación electrónica con CAE de ARCA, presupuestos, remitos y control de producción, desde la computadora o el celular.">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="es_AR">
+<meta property="og:title" content="Stockeate — Sabés qué fabricaste, qué vendiste y quién te debe">
+<meta property="og:description" content="El stock sube cuando producís y baja cuando vendés. La cuenta corriente de cada cliente se imputa sola. Facturación con CAE de ARCA incluida.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 26 26'><rect width='26' height='26' rx='6' fill='%231f2937'/><rect x='6.5' y='15.5' width='13' height='3.2' rx='1.1' fill='%23fff'/><rect x='6.5' y='10.6' width='9' height='3.2' rx='1.1' fill='%23fff' opacity='.72'/><rect x='6.5' y='5.7' width='5' height='3.2' rx='1.1' fill='%23fff' opacity='.45'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..900&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Sans+3:wght@400;500;600;700&display=swap">
@@ -542,6 +551,8 @@ p{margin:0}
   .marq{animation:none}
 }
 </style>
+</head>
+<body>
 
 <!-- ==========================================================
      NAV
@@ -555,7 +566,7 @@ p{margin:0}
         <rect x="6.5" y="10.6" width="9" height="3.2" rx="1.1" fill="var(--on-accent)" opacity=".72"></rect>
         <rect x="6.5" y="5.7" width="5" height="3.2" rx="1.1" fill="var(--on-accent)" opacity=".45"></rect>
       </svg>
-      StockApp
+      Stockeate
     </a>
     <div class="nav-links">
       <a class="btn btn--ghost" href="#como">Cómo funciona</a>
@@ -564,8 +575,8 @@ p{margin:0}
       <a class="btn btn--ghost" href="#preguntas">Preguntas</a>
     </div>
     <div class="nav-cta">
-      <a class="btn btn--ghost" href="#entrar">Entrar</a>
-      <a target="_blank" rel="noopener noreferrer" class="btn btn--pri btn--sm" href="https://wa.me/5491134947557?text=Hola%21%20Quiero%20ver%20una%20demo%20de%20StockApp.">Pedir demo</a>
+      <a class="btn btn--ghost" href="https://app.stockeate.com">Entrar</a>
+      <a target="_blank" rel="noopener noreferrer" class="btn btn--pri btn--sm" href="https://wa.me/5491134947557?text=Hola%21%20Quiero%20ver%20una%20demo%20de%20Stockeate.">Pedir demo</a>
     </div>
   </div>
 </nav>
@@ -580,7 +591,7 @@ p{margin:0}
       <h1>Sabés qué fabricaste, qué vendiste y <span class="hl">quién te debe</span>.</h1>
       <p class="lead">El stock sube cuando producís y baja cuando vendés. La cuenta corriente de cada cliente se imputa sola, venta por venta. Todo en un solo sistema, desde la computadora del taller o el celular en el mostrador.</p>
       <div class="hero-cta">
-        <a target="_blank" rel="noopener noreferrer" class="btn btn--pri" href="https://wa.me/5491134947557?text=Hola%21%20Quiero%20ver%20una%20demo%20de%20StockApp.">Pedir una demo</a>
+        <a target="_blank" rel="noopener noreferrer" class="btn btn--pri" href="https://wa.me/5491134947557?text=Hola%21%20Quiero%20ver%20una%20demo%20de%20Stockeate.">Pedir una demo</a>
         <a class="btn btn--sec" href="#como">Ver cómo funciona</a>
       </div>
       <p class="hero-fine">Te lo mostramos funcionando en 20 minutos · Respondemos por WhatsApp</p>
@@ -590,7 +601,7 @@ p{margin:0}
     <div class="demo" id="demo" role="group" aria-label="Demostración: cómo se imputa un pago en la cuenta corriente">
       <div class="demo-bar">
         <span class="dot"></span><span class="dot"></span><span class="dot"></span>
-        <span class="path">stockapp.com.ar/clientes/ferreteria-el-ancla</span>
+        <span class="path">app.stockeate.com/clientes/ferreteria-el-ancla</span>
       </div>
 
       <div class="demo-head">
@@ -647,7 +658,7 @@ p{margin:0}
           <li>Cuando el cliente paga, hay que ir venta por venta a ver qué tapa.</li>
           <li>Un pago mal anotado y el saldo queda mal para siempre.</li>
         </ul>
-        <p class="fix"><b>Con StockApp:</b> cargás el pago y se imputa solo, de la venta más vieja a la más nueva. Si después lo corregís o lo borrás, el saldo entero se vuelve a calcular — nunca queda nada desincronizado.</p>
+        <p class="fix"><b>Con Stockeate:</b> cargás el pago y se imputa solo, de la venta más vieja a la más nueva. Si después lo corregís o lo borrás, el saldo entero se vuelve a calcular — nunca queda nada desincronizado.</p>
       </article>
 
       <article class="pain">
@@ -658,7 +669,7 @@ p{margin:0}
           <li>Te enterás de que faltaba producto cuando el cliente ya lo pidió.</li>
           <li>Nadie sabe cuánto costó realmente hacer cada cosa.</li>
         </ul>
-        <p class="fix"><b>Con StockApp:</b> cada producción suma y cada venta descuenta, en la misma operación. El plan de producción cruza lo que tenés con lo que vendiste los últimos 30 y 60 días y te dice cuánto fabricar.</p>
+        <p class="fix"><b>Con Stockeate:</b> cada producción suma y cada venta descuenta, en la misma operación. El plan de producción cruza lo que tenés con lo que vendiste los últimos 30 y 60 días y te dice cuánto fabricar.</p>
       </article>
 
       <article class="pain">
@@ -669,7 +680,7 @@ p{margin:0}
           <li>Los precios se actualizan uno por uno, producto por producto.</li>
           <li>Armar la lista de precios para mandar es una tarde perdida.</li>
         </ul>
-        <p class="fix"><b>Con StockApp:</b> la venta que ya cargaste se convierte en factura electrónica con CAE de ARCA. Los precios se ajustan por porcentaje y por rubro, de una. Y la lista sale en Excel lista para mandar.</p>
+        <p class="fix"><b>Con Stockeate:</b> la venta que ya cargaste se convierte en factura electrónica con CAE de ARCA. Los precios se ajustan por porcentaje y por rubro, de una. Y la lista sale en Excel lista para mandar.</p>
       </article>
     </div>
   </div>
@@ -878,7 +889,7 @@ p{margin:0}
     </div>
 
     <div class="phone" aria-label="La aplicación en un celular">
-      <div class="ph-status"><span>9:41</span><span>StockApp</span></div>
+      <div class="ph-status"><span>9:41</span><span>Stockeate</span></div>
       <div class="ph-off"><span class="blip"></span> Sin conexión · 2 ventas en cola</div>
       <div class="ph-body">
         <div class="ph-ttl">Venta de mostrador</div>
@@ -918,7 +929,7 @@ p{margin:0}
           <div class="price"><span class="cur">AR$</span><span class="amt num" data-mes="50.000" data-anio="40.000">50.000</span><span class="per">/mes</span></div>
           <div class="antes" data-antes><s>&nbsp;</s></div>
         </div>
-        <a target="_blank" rel="noopener noreferrer" class="btn btn--sec btn--wide" href="https://wa.me/5491134947557?text=Hola%21%20Quiero%20una%20demo%20de%20StockApp%20%28plan%20Taller%29.">Pedir una demo</a>
+        <a target="_blank" rel="noopener noreferrer" class="btn btn--sec btn--wide" href="https://wa.me/5491134947557?text=Hola%21%20Quiero%20una%20demo%20de%20Stockeate%20%28plan%20Taller%29.">Pedir una demo</a>
         <hr>
         <span class="inc">Incluye</span>
         <ul>
@@ -941,7 +952,7 @@ p{margin:0}
           <div class="price"><span class="cur">AR$</span><span class="amt num" data-mes="100.000" data-anio="80.000">100.000</span><span class="per">/mes</span></div>
           <div class="antes" data-antes><s>&nbsp;</s></div>
         </div>
-        <a target="_blank" rel="noopener noreferrer" class="btn btn--pri btn--wide" href="https://wa.me/5491134947557?text=Hola%21%20Quiero%20una%20demo%20de%20StockApp%20%28plan%20Producci%C3%B3n%29.">Pedir una demo</a>
+        <a target="_blank" rel="noopener noreferrer" class="btn btn--pri btn--wide" href="https://wa.me/5491134947557?text=Hola%21%20Quiero%20una%20demo%20de%20Stockeate%20%28plan%20Producci%C3%B3n%29.">Pedir una demo</a>
         <hr>
         <span class="inc">Todo en Taller, y además</span>
         <ul>
@@ -963,7 +974,7 @@ p{margin:0}
           <div class="price"><span class="cur">AR$</span><span class="amt num" data-mes="150.000" data-anio="120.000">150.000</span><span class="per">/mes</span></div>
           <div class="antes" data-antes><s>&nbsp;</s></div>
         </div>
-        <a target="_blank" rel="noopener noreferrer" class="btn btn--sec btn--wide" href="https://wa.me/5491134947557?text=Hola%21%20Quiero%20una%20demo%20de%20StockApp%20%28plan%20Full%29.">Pedir una demo</a>
+        <a target="_blank" rel="noopener noreferrer" class="btn btn--sec btn--wide" href="https://wa.me/5491134947557?text=Hola%21%20Quiero%20una%20demo%20de%20Stockeate%20%28plan%20Full%29.">Pedir una demo</a>
         <hr>
         <span class="inc">Todo en Producción, y además</span>
         <ul>
@@ -1059,9 +1070,9 @@ p{margin:0}
 <section class="final" id="demo">
   <div class="wrap final-in">
     <h2>Empezá a ordenar el taller esta semana.</h2>
-    <p class="lead" style="margin-top:18px">Pedinos una demo y te mostramos StockApp funcionando con los productos y los clientes de tu taller. Si te sirve, te ayudamos a cargar la primera lista.</p>
+    <p class="lead" style="margin-top:18px">Pedinos una demo y te mostramos Stockeate funcionando con los productos y los clientes de tu taller. Si te sirve, te ayudamos a cargar la primera lista.</p>
     <div class="btns">
-      <a target="_blank" rel="noopener noreferrer" class="btn btn--pri" href="https://wa.me/5491134947557?text=Hola%21%20Quiero%20ver%20una%20demo%20de%20StockApp.">Pedir una demo por WhatsApp</a>
+      <a target="_blank" rel="noopener noreferrer" class="btn btn--pri" href="https://wa.me/5491134947557?text=Hola%21%20Quiero%20ver%20una%20demo%20de%20Stockeate.">Pedir una demo por WhatsApp</a>
       <a class="btn btn--sec" href="#como">Ver cómo funciona</a>
     </div>
     <p class="hero-fine">Por videollamada o en tu taller · Sin compromiso · 11 3494-7557</p>
@@ -1078,7 +1089,7 @@ p{margin:0}
           <rect x="6.5" y="10.6" width="9" height="3.2" rx="1.1" fill="var(--on-accent)" opacity=".72"></rect>
           <rect x="6.5" y="5.7" width="5" height="3.2" rx="1.1" fill="var(--on-accent)" opacity=".45"></rect>
         </svg>
-        StockApp
+        Stockeate
       </a>
       <p class="legal">Control de stock, producción y cuenta corriente para talleres que fabrican y venden. Hecho en Argentina.</p>
     </div>
@@ -1093,11 +1104,11 @@ p{margin:0}
       <div class="col">
         <b>Contacto</b>
         <a target="_blank" rel="noopener noreferrer" href="https://wa.me/5491134947557">WhatsApp 11 3494-7557</a>
-        <a target="_blank" rel="noopener noreferrer" href="https://wa.me/5491134947557?text=Hola%21%20Quiero%20ver%20una%20demo%20de%20StockApp.">Pedir una demo</a>
+        <a target="_blank" rel="noopener noreferrer" href="https://wa.me/5491134947557?text=Hola%21%20Quiero%20ver%20una%20demo%20de%20Stockeate.">Pedir una demo</a>
       </div>
       <div class="col">
         <b>Cuenta</b>
-        <a href="#entrar">Entrar</a>
+        <a href="https://app.stockeate.com">Entrar</a>
         <a href="#demo">Pedir una demo</a>
       </div>
     </div>
@@ -1311,3 +1322,5 @@ p{margin:0}
   precios("mes");
 })();
 </script>
+</body>
+</html>

@@ -1,8 +1,20 @@
 {
-  // Configuración del Worker de Cloudflare para "control-stock".
+  // Configuración del Worker de Cloudflare para "stockeate".
+  //
+  // Se renombró desde "control-stock" (nombre interno viejo, previo a la
+  // marca). Cloudflare no tiene "renombrar" un Worker por CLI: cambiar este
+  // campo y desplegar crea un Worker NUEVO y separado, con su propia URL
+  // *.workers.dev y sus propios secrets — no se puede simplemente pisar el
+  // nombre del que ya corría. El Worker viejo "control-stock" queda intacto,
+  // congelado en su último deploy, en su URL de siempre: no se borra nada.
+  //
+  // Lo que SÍ es el mismo de antes, a propósito, para no mover datos:
+  // database_id (D1) y bucket_name (R2) siguen apuntando exactamente a la
+  // misma base y al mismo bucket que ya tenía "control-stock". Sólo cambia
+  // la identidad del Worker, no dónde vive la información.
   // Documentación: https://developers.cloudflare.com/workers/wrangler/configuration/
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "control-stock",
+  "name": "stockeate",
   "main": "src/index.ts",
   "compatibility_date": "2024-12-18",
   "compatibility_flags": ["nodejs_compat"],
