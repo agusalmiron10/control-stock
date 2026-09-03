@@ -73,7 +73,7 @@ export function Auth({ needsSetup, onListo }: { needsSetup: boolean; onListo: ()
       <aside className="auth-brand" aria-hidden="true">
         <div className="auth-brand-glow" />
         <div className="auth-brand-content">
-          <div className="auth-badge">🔧</div>
+          <div className="auth-badge">📦</div>
           <h1>Stockeate</h1>
           <p>Vendé, cobrá y controlá tu stock — todo en un solo lugar.</p>
           <ul className="auth-features">
@@ -87,7 +87,7 @@ export function Auth({ needsSetup, onListo }: { needsSetup: boolean; onListo: ()
       <main className="auth-form-side">
         {opciones ? (
           <div className="auth-card">
-            <div className="auth-badge auth-badge-movil">🔧</div>
+            <div className="auth-badge auth-badge-movil">📦</div>
             <h2>¿Cuál de tus negocios?</h2>
             <p className="auth-sub">Tenés cuenta en más de uno con los mismos datos.</p>
             <Error msg={error} />
@@ -104,7 +104,7 @@ export function Auth({ needsSetup, onListo }: { needsSetup: boolean; onListo: ()
           </div>
         ) : (
           <form className="auth-card" onSubmit={enviar}>
-            <div className="auth-badge auth-badge-movil">🔧</div>
+            <div className="auth-badge auth-badge-movil">📦</div>
             <h2>{needsSetup ? "Creá tu cuenta" : "Bienvenido de nuevo"}</h2>
             <p className="auth-sub">
               {needsSetup ? "Es sólo esta vez: creá el primer usuario y tu negocio queda listo." : "Ingresá con tu usuario y contraseña."}

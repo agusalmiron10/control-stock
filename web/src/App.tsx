@@ -361,7 +361,7 @@ export function App() {
         >
           {menuAbierto ? "✕" : "☰"}
         </button>
-        <div className="marca">🔧 {cfg.negocio.nombre}</div>
+        <div className="marca">📦 {cfg.negocio.nombre}</div>
         {/* En el celular el menú está cerrado, así que vender tiene que estar
             en la barra de arriba o queda a dos toques igual que antes. */}
         <button className="btn-vender-movil" onClick={() => navegar("/ventas/nueva")}>
