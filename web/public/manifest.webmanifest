@@ -1,7 +1,7 @@
 {
-  "name": "Control de Stock",
-  "short_name": "Stock",
-  "description": "Control de stock y cuenta corriente para taller de herramientas",
+  "name": "Stockeate",
+  "short_name": "Stockeate",
+  "description": "Stock, ventas y cuenta corriente para ferreterías y comercios.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

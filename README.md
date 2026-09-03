@@ -1,10 +1,11 @@
-# Control de Stock y Cuenta Corriente
+# Stockeate
 
-Aplicación web para un taller que **fabrica y vende herramientas**. Lleva el stock
-(sube cuando producís, baja cuando vendés) y la **cuenta corriente de cada cliente**
-(quién te debe, cuánto, con imputación automática de pagos). Anda en escritorio y
-celular, con base de datos real en la nube: entrás desde cualquier dispositivo y ves
-siempre la misma información.
+Aplicación multi-tenant de gestión para ferreterías y comercios: stock, ventas,
+cuenta corriente de cada cliente (quién debe, cuánto, con imputación automática de
+pagos), remitos, presupuestos y facturación electrónica con CAE real (ARCA). Cada
+negocio ve sólo sus propios datos. Anda en escritorio y celular, con base de datos
+real en la nube: entrás desde cualquier dispositivo y ves siempre la misma
+información.
 
 - **Backend + hosting:** Cloudflare Workers + [Hono](https://hono.dev) (TypeScript).
 - **Base de datos:** Cloudflare D1 (SQLite). Nada se guarda solo en el navegador.

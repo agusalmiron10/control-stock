@@ -74,7 +74,7 @@ export function Auth({ needsSetup, onListo }: { needsSetup: boolean; onListo: ()
         <div className="auth-brand-glow" />
         <div className="auth-brand-content">
           <div className="auth-badge">🔧</div>
-          <h1>Control de Stock</h1>
+          <h1>Stockeate</h1>
           <p>Vendé, cobrá y controlá tu stock — todo en un solo lugar.</p>
           <ul className="auth-features">
             {FEATURES.map((f) => (
