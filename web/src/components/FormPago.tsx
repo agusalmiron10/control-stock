@@ -3,7 +3,11 @@ import { api } from "../api";
 import { pesos, aCentavos, aPesos, hoyISO } from "../format";
 import { Modal, Campo, Error } from "./ui";
 
-const MEDIOS = ["efectivo", "transferencia", "cheque", "otro"];
+const MEDIOS = ["efectivo", "mercado_pago", "transferencia", "cheque", "otro"];
+const ETIQUETA_MEDIO: Record<string, string> = {
+  efectivo: "Efectivo", mercado_pago: "Mercado Pago", transferencia: "Transferencia",
+  cheque: "Cheque", otro: "Otro",
+};
 
 /**
  * Alta o edición de un pago. Si viene clienteFijo, el cliente no se puede cambiar.
@@ -93,7 +97,7 @@ export function FormPago({
         <div className="fila">
           <Campo label="Medio">
             <select value={medio} onChange={(e) => setMedio(e.target.value)}>
-              {MEDIOS.map((m) => <option key={m} value={m}>{m}</option>)}
+              {MEDIOS.map((m) => <option key={m} value={m}>{ETIQUETA_MEDIO[m]}</option>)}
             </select>
           </Campo>
         </div>

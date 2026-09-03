@@ -8,7 +8,7 @@ export const presupuestos = new Hono<{ Bindings: Env; Variables: Variables }>();
 presupuestos.use("*", requireModulo("presupuestos"));
 
 const ESTADOS = ["pendiente", "aceptado", "rechazado", "vencido"] as const;
-const MEDIOS = ["efectivo", "transferencia", "cheque", "otro"] as const;
+const MEDIOS = ["efectivo", "mercado_pago", "transferencia", "cheque", "otro"] as const;
 
 function hoy(): string {
   return new Date().toISOString().slice(0, 10);

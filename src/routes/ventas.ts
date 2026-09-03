@@ -8,7 +8,7 @@ import { armarAnulacionVenta } from "../ventas-anular";
 
 export const ventas = new Hono<{ Bindings: Env; Variables: Variables }>();
 
-const MEDIOS = ["efectivo", "transferencia", "cheque", "otro"] as const;
+const MEDIOS = ["efectivo", "mercado_pago", "transferencia", "cheque", "otro"] as const;
 const ORIGENES = ["celular", "escritorio"] as const;
 
 function hoy(): string {

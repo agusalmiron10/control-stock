@@ -5,7 +5,11 @@ import { Cargando, Error, Modal, Campo, Confirmar, useCarga } from "../component
 import { waPresupuesto, waRecordatorioPresupuesto } from "../lib/whatsapp";
 import { navegar } from "../lib/router";
 
-const MEDIOS = ["efectivo", "transferencia", "cheque", "otro"];
+const MEDIOS = ["efectivo", "mercado_pago", "transferencia", "cheque", "otro"];
+const ETIQUETA_MEDIO: Record<string, string> = {
+  efectivo: "Efectivo", mercado_pago: "Mercado Pago", transferencia: "Transferencia",
+  cheque: "Cheque", otro: "Otro",
+};
 
 export function PresupuestoDetalle({ id }: { id: number }) {
   const { data, error, cargando, recargar } = useCarga<any>(() => api.get(`/api/presupuestos/${id}`), [id]);
@@ -172,7 +176,7 @@ function ConvertirModal({ presupuestoId, onCerrar }: { presupuestoId: number; on
       {pagoModo !== "nada" && (
         <Campo label="Medio de pago">
           <select value={pagoMedio} onChange={(e) => setPagoMedio(e.target.value)}>
-            {MEDIOS.map((m) => <option key={m} value={m}>{m}</option>)}
+            {MEDIOS.map((m) => <option key={m} value={m}>{ETIQUETA_MEDIO[m]}</option>)}
           </select>
         </Campo>
       )}

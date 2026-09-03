@@ -20,7 +20,16 @@ interface Reng {
   manual: boolean;
 }
 
-const MEDIOS = ["efectivo", "transferencia", "cheque", "otro"];
+const MEDIOS = ["efectivo", "mercado_pago", "transferencia", "cheque", "otro"];
+/** Los dos que se usan en el 90% de las ventas de mostrador: botón directo,
+ *  sin abrir un desplegable. El resto vive detrás de "Otro medio". */
+const MEDIOS_RAPIDOS = ["efectivo", "mercado_pago"];
+const ETIQUETA_MEDIO: Record<string, string> = {
+  efectivo: "Efectivo", mercado_pago: "Mercado Pago", transferencia: "Transferencia",
+  cheque: "Cheque", otro: "Otro",
+};
+/** Porcentajes más pedidos en el mostrador. "Otro" abre el monto/porcentaje libre. */
+const DESCUENTOS_RAPIDOS = [0, 5, 10];
 
 export function NuevaVenta() {
   const clientesQ = useCarga<any>(() => api.get("/api/clientes"), []);
@@ -35,12 +44,17 @@ export function NuevaVenta() {
   // buscar, no completar un formulario. El desplegable manual es un
   // agregado deliberado (botón aparte), no el punto de partida.
   const [items, setItems] = useState<Reng[]>([]);
-  const [descTipo, setDescTipo] = useState<"monto" | "porcentaje">("monto");
+  const [descTipo, setDescTipo] = useState<"monto" | "porcentaje">("porcentaje");
   const [descValor, setDescValor] = useState("");
+  const [descOtro, setDescOtro] = useState(false);
   const [nota, setNota] = useState("");
-  const [pagoModo, setPagoModo] = useState<"nada" | "total" | "mitad" | "libre">("nada");
+  // La mayoría de las ventas se cobran ahí mismo, en el mostrador: arrancar
+  // en "no paga nada" obligaba a tocar el desplegable en todas las ventas,
+  // cuando lo normal es lo contrario.
+  const [pagoModo, setPagoModo] = useState<"nada" | "total" | "mitad" | "libre">("total");
   const [pagoLibre, setPagoLibre] = useState("");
   const [pagoMedio, setPagoMedio] = useState("efectivo");
+  const [medioOtro, setMedioOtro] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
   const [confirmarNeg, setConfirmarNeg] = useState<string | null>(null);
@@ -317,36 +331,74 @@ export function NuevaVenta() {
         <h2>Descuento, pago y nota</h2>
         <div className="card-body">
           <div className="fila">
-            <Campo label="Descuento">
-              <div style={{ display: "flex", gap: 6 }}>
+            <Campo label="Pago en este momento">
+              <div className="btn-grupo">
+                <button type="button" className={`btn chico ${pagoModo === "total" ? "primario" : ""}`} onClick={() => setPagoModo("total")}>
+                  Paga todo
+                </button>
+                <button type="button" className={`btn chico ${pagoModo === "mitad" ? "primario" : ""}`} onClick={() => setPagoModo("mitad")}>
+                  Paga la mitad
+                </button>
+                <button type="button" className={`btn chico ${pagoModo === "nada" ? "primario" : ""}`} onClick={() => setPagoModo("nada")}>
+                  No paga ahora
+                </button>
+                <button type="button" className={`btn chico ${pagoModo === "libre" ? "primario" : ""}`} onClick={() => setPagoModo("libre")}>
+                  Otro monto
+                </button>
+              </div>
+              {pagoModo === "libre" && (
+                <input className="num" type="number" step="0.01" min={0} value={pagoLibre}
+                  onChange={(e) => setPagoLibre(e.target.value)} placeholder="Monto ($)" style={{ marginTop: 8, maxWidth: 200 }} autoFocus />
+              )}
+            </Campo>
+
+            {pagoModo !== "nada" && (
+              <Campo label="Medio de pago">
+                <div className="btn-grupo">
+                  {MEDIOS_RAPIDOS.map((m) => (
+                    <button key={m} type="button"
+                      className={`btn chico ${!medioOtro && pagoMedio === m ? "primario" : ""}`}
+                      onClick={() => { setPagoMedio(m); setMedioOtro(false); }}>
+                      {ETIQUETA_MEDIO[m]}
+                    </button>
+                  ))}
+                  <button type="button" className={`btn chico ${medioOtro ? "primario" : ""}`} onClick={() => setMedioOtro(true)}>
+                    Otro medio
+                  </button>
+                </div>
+                {medioOtro && (
+                  <select value={pagoMedio} onChange={(e) => setPagoMedio(e.target.value)} style={{ marginTop: 8, maxWidth: 220 }}>
+                    {MEDIOS.map((m) => <option key={m} value={m}>{ETIQUETA_MEDIO[m]}</option>)}
+                  </select>
+                )}
+              </Campo>
+            )}
+          </div>
+
+          <Campo label="Descuento">
+            <div className="btn-grupo">
+              {DESCUENTOS_RAPIDOS.map((p) => (
+                <button key={p} type="button"
+                  className={`btn chico ${!descOtro && descTipo === "porcentaje" && Number(descValor || 0) === p ? "primario" : ""}`}
+                  onClick={() => { setDescTipo("porcentaje"); setDescValor(p === 0 ? "" : String(p)); setDescOtro(false); }}>
+                  {p === 0 ? "Sin descuento" : `${p}%`}
+                </button>
+              ))}
+              <button type="button" className={`btn chico ${descOtro ? "primario" : ""}`} onClick={() => setDescOtro(true)}>
+                Otro
+              </button>
+            </div>
+            {descOtro && (
+              <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
                 <select value={descTipo} onChange={(e) => setDescTipo(e.target.value as any)} style={{ maxWidth: 130 }}>
                   <option value="monto">Monto ($)</option>
                   <option value="porcentaje">Porcentaje (%)</option>
                 </select>
                 <input className="num" type="number" step="0.01" min={0} value={descValor} onChange={(e) => setDescValor(e.target.value)} placeholder="0" />
               </div>
-            </Campo>
-            <Campo label="Pago en este momento">
-              <select value={pagoModo} onChange={(e) => setPagoModo(e.target.value as any)}>
-                <option value="nada">No paga nada ahora</option>
-                <option value="total">Paga el total</option>
-                <option value="mitad">Paga la mitad</option>
-                <option value="libre">Monto libre</option>
-              </select>
-            </Campo>
-            {pagoModo === "libre" && (
-              <Campo label="Monto del pago ($)">
-                <input className="num" type="number" step="0.01" min={0} value={pagoLibre} onChange={(e) => setPagoLibre(e.target.value)} />
-              </Campo>
             )}
-            {pagoModo !== "nada" && (
-              <Campo label="Medio de pago">
-                <select value={pagoMedio} onChange={(e) => setPagoMedio(e.target.value)}>
-                  {MEDIOS.map((m) => <option key={m} value={m}>{m}</option>)}
-                </select>
-              </Campo>
-            )}
-          </div>
+          </Campo>
+
           <Campo label="Nota (opcional)"><input value={nota} onChange={(e) => setNota(e.target.value)} /></Campo>
         </div>
       </div>
