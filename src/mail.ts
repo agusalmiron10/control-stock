@@ -4,9 +4,9 @@
  * cliente de correo de quien lo aprieta), esto lo manda el sistema solo,
  * sin que nadie tenga que tocar "Enviar".
  *
- * El remitente técnico es siempre un dominio de Stockeate (el único
+ * El remitente técnico es siempre un dominio de ChauPapel (el único
  * verificado en Resend); lo que cambia por negocio es el NOMBRE visible:
- * el cliente ve "ARBELL <notificaciones@stockeate.app>", no "Stockeate".
+ * el cliente ve "ARBELL <notificaciones@chaupapel.com>", no "ChauPapel".
  * Mismo patrón que ya usa el resumen diario de stock bajo (scheduled.ts),
  * sólo que ahí el remitente es fijo porque el destinatario es el dueño.
  */
@@ -27,8 +27,8 @@ export function fechaHoy(): string {
 
 /** Saca lo que podría inyectar headers (\r\n) o romper el "Nombre <mail>". */
 function remitente(nombreNegocio: string): string {
-  const limpio = nombreNegocio.replace(/[\r\n"<>]/g, "").trim() || "Stockeate";
-  return `${limpio} <notificaciones@stockeate.app>`;
+  const limpio = nombreNegocio.replace(/[\r\n"<>]/g, "").trim() || "ChauPapel";
+  return `${limpio} <notificaciones@chaupapel.com>`;
 }
 
 function base64Utf8(s: string): string {

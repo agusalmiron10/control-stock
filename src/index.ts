@@ -75,7 +75,7 @@ async function avisarDiscord(env: Env, datos: { negocioId: string | null; metodo
       body: JSON.stringify({
         embeds: [
           {
-            title: "🔴 Error 500 en Stockeate",
+            title: "🔴 Error 500 en ChauPapel",
             color: 0xd64545,
             fields: [
               { name: "Negocio", value: datos.negocioId ?? "(sin sesión)", inline: true },

@@ -1,4 +1,4 @@
-# Stockeate
+# ChauPapel
 
 Aplicación multi-tenant de gestión para ferreterías y comercios: stock, ventas,
 cuenta corriente de cada cliente (quién debe, cuánto, con imputación automática de

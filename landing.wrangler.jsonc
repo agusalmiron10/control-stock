@@ -8,7 +8,7 @@
   // dominios de Workers, en cambio, crea el registro DNS ella misma. Mismo
   // resultado para el visitante: HTML estático servido desde el borde.
   //
-  // Es un Worker APARTE del de la app ("stockeate", en app.chaupapel.com), a
+  // Es un Worker APARTE del de la app (Worker "stockeate", en app.chaupapel.com), a
   // propósito: la landing no comparte nada con el sistema — ni base, ni
   // sesión, ni secrets. Si se cae una, la otra sigue.
   //

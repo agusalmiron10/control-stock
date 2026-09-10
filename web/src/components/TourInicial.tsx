@@ -18,7 +18,7 @@ const PASOS: PasoTour[] = [
   {
     target: "body",
     placement: "center",
-    title: "Bienvenido a Stockeate 👋",
+    title: "Bienvenido a ChauPapel 👋",
     content: "Te mostramos en un par de pasos cómo cargar tu primer producto. Podés saltear el recorrido cuando quieras.",
   },
   {

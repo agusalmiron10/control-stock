@@ -178,9 +178,9 @@ async function enviarResumenPorEmail(
     method: "POST",
     headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "content-type": "application/json" },
     body: JSON.stringify({
-      from: env.RESEND_FROM ?? "Stockeate <avisos@stockeate.app>",
+      from: env.RESEND_FROM ?? "ChauPapel <avisos@chaupapel.com>",
       to: negocio.email,
-      subject: `Stockeate — ${asunto}`,
+      subject: `ChauPapel — ${asunto}`,
       html: `<p style="font:14px system-ui">Resumen de hoy para <b>${negocio.nombre}</b>:</p>${bloqueStock}${bloqueVenc}`,
     }),
   });

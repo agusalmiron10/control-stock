@@ -5,7 +5,14 @@
  * react-joyride, y App.tsx lo usa para decidir si monta <TourInicial> o no.
  */
 
-/** Una clave por negocio + usuario: si el mismo empleado atiende dos negocios, cada uno le muestra el suyo. */
+/** Una clave por negocio + usuario: si el mismo empleado atiende dos negocios, cada uno le muestra el suyo.
+ *
+ *  El prefijo dice "stockeate" —la marca vieja— y se deja así A PROPÓSITO.
+ *  Es una clave de localStorage, invisible para el usuario: renombrarla no
+ *  mejora nada y tiene un costo real, porque la clave nueva no existiría en
+ *  el navegador de nadie y TODOS los que ya vieron el tour lo volverían a
+ *  ver de cero. Migrarla costaría leer la vieja, escribir la nueva y borrar
+ *  la vieja en cada arranque; no vale la pena por un string que nadie lee. */
 export function claveTourVisto(negocioId: string, usuario: string): string {
   return `stockeate_tour_visto_${negocioId}_${usuario}`;
 }

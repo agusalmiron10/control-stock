@@ -1,5 +1,15 @@
 {
-  // Configuración del Worker de Cloudflare para "stockeate".
+  // Configuración del Worker de Cloudflare para la app.
+  //
+  // OJO: la marca es ChauPapel (chaupapel.com), pero este Worker se sigue
+  // llamando "stockeate" a propósito. El nombre del Worker es infraestructura
+  // interna, invisible para el usuario, y renombrarlo NO es gratis: Cloudflare
+  // no tiene "renombrar", así que crearía un Worker NUEVO y vacío — sin los
+  // secrets cargados (SESSION_SECRET, RESEND_API_KEY, ...) y sin el dominio
+  // app.chaupapel.com, que hoy apunta al servicio "stockeate". La app quedaría
+  // caída hasta recargar todo eso a mano. Si algún día se hace, el orden es:
+  // desplegar el nuevo, cargarle los secrets, mover el dominio, verificar, y
+  // recién ahí borrar el viejo.
   //
   // Se renombró desde "control-stock" (nombre interno viejo, previo a la
   // marca). Cloudflare no tiene "renombrar" un Worker por CLI: cambiar este
