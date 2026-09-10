@@ -9,6 +9,10 @@ import { ErroresProveedor } from "../components/ErroresProveedor";
 import { MODULOS, INFO_MODULOS, type Modulo } from "../lib/config";
 import { pesos, fecha, aCentavos, aPesos, hoyISO } from "../format";
 import { waRecordatorioSuscripcion } from "../lib/whatsapp";
+import { leerTema, aplicarTema, siguienteTema, type Tema } from "../lib/tema";
+
+const ICONO_TEMA: Record<Tema, string> = { claro: "☀️", oscuro: "🌙", auto: "🖥️" };
+const LABEL_TEMA: Record<Tema, string> = { claro: "Claro", oscuro: "Oscuro", auto: "Automático" };
 
 /**
  * Pantalla del proveedor del sistema: la cartera de clientes. Desde acá se
@@ -110,6 +114,16 @@ export function Proveedor({ onEntrar }: { onEntrar: () => void }) {
   >(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [buscar, setBuscar] = useState("");
+  // El botón de tema vive en el menú lateral, que acá no existe — sin esto,
+  // un proveedor en una Mac en modo claro se quedaba con el panel blanco y
+  // sin forma de cambiarlo. Usa los mismos helpers que el resto de la app
+  // (guardan en localStorage y aplican en todo el documento).
+  const [tema, setTema] = useState<Tema>(() => leerTema());
+  function cambiarTema() {
+    const t = siguienteTema(tema);
+    aplicarTema(t);
+    setTema(t);
+  }
   const lista = useCarga<{ negocios: Negocio[] }>(() => api.get("/api/super/negocios"), []);
 
   function cerrar(msg?: string) {
@@ -154,6 +168,9 @@ export function Proveedor({ onEntrar }: { onEntrar: () => void }) {
             </p>
           </div>
           <div className="btn-grupo">
+            <button className="btn" onClick={cambiarTema} title="Cambiar tema">
+              {ICONO_TEMA[tema]} {LABEL_TEMA[tema]}
+            </button>
             <button className="btn primario" onClick={() => setModo({ t: "alta" })}>+ Nuevo cliente</button>
             <button className="btn" onClick={() => api.post("/api/auth/logout").then(onEntrar)}>Salir</button>
           </div>
