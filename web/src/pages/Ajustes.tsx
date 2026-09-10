@@ -63,6 +63,7 @@ export function Ajustes() {
       {esDueno(rol) && (
         <>
           <ConfigNegocioForm onOk={setAviso} onError={setError} />
+          <RubroPanel onOk={setAviso} onError={setError} />
           <FacturacionElectronicaPanel onOk={setAviso} onError={setError} />
           <ConexionPanel onOk={setAviso} onError={setError} />
 
@@ -129,6 +130,11 @@ interface ConfigFiscal {
   iva_porcentaje_defecto?: number;
   /** Del sistema entero, no de este negocio — ver el comentario en el panel. */
   tiene_certificado?: boolean;
+  delegacion_verificada_en?: string | null;
+  /** A quién hay que delegarle el servicio desde ARCA — también del sistema
+   *  entero, no de este negocio. `cuit` es null mientras el certificado sea
+   *  de prueba (autofirmado, sin un CUIT real todavía). */
+  proveedor?: { cuit: string | null; titular: string | null };
 }
 
 /**
@@ -229,11 +235,64 @@ function FacturacionElectronicaPanel({ onOk, onError }: { onOk: (m: string) => v
         {/* El certificado es del proveedor, uno solo para toda la instalación
             — nada que este negocio tenga que subir. Sólo se informa si está
             cargado del lado del sistema. */}
-        <div className={`pill-alerta ${data?.tiene_certificado ? "" : "roja"}`} style={{ marginBottom: 14 }}>
-          {data?.tiene_certificado
-            ? "Certificado del sistema: cargado. Falta que este negocio delegue el servicio desde ARCA."
-            : "El sistema todavía no tiene cargado su certificado de ARCA. Sin eso, ningún negocio puede facturar todavía — es un paso del proveedor, no tuyo."}
-        </div>
+        {!data?.tiene_certificado ? (
+          <div className="pill-alerta roja" style={{ marginBottom: 14 }}>
+            El sistema todavía no tiene cargado su certificado de ARCA. Sin eso, ningún negocio puede
+            facturar todavía — es un paso del proveedor, no tuyo.
+          </div>
+        ) : data?.delegacion_verificada_en ? (
+          <div className="pill-alerta" style={{ marginBottom: 14 }}>
+            ✓ Delegación verificada el {fecha(data.delegacion_verificada_en)} — ARCA ya sabe que este
+            negocio puede facturar a través del sistema.
+          </div>
+        ) : (
+          // Antes esto sólo decía "delegale el servicio al CUIT del proveedor"
+          // sin decir CUÁL — el dueño tenía que preguntar. Ahora se ve acá el
+          // número exacto (sale del propio certificado, no hay que cargarlo
+          // a mano en ningún lado) y los 3 pasos completos, para no depender
+          // de que alguien de soporte lo explique cada vez.
+          <div className="card taller-card" style={{ marginBottom: 14 }}>
+            <h2>Falta un trámite tuyo en ARCA (una sola vez, gratis)</h2>
+            <div className="card-body">
+              <ol style={{ margin: 0, paddingLeft: 20, display: "flex", flexDirection: "column", gap: 10 }}>
+                <li>
+                  Entrá a{" "}
+                  <a href="https://www.arca.gob.ar" target="_blank" rel="noreferrer">arca.gob.ar</a>{" "}
+                  con <b>tu</b> CUIT y tu clave fiscal (nivel 3 o superior).
+                </li>
+                <li>
+                  Andá a <b>Administrador de Relaciones de Clave Fiscal</b> → <b>Nueva Relación</b> →
+                  buscá el servicio <b>Facturación Electrónica</b> (WSFE) → elegí <b>Autorizar a un tercero</b>.
+                </li>
+                <li>
+                  Ingresá este CUIT y confirmá:
+                  {data?.proveedor?.cuit ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+                      <code style={{ fontSize: 18, fontWeight: 700 }}>{data.proveedor.cuit}</code>
+                      <button
+                        type="button"
+                        className="btn chico"
+                        onClick={() => navigator.clipboard?.writeText(data.proveedor!.cuit!)}
+                      >
+                        Copiar
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="mut" style={{ marginTop: 6, marginBottom: 0 }}>
+                      Todavía estamos en modo prueba — el certificado cargado no tiene un CUIT real
+                      todavía. Cuando se active producción, acá va a aparecer el número exacto.
+                    </p>
+                  )}
+                </li>
+              </ol>
+              <p className="mut" style={{ marginTop: 12, marginBottom: 0 }}>
+                No le das ninguna clave a nadie: ARCA sólo autoriza a ese CUIT a usar el servicio de
+                Facturación Electrónica en tu nombre, y lo podés revocar cuando quieras desde el mismo
+                lugar.
+              </p>
+            </div>
+          </div>
+        )}
 
         <form onSubmit={guardarDatos}>
           <div className="fila fila-fiscal">
@@ -685,6 +744,131 @@ function GestionUsuarios({ onOk, onError }: { onOk: (m: string) => void; onError
           </div>
         </Modal>
       )}
+    </div>
+  );
+}
+
+
+interface RubroOpcion { id: string; nombre: string; icono: string | null }
+interface Impacto {
+  rubro_nombre: string;
+  vocabulario_nuevo: { singular: string; plural: string };
+  campos_que_dejan_de_verse: { campo: string; productos: number }[];
+}
+
+/**
+ * A qué se dedica el negocio. Cambiarlo no borra nada: cambia cómo se llama
+ * a lo que vende, qué campos tiene un producto y qué categorías se sugieren.
+ *
+ * Antes de confirmar se consulta el impacto real contra el servidor, porque
+ * si el rubro nuevo no usa un campo que este negocio sí venía completando,
+ * esos datos dejan de verse — y eso no puede pasar en silencio.
+ */
+function RubroPanel({ onOk, onError }: { onOk: (m: string) => void; onError: (m: string | null) => void }) {
+  const cfg = useConfig();
+  const rubrosQ = useCarga<{ rubros: RubroOpcion[] }>(() => api.get("/api/rubros"), []);
+  const [elegido, setElegido] = useState("");
+  const [otroTexto, setOtroTexto] = useState("");
+  const [impacto, setImpacto] = useState<Impacto | null>(null);
+  const [cargandoImpacto, setCargandoImpacto] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+
+  const esOtro = elegido === "otro";
+
+  async function revisar() {
+    onError(null);
+    setCargandoImpacto(true);
+    try {
+      setImpacto(await api.get<Impacto>(`/api/cuenta/rubro/impacto?rubro_id=${encodeURIComponent(elegido)}`));
+    } catch (err: any) {
+      onError(err.message);
+    } finally {
+      setCargandoImpacto(false);
+    }
+  }
+
+  async function confirmar() {
+    setGuardando(true);
+    onError(null);
+    try {
+      await api.post("/api/cuenta/rubro", {
+        rubro_id: elegido,
+        rubro_otro_texto: esOtro ? otroTexto.trim() : undefined,
+      });
+      setImpacto(null);
+      setElegido("");
+      onOk("Rubro actualizado. Recargá la página para ver los cambios en todo el sistema.");
+    } catch (err: any) {
+      onError(err.message);
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  return (
+    <div className="card">
+      <h2>Rubro del negocio</h2>
+      <div className="card-body">
+        <p className="mut" style={{ marginTop: 0 }}>
+          Hoy este negocio está configurado como <b>{cfg.rubro.nombre ?? "sin definir"}</b>
+          {cfg.rubro.otro_texto ? ` (${cfg.rubro.otro_texto})` : ""}. Define cómo llama el sistema
+          a lo que vendés y qué datos tiene cada {cfg.vocabulario.producto_singular.toLowerCase()}.
+        </p>
+
+        <div className="fila">
+          <Campo label="Cambiar a">
+            <select value={elegido} onChange={(e) => { setElegido(e.target.value); setImpacto(null); }}>
+              <option value="">Elegí un rubro…</option>
+              {(rubrosQ.data?.rubros ?? [])
+                .filter((r) => r.id !== cfg.rubro.id)
+                .map((r) => <option key={r.id} value={r.id}>{r.icono ?? ""} {r.nombre}</option>)}
+            </select>
+          </Campo>
+          {esOtro && (
+            <Campo label="¿A qué se dedica?">
+              <input value={otroTexto} onChange={(e) => setOtroTexto(e.target.value)} maxLength={80} />
+            </Campo>
+          )}
+        </div>
+
+        {elegido && !impacto && (
+          <button className="btn" disabled={cargandoImpacto} onClick={revisar}>
+            {cargandoImpacto ? "Revisando…" : "Ver qué cambia"}
+          </button>
+        )}
+
+        {impacto && (
+          <>
+            <div className="pill-alerta" style={{ marginTop: 12 }}>
+              <b>Pasar a {impacto.rubro_nombre}</b>
+              <div style={{ marginTop: 6 }}>
+                No se borra ningún dato. Cambia cómo se muestran las cosas:
+                lo que hoy llamás "{cfg.vocabulario.producto_singular}" va a pasar a llamarse
+                "{impacto.vocabulario_nuevo.singular}".
+              </div>
+              {impacto.campos_que_dejan_de_verse.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  <b>Ojo con esto:</b> estos campos dejan de mostrarse, aunque los datos quedan
+                  guardados y vuelven si volvés a este rubro:
+                  <ul style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+                    {impacto.campos_que_dejan_de_verse.map((c) => (
+                      <li key={c.campo}>
+                        <b>{c.campo}</b> — cargado en {c.productos} {c.productos === 1 ? "producto" : "productos"}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+            <div className="btn-grupo" style={{ marginTop: 12 }}>
+              <button className="btn" onClick={() => setImpacto(null)}>Cancelar</button>
+              <button className="btn primario" disabled={guardando || (esOtro && !otroTexto.trim())} onClick={confirmar}>
+                {guardando ? "Guardando…" : "Confirmar cambio de rubro"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

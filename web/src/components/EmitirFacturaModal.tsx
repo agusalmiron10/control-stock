@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { api } from "../api";
-import { Modal, Error, Cargando, useCarga } from "./ui";
+import { Modal, Error, Cargando, Campo, useCarga } from "./ui";
 import { pesos } from "../format";
 import { navegar } from "../lib/router";
 import { useRol, esDueno } from "../lib/rol";
+import { useCapacidades } from "../lib/config";
 
 const DESCRIPCION: Record<string, string> = {
   A: "Factura A — a Responsable Inscripto con CUIT",
@@ -19,7 +20,14 @@ interface Props {
 /** Emitir la factura de una venta: muestra qué se va a emitir, avisa si falta
  *  algún dato del cliente, y recién ahí pide el CAE a ARCA. */
 export function EmitirFacturaModal({ ventaId, onCerrar }: Props) {
+  const capacidades = useCapacidades();
   const [letra, setLetra] = useState<string | null>(null);
+  const [concepto, setConcepto] = useState<string | null>(null);
+  const [servDesde, setServDesde] = useState("");
+  const [servHasta, setServHasta] = useState("");
+  const [vtoPago, setVtoPago] = useState("");
+  const [condVenta, setCondVenta] = useState("");
+  const [fecha, setFecha] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [emitiendo, setEmitiendo] = useState(false);
   const [resultado, setResultado] = useState<{ letra: string; numero: number; cae: string; caeVencimiento: string } | null>(null);
@@ -29,15 +37,25 @@ export function EmitirFacturaModal({ ventaId, onCerrar }: Props) {
   const p = previo.data;
   // Hasta que el usuario toque algo, va la que sugiere el sistema.
   const elegida = letra ?? p?.sugerida ?? null;
+  // El default sale del rubro (una fumigadora factura Servicios), pero se
+  // puede cambiar comprobante por comprobante.
+  const conceptoElegido = concepto ?? capacidades.concepto_default;
+  const pideFechasServicio = conceptoElegido !== "productos";
   const opcionElegida = p?.opciones?.find((o: any) => o.letra === elegida);
 
   async function emitir() {
     setError(null);
     setEmitiendo(true);
     try {
+      const cuerpo: any = { tipo: elegida, concepto: conceptoElegido, condicion_venta: condVenta || undefined, fecha: fecha || undefined };
+      if (conceptoElegido !== "productos") {
+        cuerpo.fch_serv_desde = servDesde || undefined;
+        cuerpo.fch_serv_hasta = servHasta || undefined;
+        cuerpo.fch_vto_pago = vtoPago || undefined;
+      }
       const r = await api.post<{ letra: string; numero: number; cae: string; caeVencimiento: string }>(
         `/api/facturacion/ventas/${ventaId}/emitir`,
-        elegida ? { tipo: elegida } : {}
+        cuerpo
       );
       setResultado(r);
     } catch (err: any) {
@@ -121,6 +139,61 @@ export function EmitirFacturaModal({ ventaId, onCerrar }: Props) {
               </span>
             </label>
           ))}
+
+          <hr />
+          <Campo label="Concepto">
+            <div className="btn-grupo">
+              {[["productos", "Productos"], ["servicios", "Servicios"], ["ambos", "Productos y Servicios"]].map(([id, txt]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`btn chico ${conceptoElegido === id ? "primario" : ""}`}
+                  onClick={() => setConcepto(id)}
+                >
+                  {txt}
+                </button>
+              ))}
+            </div>
+          </Campo>
+
+          {pideFechasServicio && (
+            <>
+              <p className="mut" style={{ marginTop: 6, marginBottom: 6 }}>
+                Para Servicios, ARCA pide el período y el vencimiento del pago. Si los dejás
+                vacíos se usa la fecha de la venta.
+              </p>
+              <div className="fila">
+                <Campo label="Servicio desde">
+                  <input type="date" value={servDesde} onChange={(e) => setServDesde(e.target.value)} />
+                </Campo>
+                <Campo label="Servicio hasta">
+                  <input type="date" value={servHasta} onChange={(e) => setServHasta(e.target.value)} />
+                </Campo>
+                <Campo label="Vence el pago">
+                  <input type="date" value={vtoPago} onChange={(e) => setVtoPago(e.target.value)} />
+                </Campo>
+              </div>
+            </>
+          )}
+
+          <div className="fila">
+            <Campo label="Condición de venta">
+              <select value={condVenta} onChange={(e) => setCondVenta(e.target.value)}>
+                <option value="">Según la venta (contado o cuenta corriente)</option>
+                {["Contado", "Tarjeta de Débito", "Tarjeta de Crédito", "Cuenta Corriente",
+                  "Cheque", "Transferencia Bancaria", "Otra"].map((cv) => (
+                  <option key={cv} value={cv}>{cv}</option>
+                ))}
+              </select>
+            </Campo>
+            <Campo label="Fecha del comprobante">
+              <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+            </Campo>
+          </div>
+          <p className="mut" style={{ marginTop: -4 }}>
+            Si dejás la fecha vacía se usa la de la venta, salvo que ARCA ya no la acepte
+            (admite hasta {pideFechasServicio ? 10 : 5} días).
+          </p>
 
           {/* Atajo para el caso más común: falta el CUIT y hay que ir a cargarlo. */}
           {!p.opciones.find((o: any) => o.letra === "A")?.disponible &&

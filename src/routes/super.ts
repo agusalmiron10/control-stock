@@ -11,7 +11,7 @@ import type { Env, Variables } from "../types";
 import { HttpError, texto, enumerado, entero, boolOpt, fechaISO } from "../validate";
 import { hashPassword, crearSesion, requireSuper } from "../auth";
 import { codigoDeNegocio } from "./auth";
-import { MODULOS, leerConfig, type Modulo } from "../config";
+import { MODULOS, leerConfig, limpiarCapacidades, type Modulo } from "../config";
 import { auditar } from "../auditoria";
 import { guardarCopias } from "./backup";
 import { leerCertificado } from "../facturacion/certificado-info";
@@ -76,6 +76,7 @@ superAdmin.get("/negocios", async (c) => {
   const rows = await c.env.DB
     .prepare(
       `SELECT n.*,
+              r.nombre AS rubro_nombre,
               (SELECT COUNT(*) FROM usuarios     WHERE negocio_id = n.id) AS usuarios,
               (SELECT COUNT(*) FROM clientes     WHERE negocio_id = n.id) AS clientes,
               (SELECT COUNT(*) FROM herramientas WHERE negocio_id = n.id) AS productos,
@@ -85,6 +86,7 @@ superAdmin.get("/negocios", async (c) => {
               CAST(julianday(n.paga_hasta) - julianday(date('now')) AS INTEGER) AS dias_para_vencer,
               (SELECT MAX(fecha) FROM suscripcion_pagos WHERE negocio_id = n.id) AS ultimo_pago
        FROM negocios n
+       LEFT JOIN rubros r ON r.id = n.rubro_id
        ORDER BY CASE n.estado WHEN 'activo' THEN 0 WHEN 'prueba' THEN 1 WHEN 'suspendido' THEN 2 ELSE 3 END,
                 n.nombre`
     )
@@ -250,10 +252,9 @@ superAdmin.post("/negocios", async (c) => {
       .bind(id, nombre),
     c.env.DB.prepare(`INSERT INTO config (negocio_id, clave, valor) VALUES (?, 'negocio_rubro', ?)`)
       .bind(id, preset.etiqueta),
-    c.env.DB.prepare(`INSERT INTO config (negocio_id, clave, valor) VALUES (?, 'producto_singular', ?)`)
-      .bind(id, preset.singular),
-    c.env.DB.prepare(`INSERT INTO config (negocio_id, clave, valor) VALUES (?, 'producto_plural', ?)`)
-      .bind(id, preset.plural),
+    // El vocabulario NO se fija acá: ahora sale del rubro que elige el dueño
+    // en su primer ingreso (rubro_id queda en NULL a propósito, que es lo que
+    // dispara esa pantalla). Hasta entonces cae al default "Producto".
     c.env.DB.prepare(`INSERT INTO config (negocio_id, clave, valor) VALUES (?, 'modulos', ?)`)
       .bind(id, JSON.stringify(preset.modulos)),
     c.env.DB.prepare(`INSERT INTO usuarios (negocio_id, usuario, password_hash, rol) VALUES (?, ?, ?, 'dueño')`)
@@ -717,4 +718,180 @@ superAdmin.get("/metricas", async (c) => {
     total_filas: negocios.reduce((s, n) => s + n.filas, 0),
     total_bytes_estimados: negocios.reduce((s, n) => s + n.bytes_estimados, 0),
   });
+});
+
+// ── Errores del sistema ──────────────────────────────────────
+/**
+ * Los últimos errores no controlados (500) de CUALQUIER negocio, en un solo
+ * lugar — antes esto sólo se veía en vivo con `wrangler tail`, así que si no
+ * estabas mirando en ese momento, nunca te enterabas. app.onError() en
+ * src/index.ts es quien los va guardando acá.
+ */
+superAdmin.get("/errores", async (c) => {
+  const nombres = await c.env.DB.prepare(`SELECT id, nombre FROM negocios`).all<{ id: string; nombre: string }>();
+  const porId = new Map((nombres.results ?? []).map((n) => [n.id, n.nombre]));
+
+  const rows = await c.env.DB
+    .prepare(`SELECT * FROM errores_sistema ORDER BY creado_en DESC LIMIT 200`)
+    .all<{ id: string; negocio_id: string | null; metodo: string; ruta: string; mensaje: string; creado_en: string }>();
+
+  const errores = (rows.results ?? []).map((e) => ({
+    ...e,
+    negocio_nombre: e.negocio_id ? (porId.get(e.negocio_id) ?? "(negocio dado de baja)") : null,
+  }));
+
+  return c.json({ errores });
+});
+
+// ── Rubros ───────────────────────────────────────────────────
+/**
+ * Qué escribieron los que eligieron "Otro". Es la lista de rubros que el
+ * sistema todavía no contempla: cuando uno se repite, conviene darle su
+ * propia fila en `rubros` (y, si hace falta, su perfil).
+ */
+superAdmin.get("/rubros-otro", async (c) => {
+  const filas = await c.env.DB
+    .prepare(
+      `SELECT id, nombre, codigo, rubro_otro_texto, rubro_configurado_en
+         FROM negocios
+        WHERE rubro_otro_texto IS NOT NULL AND TRIM(rubro_otro_texto) != ''
+        ORDER BY rubro_configurado_en DESC`
+    )
+    .all();
+  return c.json({ negocios: filas.results ?? [] });
+});
+
+// ── ABM de rubros y perfiles ─────────────────────────────────
+/**
+ * El catálogo real (el de la base), no el preset de alta que está en RUBROS.
+ * Incluye los inactivos: desde acá se los prende y apaga.
+ */
+superAdmin.get("/catalogo-rubros", async (c) => {
+  const [rubrosQ, perfilesQ] = await Promise.all([
+    c.env.DB
+      .prepare(
+        `SELECT r.*, p.nombre AS perfil_nombre,
+                (SELECT COUNT(*) FROM negocios n WHERE n.rubro_id = r.id) AS cuentas
+           FROM rubros r JOIN perfiles_config p ON p.id = r.perfil_id
+          ORDER BY r.orden, r.nombre`
+      )
+      .all(),
+    c.env.DB.prepare(`SELECT * FROM perfiles_config ORDER BY nombre`).all(),
+  ]);
+  return c.json({ rubros: rubrosQ.results ?? [], perfiles: perfilesQ.results ?? [] });
+});
+
+/**
+ * Cambia las capacidades de un perfil.
+ *
+ * Lo que llega se pasa por limpiarCapacidades antes de guardar: el mismo
+ * validador que usa la lectura. Así lo que queda en la base ya está limpio y
+ * no hay forma de dejar una clave inventada o un tipo equivocado — que es
+ * justamente lo que pasaría con un textarea de JSON libre.
+ *
+ * Ojo con el alcance: esto le cambia el comportamiento a TODAS las cuentas
+ * de todos los rubros que apunten a este perfil (menos donde su override
+ * diga otra cosa). Por eso se devuelve a cuántas afecta.
+ */
+superAdmin.put("/perfiles/:id", async (c) => {
+  const id = c.req.param("id");
+  const b = await c.req.json().catch(() => ({}));
+  const perfil = await c.env.DB.prepare(`SELECT id FROM perfiles_config WHERE id = ?`).bind(id).first();
+  if (!perfil) throw new HttpError(404, "Ese perfil no existe.");
+
+  const limpio = limpiarCapacidades(b.capacidades);
+  const alcance = await c.env.DB
+    .prepare(
+      `SELECT COUNT(*) AS n FROM negocios n JOIN rubros r ON r.id = n.rubro_id WHERE r.perfil_id = ?`
+    )
+    .bind(id)
+    .first<{ n: number }>();
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(`UPDATE perfiles_config SET capacidades_json = ? WHERE id = ?`)
+      .bind(JSON.stringify(limpio), id),
+    auditar(c.env, "", c.get("usuario").usuario, "cambiar_perfil_rubro", "perfil", id,
+      `Capacidades de "${id}" (afecta a ${alcance?.n ?? 0} cuenta/s)`),
+  ]);
+  return c.json({ ok: true, capacidades: limpio, cuentas_afectadas: alcance?.n ?? 0 });
+});
+
+/** Alta de un rubro nuevo. Es lo único que hace falta para soportar un rubro. */
+superAdmin.post("/catalogo-rubros", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const id = texto(b.id, "identificador", { max: 40 })!.toLowerCase().replace(/[^a-z0-9_]/g, "");
+  if (!id) throw new HttpError(400, "El identificador tiene que tener letras o números.");
+  const nombre = texto(b.nombre, "nombre", { max: 60 })!;
+  const perfilId = texto(b.perfil_id, "perfil", { max: 40 })!;
+
+  const perfil = await c.env.DB.prepare(`SELECT id FROM perfiles_config WHERE id = ?`).bind(perfilId).first();
+  if (!perfil) throw new HttpError(400, "Ese perfil no existe.");
+  const chocado = await c.env.DB.prepare(`SELECT id FROM rubros WHERE id = ?`).bind(id).first();
+  if (chocado) throw new HttpError(409, `Ya existe un rubro con el identificador "${id}".`);
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(`INSERT INTO rubros (id, nombre, icono, perfil_id, orden, activo) VALUES (?, ?, ?, ?, ?, 1)`)
+      .bind(id, nombre, texto(b.icono, "icono", { requerido: false, max: 8 }), perfilId,
+            entero(b.orden ?? 500, "orden", { min: 0, max: 9999 })),
+    auditar(c.env, "", c.get("usuario").usuario, "crear_rubro", "rubro", id, `${nombre} (perfil ${perfilId})`),
+  ]);
+  return c.json({ ok: true, id });
+});
+
+/** Editar un rubro: nombre, icono, a qué perfil apunta, orden, activo. */
+superAdmin.put("/catalogo-rubros/:id", async (c) => {
+  const id = c.req.param("id");
+  const b = await c.req.json().catch(() => ({}));
+  const actual = await c.env.DB.prepare(`SELECT * FROM rubros WHERE id = ?`).bind(id)
+    .first<{ id: string; nombre: string; icono: string | null; perfil_id: string; orden: number; activo: number }>();
+  if (!actual) throw new HttpError(404, "Ese rubro no existe.");
+
+  const perfilId = b.perfil_id === undefined ? actual.perfil_id : texto(b.perfil_id, "perfil", { max: 40 })!;
+  if (perfilId !== actual.perfil_id) {
+    const perfil = await c.env.DB.prepare(`SELECT id FROM perfiles_config WHERE id = ?`).bind(perfilId).first();
+    if (!perfil) throw new HttpError(400, "Ese perfil no existe.");
+  }
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(`UPDATE rubros SET nombre = ?, icono = ?, perfil_id = ?, orden = ?, activo = ? WHERE id = ?`)
+      .bind(
+        b.nombre === undefined ? actual.nombre : texto(b.nombre, "nombre", { max: 60 })!,
+        b.icono === undefined ? actual.icono : texto(b.icono, "icono", { requerido: false, max: 8 }),
+        perfilId,
+        b.orden === undefined ? actual.orden : entero(b.orden, "orden", { min: 0, max: 9999 }),
+        b.activo === undefined ? actual.activo : (boolOpt(b.activo) ? 1 : 0),
+        id
+      ),
+    auditar(c.env, "", c.get("usuario").usuario, "cambiar_rubro_catalogo", "rubro", id, actual.nombre),
+  ]);
+  return c.json({ ok: true });
+});
+
+/**
+ * Fijarle el rubro a una cuenta desde el panel del proveedor.
+ *
+ * Sirve para dos cosas reales: acomodarle el rubro a alguien que se equivocó
+ * al elegir, y dejarlo listo al dar de alta para que el dueño no tenga que
+ * pasar por esa pantalla. Sigue sin tocar módulos.
+ */
+superAdmin.put("/negocios/:id/rubro", async (c) => {
+  const id = c.req.param("id");
+  const b = await c.req.json().catch(() => ({}));
+  const negocio = await c.env.DB.prepare(`SELECT id, nombre FROM negocios WHERE id = ?`).bind(id)
+    .first<{ id: string; nombre: string }>();
+  if (!negocio) throw new HttpError(404, "Ese negocio no existe.");
+
+  const rubroId = texto(b.rubro_id, "rubro", { max: 40 })!;
+  const rubro = await c.env.DB.prepare(`SELECT id, nombre FROM rubros WHERE id = ?`).bind(rubroId)
+    .first<{ id: string; nombre: string }>();
+  if (!rubro) throw new HttpError(400, "Ese rubro no existe.");
+
+  await c.env.DB.batch([
+    c.env.DB.prepare(
+      `UPDATE negocios SET rubro_id = ?, rubro_otro_texto = ?, rubro_configurado_en = datetime('now') WHERE id = ?`
+    ).bind(rubro.id, texto(b.rubro_otro_texto, "detalle", { requerido: false, max: 80 }), id),
+    auditar(c.env, id, c.get("usuario").usuario, "cambiar_rubro", "negocio", id,
+      `El proveedor lo puso como "${rubro.nombre}"`),
+  ]);
+  return c.json({ ok: true });
 });

@@ -1,12 +1,13 @@
 import { api } from "../api";
-import { fecha, numero } from "../format";
+import { fecha, numero, pesos } from "../format";
 import { negocio } from "../lib/negocio";
 import { Cargando, Error, useCarga } from "./ui";
+import { AtendidoPor } from "./AtendidoPor";
 
 /**
- * Remito imprimible. Es el papel que viaja con la mercadería, así que no
- * lleva precios: el que recibe firma que le entregaron las cantidades, no
- * discute plata. Por eso también tiene dos firmas al pie.
+ * Remito imprimible. Lleva precio y total por pedido explícito del dueño
+ * (antes no los llevaba, pensado sólo como constancia de cantidades
+ * entregadas) — igual sigue teniendo las dos firmas al pie.
  *
  * Va como documento aparte y no como el modal de detalle porque la impresión
  * oculta todo salvo `.comprobante` — un modal impreso sale en blanco.
@@ -29,10 +30,13 @@ export function RemitoImprimible({ remitoId, onCerrar }: { remitoId: string; onC
         {r && (
           <div className="comprobante">
             <div className="comp-header">
-              <div>
-                <div className="comp-marca">{negocio().nombre}</div>
-                <div className="comp-sub">{negocio().rubro}</div>
-                <div className="comp-sub">Tel: {negocio().telefono} · {negocio().instagram}</div>
+              <div className="comp-header-izq">
+                {negocio().logo && <img src={negocio().logo ?? undefined} alt="" className="comp-logo" />}
+                <div>
+                  <div className="comp-marca">{negocio().nombre}</div>
+                  <div className="comp-sub">{negocio().rubro}</div>
+                  <div className="comp-sub">Tel: {negocio().telefono} · {negocio().instagram}</div>
+                </div>
               </div>
               <div className="comp-doc">
                 <div className="comp-doc-tit">REMITO</div>
@@ -51,23 +55,34 @@ export function RemitoImprimible({ remitoId, onCerrar }: { remitoId: string; onC
 
             <table className="comp-tabla">
               <thead>
-                <tr><th>Cant.</th><th>Detalle</th></tr>
+                <tr><th>Cant.</th><th>Detalle</th><th className="num">P. unit.</th><th className="num">Subtotal</th></tr>
               </thead>
               <tbody>
                 {data.items.map((it: any) => (
                   <tr key={it.id}>
                     <td className="num">{numero(it.cantidad)}</td>
                     <td>{it.nombre_herramienta}</td>
+                    <td className="num">{pesos(it.precio_unitario)}</td>
+                    <td className="num">{pesos(it.subtotal)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+
+            <div className="comp-totales">
+              <div className="comp-total">
+                <span>TOTAL</span>
+                <span className="num">{pesos(data.items.reduce((acc: number, it: any) => acc + it.subtotal, 0))}</span>
+              </div>
+            </div>
 
             {r.nota && <p className="comp-sub" style={{ marginTop: 12 }}>{r.nota}</p>}
 
             <p className="comp-sub" style={{ marginTop: 16 }}>
               Documento no válido como factura. Sirve para acompañar la mercadería.
             </p>
+
+            <AtendidoPor nombre={r.atendido_por_nombre} foto={r.atendido_por_foto} />
 
             {/* Dos firmas: la del que entrega y la del que recibe. Es lo que
                 convierte al papel en constancia de la entrega. */}

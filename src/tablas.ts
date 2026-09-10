@@ -40,9 +40,12 @@ export interface TablaRespaldo {
 export const TABLAS_RESPALDO: TablaRespaldo[] = [
   { nombre: "clientes" },
   { nombre: "herramientas" },
+  { nombre: "precios_escala" },
+  { nombre: "insumos" },
   { nombre: "proveedores" },
   { nombre: "ventas" },
   { nombre: "venta_items" },
+  { nombre: "series_vendidas" },
   { nombre: "pagos" },
   { nombre: "compras" },
   { nombre: "compra_items" },
@@ -50,13 +53,12 @@ export const TABLAS_RESPALDO: TablaRespaldo[] = [
   { nombre: "precios_historial" },
   { nombre: "presupuestos" },
   { nombre: "presupuesto_items" },
-  {
-    nombre: "facturacion_config",
-    // El certificado, la clave privada y el token de sesión de ARCA no salen
-    // de la base por ningún motivo. El CUIT y el punto de venta sí, que es lo
-    // que hace falta para volver a configurar.
-    omitir: ["cert_pem", "clave_privada_enc", "clave_privada_iv", "wsaa_token", "wsaa_sign", "wsaa_expira_en"],
-  },
+  { nombre: "presupuesto_insumos" },
+  // Desde que el certificado pasó a ser uno solo del proveedor (no por
+  // negocio), esta tabla ya no tiene nada sensible que filtrar — sólo CUIT,
+  // condición de IVA y punto de venta. El certificado, la clave privada y
+  // el token de sesión vivían acá antes; se borraron (migración 0030).
+  { nombre: "facturacion_config" },
   {
     nombre: "facturas",
     // Una Nota de Crédito apunta a la factura que anula: las originales

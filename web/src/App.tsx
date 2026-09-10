@@ -1,8 +1,15 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, lazy, Suspense } from "react";
 import { api, ApiError } from "./api";
 import { useRuta, navegar } from "./lib/router";
 import { Auth } from "./pages/Auth";
 import { Proveedor } from "./pages/Proveedor";
+import { SeleccionRubro } from "./components/SeleccionRubro";
+import { tourYaVisto } from "./lib/tour";
+// react-joyride + floating-ui pesan bastante (~27 KB gzip) para algo que un
+// usuario que ya vio el tour nunca vuelve a necesitar — se carga aparte del
+// bundle principal, y sólo se pide (ver más abajo) cuando tourYaVisto()
+// dice que hace falta mostrarlo.
+const TourInicial = lazy(() => import("./components/TourInicial").then((m) => ({ default: m.TourInicial })));
 import { Panel } from "./pages/Panel";
 import { Herramientas } from "./pages/Herramientas";
 import { ProductoFicha } from "./pages/ProductoFicha";
@@ -24,6 +31,7 @@ import { PresupuestoDetalle } from "./pages/PresupuestoDetalle";
 import { Pagos } from "./pages/Pagos";
 import { Cobranzas } from "./pages/Cobranzas";
 import { Produccion } from "./pages/Produccion";
+import { Insumos } from "./pages/Insumos";
 import { Reportes } from "./pages/Reportes";
 import { Ajustes } from "./pages/Ajustes";
 import { Auditoria } from "./pages/Auditoria";
@@ -31,6 +39,7 @@ import type { Rol } from "./lib/rol";
 import { RolContext, PermisosContext, esDueno } from "./lib/rol";
 import { SyncIndicator } from "./components/SyncIndicator";
 import { BuscadorGlobal } from "./components/BuscadorGlobal";
+import { Cargando } from "./components/ui";
 import { iniciarSync } from "./offline/sync";
 import { guardarSesionCacheada, leerSesionCacheada, borrarSesionCacheada, asegurarCacheDelNegocio } from "./offline/cache";
 import { leerTema, aplicarTema, siguienteTema, type Tema } from "./lib/tema";
@@ -54,6 +63,8 @@ interface Estado {
   modulosPermitidos: string[] | null;
   /** Foto de perfil de ESTA sesión — cada usuario sube y borra la suya propia. */
   foto: string | null;
+  /** El negocio todavía no eligió su rubro: va a esa pantalla antes del panel. */
+  requiere_seleccion_rubro?: boolean;
 }
 
 /**
@@ -87,6 +98,7 @@ function construirNav(cfg: ConfigNegocio, permisos: string[] | null, esDueno: bo
   const deposito: [string, string][] = [["/herramientas", cfg.vocabulario.producto_plural]];
   if (puede("compras")) deposito.push(["/compras", "Compras"], ["/proveedores", "Proveedores"]);
   if (puede("produccion")) deposito.push(["/produccion", "Producción"]);
+  if (puede("insumos")) deposito.push(["/insumos", "Insumos"]);
 
   const negocio: [string, string][] = [["/panel", "Panel"], ["/reportes", "Reportes"], ["/mapa-clientes", "Mapa"]];
   negocio.push(["/ajustes", "Ajustes"]);
@@ -111,6 +123,7 @@ const MODULO_DE_SECCION: Record<string, Modulo> = {
   remitos: "remitos",
   compras: "compras",
   proveedores: "compras",
+  insumos: "insumos",
 };
 
 export function App() {
@@ -118,6 +131,14 @@ export function App() {
   const [menuAbierto, setMenuAbierto] = useState(false);
   const [tema, setTema] = useState<Tema>(() => leerTema());
   const [cfg, setCfg] = useState<ConfigNegocio>(CONFIG_INICIAL);
+  /**
+   * Si la config llegó o todavía se está pidiendo. Hace falta porque
+   * CONFIG_INICIAL trae TODOS los módulos apagados: sin esto, al recargar la
+   * página parado en Presupuestos (o Facturas, Remitos, Compras…) el
+   * guardián de rutas veía el módulo en false por un instante y te mandaba
+   * al Panel. Pasaba con cualquier refresh, marcador o link compartido.
+   */
+  const [cfgCargada, setCfgCargada] = useState(false);
   const [fotoAmpliada, setFotoAmpliada] = useState(false);
   /**
    * Qué grupos del menú están desplegados. Se recuerda entre sesiones: cada
@@ -162,7 +183,10 @@ export function App() {
         setConfig(c); // copia para el código que no es React (WhatsApp, PDFs)
         setCfg(c);
       })
-      .catch(() => {});
+      .catch(() => {})
+      // Aunque falle: si no, una sección con módulo quedaría cargando para
+      // siempre en vez de rebotar al Panel como corresponde.
+      .finally(() => setCfgCargada(true));
   }, []);
 
   function cambiarTema() {
@@ -314,6 +338,22 @@ export function App() {
     return <Proveedor onEntrar={cargarEstado} />;
   }
 
+  // Negocio recién creado que todavía no dijo a qué se dedica. Va antes del
+  // panel porque el vocabulario y los campos de producto dependen de eso: si
+  // lo dejáramos entrar primero, vería "Producto" y después le cambiaría el
+  // nombre a todo. No aplica a una visita de soporte: el proveedor no elige
+  // el rubro del cliente.
+  // Sólo el dueño de verdad. Ojo con no usar esDueno() acá: devuelve true
+  // también para "super" y "soporte", y entonces el proveedor entrando a dar
+  // soporte a un negocio sin rubro vería esta pantalla en vez del negocio
+  // (y en visita de sólo lectura ni siquiera podría guardar).
+  //
+  // Y un empleado tampoco: la ruta que guarda es requireDueno, así que
+  // elegiría, se comería un 403 y quedaría encerrado acá sin poder entrar.
+  if (estado.requiere_seleccion_rubro && estado.rol === "dueño") {
+    return <SeleccionRubro onListo={cargarEstado} />;
+  }
+
   const base = "/" + (ruta.parts[0] ?? "panel");
   const nav = construirNav(cfg, estado.modulosPermitidos, esDueno(estado.rol ?? "dueño"));
 
@@ -340,6 +380,14 @@ export function App() {
 
   return (
     <div className={`app ${enSoporte ? "modo-soporte" : ""} ${soloLectura ? "modo-lectura" : ""}`}>
+      {/* Sólo al dueño de verdad, nunca en una visita de soporte: el
+          proveedor mirando la cuenta de un cliente no tiene que verse
+          interrumpido por un tour pensado para quien recién arranca. */}
+      {estado.rol === "dueño" && !enSoporte && estado.negocio && estado.usuario && !tourYaVisto(estado.negocio.id, estado.usuario) && (
+        <Suspense fallback={null}>
+          <TourInicial negocioId={estado.negocio.id} usuario={estado.usuario} />
+        </Suspense>
+      )}
       {enSoporte && (
         <div className={`barra-soporte ${soloLectura ? "solo-lectura" : "editando"}`} ref={barraSoporte}>
           <span>
@@ -423,13 +471,18 @@ export function App() {
                   onClick={() => alternarGrupo(grupo.titulo)}
                   aria-expanded={abierto}
                 >
-                  <span className="nav-flecha">▸</span>
                   {grupo.titulo}
+                  <span className="nav-flecha">▸</span>
                 </button>
                 {abierto && (
                   <div className="nav-grupo-items">
                     {grupo.items.map(([path, label]) => (
-                      <a key={path} href={`#${path}`} className={base === path ? "activo" : ""}>
+                      <a
+                        key={path}
+                        href={`#${path}`}
+                        className={base === path ? "activo" : ""}
+                        data-tour={path === "/herramientas" ? "nav-herramientas" : undefined}
+                      >
                         {label}
                       </a>
                     ))}
@@ -465,7 +518,7 @@ export function App() {
         <ConfigContext.Provider value={cfg}>
           <RolContext.Provider value={estado.rol ?? "dueño"}>
             <PermisosContext.Provider value={estado.modulosPermitidos}>
-              <Vista ruta={ruta} cfg={cfg} permisos={estado.modulosPermitidos} />
+              <Vista ruta={ruta} cfg={cfg} cfgCargada={cfgCargada} permisos={estado.modulosPermitidos} />
             </PermisosContext.Provider>
           </RolContext.Provider>
         </ConfigContext.Provider>
@@ -482,16 +535,21 @@ export function App() {
   );
 }
 
-function Vista({ ruta, cfg, permisos }: { ruta: ReturnType<typeof useRuta>; cfg: ConfigNegocio; permisos: string[] | null }) {
+function Vista({ ruta, cfg, cfgCargada, permisos }: { ruta: ReturnType<typeof useRuta>; cfg: ConfigNegocio; cfgCargada: boolean; permisos: string[] | null }) {
   const [seccion, id, sub] = ruta.parts;
   const esMovil = useEsMovil();
 
   // Si alguien entra por URL a una sección apagada, o que no tiene habilitada, no existe.
+  // Pero recién se puede decidir cuando la config llegó: hasta entonces todos
+  // los módulos figuran apagados y rebotaríamos al Panel a alguien que sí
+  // tiene la sección (pasaba en cada F5 estando en Presupuestos o Facturas).
   const moduloNecesario = seccion ? MODULO_DE_SECCION[seccion] : undefined;
+  const decidiendo = !!moduloNecesario && !cfgCargada;
   const tieneAcceso = !moduloNecesario || moduloVisible(cfg.modulos[moduloNecesario], permisos, moduloNecesario);
   useEffect(() => {
-    if (!tieneAcceso) navegar("/panel");
-  }, [tieneAcceso]);
+    if (!decidiendo && !tieneAcceso) navegar("/panel");
+  }, [decidiendo, tieneAcceso]);
+  if (decidiendo) return <Cargando />;
   if (!tieneAcceso) return null;
 
   switch (seccion) {
@@ -520,6 +578,8 @@ function Vista({ ruta, cfg, permisos }: { ruta: ReturnType<typeof useRuta>; cfg:
       return <Cobranzas />;
     case "produccion":
       return <Produccion />;
+    case "insumos":
+      return <Insumos />;
     case "compras":
       return <Compras />;
     case "proveedores":

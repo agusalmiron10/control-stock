@@ -3,7 +3,7 @@
 // para poder poner encabezados en negrita además de anchos, moneda y fechas.
 import * as XLSX from "xlsx-js-style";
 import { api } from "./api";
-import { nombreArchivo, hoyISO } from "./format";
+import { nombreArchivo, hoyISO, hora } from "./format";
 
 type Tipo = "text" | "money" | "int" | "date";
 interface Col {
@@ -160,6 +160,80 @@ export async function exportarCliente(clienteId: string): Promise<void> {
   );
 
   descargar(wb, `cliente-${cl.nombre.replace(/\s+/g, "_")}`);
+}
+
+const LETRA_FACTURA: Record<number, string> = { 1: "A", 6: "B", 11: "C", 3: "A (NC)", 8: "B (NC)", 13: "C (NC)" };
+
+/** Cómo mostrar el estado de facturación de una venta en una sola celda de texto. */
+function facturacionTexto(v: { factura_estado: string | null; factura_tipo: number | null }): string {
+  if (!v.factura_estado) return "Sin facturar";
+  const letra = v.factura_tipo != null ? LETRA_FACTURA[v.factura_tipo] ?? "?" : "?";
+  if (v.factura_estado === "autorizada") return `Factura ${letra}`;
+  if (v.factura_estado === "rechazada") return `Rechazada (Factura ${letra})`;
+  if (v.factura_estado === "huerfano") return `Sin confirmar (Factura ${letra})`;
+  return `Pendiente (Factura ${letra})`;
+}
+
+/**
+ * Excel de la lista de ventas tal como está en pantalla — mismo filtro que
+ * el usuario tenga puesto en ese momento (por eso recibe las filas ya
+ * traídas, no vuelve a pedirlas), con el estado de facturación explícito:
+ * es justo el dato que "Ventas" no muestra en una columna propia, y es lo
+ * primero que un contador va a pedir.
+ */
+export function exportarVentasLista(
+  ventas: any[],
+  filtro: { desde?: string; hasta?: string; cliente?: string }
+): void {
+  const wb = XLSX.utils.book_new();
+
+  const resumen: { campo: string; valor: unknown; tipo?: Tipo }[] = [
+    { campo: "Ventas listadas", valor: ventas.length, tipo: "int" },
+    { campo: "Total", valor: ventas.reduce((s, v) => s + v.total, 0), tipo: "money" },
+    { campo: "Pagado", valor: ventas.reduce((s, v) => s + v.pagado, 0), tipo: "money" },
+    { campo: "Saldo", valor: ventas.reduce((s, v) => s + v.saldo, 0), tipo: "money" },
+    { campo: "Facturadas", valor: ventas.filter((v) => v.factura_estado === "autorizada").length, tipo: "int" },
+    { campo: "Sin facturar", valor: ventas.filter((v) => !v.factura_estado).length, tipo: "int" },
+  ];
+  if (filtro.desde) resumen.push({ campo: "Desde", valor: filtro.desde, tipo: "date" });
+  if (filtro.hasta) resumen.push({ campo: "Hasta", valor: filtro.hasta, tipo: "date" });
+  if (filtro.cliente) resumen.push({ campo: "Cliente", valor: filtro.cliente });
+  resumen.push({ campo: "Generado", valor: hoyISO(), tipo: "date" });
+
+  XLSX.utils.book_append_sheet(wb, hojaResumen("Ventas", resumen), "Resumen");
+
+  XLSX.utils.book_append_sheet(
+    wb,
+    hoja(
+      [
+        { key: "numero", header: "N°", width: 7, tipo: "int" },
+        { key: "fecha", header: "Fecha", width: 12, tipo: "date" },
+        { key: "hora", header: "Hora", width: 8 },
+        { key: "cliente", header: "Cliente", width: 26 },
+        { key: "total", header: "Total", width: 14, tipo: "money" },
+        { key: "pagado", header: "Pagado", width: 14, tipo: "money" },
+        { key: "saldo", header: "Saldo", width: 14, tipo: "money" },
+        { key: "estado", header: "Estado", width: 12 },
+        { key: "facturacion", header: "Facturación", width: 22 },
+        { key: "nota", header: "Nota", width: 26 },
+      ],
+      ventas.map((v) => ({
+        numero: v.numero,
+        fecha: v.fecha,
+        hora: hora(v.creado_en),
+        cliente: v.cliente_nombre,
+        total: v.total,
+        pagado: v.pagado,
+        saldo: v.saldo,
+        estado: v.estado,
+        facturacion: facturacionTexto(v),
+        nota: v.nota ?? "",
+      }))
+    ),
+    "Ventas"
+  );
+
+  descargar(wb, "ventas");
 }
 
 // ── B. Excel general ────────────────────────────────────────

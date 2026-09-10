@@ -1,5 +1,5 @@
 import { api } from "../api";
-import { pesos, fecha, numero } from "../format";
+import { pesos, fecha, hora, numero } from "../format";
 import { Cargando, Error, Modal, useCarga } from "./ui";
 
 /** Ventana emergente liviana: qué compró un cliente en una venta puntual. */
@@ -17,7 +17,7 @@ export function DetalleVentaModal({ ventaId, onCerrar }: { ventaId: string; onCe
       {data && (
         <div>
           <p className="mut" style={{ marginTop: 0 }}>
-            Fecha: <b>{fecha(data.venta.fecha)}</b>
+            Fecha: <b>{fecha(data.venta.fecha)}</b> · Hora: <b>{hora(data.venta.creado_en)}</b>
             {data.venta.estado === "anulada" && <span className="comp-anulada"> — ANULADA</span>}
           </p>
           <div className="tabla-wrap solo-escritorio">

@@ -35,6 +35,25 @@ export function fecha(iso: string | null | undefined): string {
   return `${m[3]}/${m[2]}/${m[1]}`;
 }
 
+/**
+ * `creado_en` sale de SQLite como "YYYY-MM-DD HH:MM:SS" en UTC (así lo pone
+ * datetime('now')). Esto lo pasa a la hora local del que mira la pantalla,
+ * en formato "HH:MM" — para saber a qué hora exacta se hizo algo, no sólo
+ * qué día.
+ */
+export function hora(creadoEnUTC: string | null | undefined): string {
+  if (!creadoEnUTC) return "—";
+  const d = new Date(creadoEnUTC.replace(" ", "T") + "Z");
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" });
+}
+
+/** ISO "YYYY-MM-DD" → "lun", "mar", … — para el eje de un gráfico de días. */
+export function diaCorto(iso: string): string {
+  const d = new Date(iso + "T00:00:00");
+  return d.toLocaleDateString("es-AR", { weekday: "short" }).replace(".", "");
+}
+
 /** Pesos ingresados por el usuario (ej. 12500.5) → centavos (1250050). */
 export function aCentavos(pesosValor: number | string): number {
   const n = typeof pesosValor === "string" ? Number(pesosValor.replace(",", ".")) : pesosValor;
@@ -45,6 +64,13 @@ export function aCentavos(pesosValor: number | string): number {
 /** Centavos → número en pesos para precargar inputs (1250050 → 12500.5). */
 export function aPesos(centavos: number): number {
   return (centavos ?? 0) / 100;
+}
+
+/** Un día relativo a hoy en ISO YYYY-MM-DD (hora local). offsetDias=-1 es ayer. */
+export function diaISO(offsetDias: number): string {
+  const d = new Date();
+  const off = d.getTimezoneOffset();
+  return new Date(d.getTime() - off * 60000 + offsetDias * 86400000).toISOString().slice(0, 10);
 }
 
 /** Fecha de hoy en ISO YYYY-MM-DD (hora local). */

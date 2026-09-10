@@ -46,10 +46,14 @@ export function BarraEscaneo({ herramientas, onElegir, onNoEncontrado }: Props) 
     }
   }
 
+  // Sin nada tipeado, se puede tocar cualquier producto de la lista — no
+  // hace falta escribir para recién ahí ver algo. Apenas se tipea, filtra
+  // en vivo por nombre o código.
   const q = normalizarTexto(texto.trim());
-  const coincidencias = q.length < 2 ? [] : herramientas
-    .filter((h) => h.activo && (normalizarTexto(h.nombre).includes(q) || normalizarTexto(h.codigo).includes(q)))
-    .slice(0, 6);
+  const activas = herramientas.filter((h) => h.activo);
+  const coincidencias = q.length === 0
+    ? activas
+    : activas.filter((h) => normalizarTexto(h.nombre).includes(q) || normalizarTexto(h.codigo).includes(q));
 
   function alEnviar(e: React.FormEvent) {
     e.preventDefault();

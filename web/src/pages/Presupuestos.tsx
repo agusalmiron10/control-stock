@@ -6,6 +6,9 @@ import { PresupuestoPDF } from "../components/PresupuestoPDF";
 import { PresupuestoDetalleModal } from "../components/PresupuestoDetalleModal";
 import { FiltroComprobantes, FILTROS_VACIOS, comoQuery, type Filtros } from "../components/FiltroComprobantes";
 import { navegar } from "../lib/router";
+import { waPresupuesto } from "../lib/whatsapp";
+import { generarPdfPresupuesto } from "../lib/pdf";
+import { compartirArchivo, mensajeCompartir } from "../lib/compartirArchivo";
 
 const ESTADOS = ["pendiente", "aceptado", "rechazado", "vencido"] as const;
 
@@ -30,6 +33,41 @@ export function Presupuestos() {
   const [detalle, setDetalle] = useState<number | null>(null);
   const [eliminar, setEliminar] = useState<any | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
+  // Qué tarjeta está armando el mensaje/PDF ahora mismo — la lista no trae
+  // renglones ni el teléfono del cliente, así que antes de compartir hay que
+  // pedir el presupuesto completo. Se guarda por id para poder deshabilitar
+  // sólo el botón de ESA tarjeta, no todas.
+  const [compartiendo, setCompartiendo] = useState<number | null>(null);
+
+  async function compartirWhatsapp(id: number) {
+    setCompartiendo(id);
+    try {
+      const d = await api.get<any>(`/api/presupuestos/${id}`);
+      const p = d.presupuesto;
+      waPresupuesto({ nombre: p.cliente_nombre, telefono: p.cliente_telefono }, p, d.items);
+    } catch (err: any) {
+      setAviso(err.message);
+    } finally {
+      setCompartiendo(null);
+    }
+  }
+
+  async function compartirPdf(id: number) {
+    setCompartiendo(id);
+    try {
+      const d = await api.get<any>(`/api/presupuestos/${id}`);
+      const blob = await generarPdfPresupuesto(d);
+      const resultado = await compartirArchivo(blob, `presupuesto-${d.presupuesto.numero}.pdf`, {
+        titulo: `Presupuesto ${d.presupuesto.numero}`,
+        texto: `Presupuesto de ${d.presupuesto.cliente_nombre}`,
+      });
+      setAviso(mensajeCompartir(resultado));
+    } catch (err: any) {
+      setAviso("No se pudo generar el PDF: " + err.message);
+    } finally {
+      setCompartiendo(null);
+    }
+  }
 
   const qs = comoQuery(filtros, { estado });
   const { data, error, cargando, recargar } = useCarga<any>(
@@ -103,30 +141,51 @@ export function Presupuestos() {
         />
       ) : (
         <div className="grid-comprobantes">
-          {lista.map((p: any) => (
-            <button key={p.id} className={`comp-card ${franja(p.estado)}`} onClick={() => setDetalle(p.id)}>
-              <div className="comp-card-top">
-                <div>
-                  <div className="comp-card-tipo">Presupuesto #{p.numero}</div>
-                  <div className="comp-card-nro">{fecha(p.fecha)}</div>
+          {lista.map((p: any) => {
+            const ocupado = compartiendo === p.id;
+            return (
+              <div
+                key={p.id}
+                className={`comp-card ${franja(p.estado)}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => setDetalle(p.id)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setDetalle(p.id); } }}
+              >
+                <div className="comp-card-top">
+                  <div>
+                    <div className="comp-card-tipo">Presupuesto #{p.numero}</div>
+                    <div className="comp-card-nro">{fecha(p.fecha)}</div>
+                  </div>
+                  <span className={`badge ${BADGE[p.estado] ?? ""}`}>{p.estado}</span>
                 </div>
-                <span className={`badge ${BADGE[p.estado] ?? ""}`}>{p.estado}</span>
+
+                <div className="comp-card-cliente">{p.cliente_nombre}</div>
+
+                {p.venta_id && (
+                  <div className="mut" style={{ fontSize: 12.5 }}>Ya convertido en venta</div>
+                )}
+
+                <div className="comp-card-pie">
+                  <span className="comp-card-total">{pesos(p.total)}</span>
+                  <span className="comp-card-fecha">
+                    {p.validez_hasta ? `Vale hasta ${fecha(p.validez_hasta)}` : "Sin vencimiento"}
+                  </span>
+                </div>
+
+                {/* Directo desde la tarjeta: no hace falta entrar al presupuesto
+                    para mandarlo. Mismo patrón que Remitos. */}
+                <div className="comp-card-acciones" onClick={(e) => e.stopPropagation()}>
+                  <button className="btn chico wa" disabled={ocupado} onClick={() => compartirWhatsapp(p.id)}>
+                    WhatsApp
+                  </button>
+                  <button className="btn chico wa" disabled={ocupado} onClick={() => compartirPdf(p.id)}>
+                    {ocupado ? "Generando…" : "📄 PDF"}
+                  </button>
+                </div>
               </div>
-
-              <div className="comp-card-cliente">{p.cliente_nombre}</div>
-
-              {p.venta_id && (
-                <div className="mut" style={{ fontSize: 12.5 }}>Ya convertido en venta</div>
-              )}
-
-              <div className="comp-card-pie">
-                <span className="comp-card-total">{pesos(p.total)}</span>
-                <span className="comp-card-fecha">
-                  {p.validez_hasta ? `Vale hasta ${fecha(p.validez_hasta)}` : "Sin vencimiento"}
-                </span>
-              </div>
-            </button>
-          ))}
+            );
+          })}
         </div>
       )}
 

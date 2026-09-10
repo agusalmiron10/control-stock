@@ -25,6 +25,10 @@ function peso(bytes: number): string {
  */
 export function CopiasProveedor() {
   const [abierto, setAbierto] = useState<string | null>(null);
+  // Colapsado por default: son del esquema viejo, ya no se generan más — no
+  // hace falta verlos siempre, sólo el día que hace falta ir a buscar algo
+  // de antes del cambio de esquema.
+  const [verGlobales, setVerGlobales] = useState(false);
   const [generando, setGenerando] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const [errGen, setErrGen] = useState<string | null>(null);
@@ -177,27 +181,36 @@ export function CopiasProveedor() {
 
       {globales.length > 0 && (
         <>
-          <h3 style={{ marginTop: 20, marginBottom: 4 }}>Backups completos anteriores</h3>
-          <p className="mut" style={{ marginTop: 0 }}>
-            Del esquema viejo: un solo archivo con la base entera. Ya no se generan, pero son los
-            únicos que cubren las fechas anteriores al cambio.
-          </p>
-          <div className="tabla-wrap">
-            <table className="tabla">
-              <thead><tr><th>Día</th><th className="num">Tamaño</th><th></th></tr></thead>
-              <tbody>
-                {globales.map((g) => (
-                  <tr key={g.fecha}>
-                    <td>{fecha(g.fecha)}</td>
-                    <td className="num">{peso(g.tamano)}</td>
-                    <td className="acc">
-                      <a className="btn chico" href={`/api/super/copias/globales/${g.fecha}`}>Descargar</a>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="tf-datos" style={{ justifyContent: "space-between", marginTop: 20 }}>
+            <div>
+              <h3 style={{ margin: 0 }}>Backups completos anteriores</h3>
+              <p className="mut" style={{ margin: "2px 0 0" }}>
+                Del esquema viejo: un solo archivo con la base entera. Ya no se generan, pero son los
+                únicos que cubren las fechas anteriores al cambio.
+              </p>
+            </div>
+            <button className="btn chico" onClick={() => setVerGlobales((v) => !v)}>
+              {verGlobales ? "Ocultar" : `Ver (${globales.length})`}
+            </button>
           </div>
+          {verGlobales && (
+            <div className="tabla-wrap" style={{ marginTop: 10 }}>
+              <table className="tabla">
+                <thead><tr><th>Día</th><th className="num">Tamaño</th><th></th></tr></thead>
+                <tbody>
+                  {globales.map((g) => (
+                    <tr key={g.fecha}>
+                      <td>{fecha(g.fecha)}</td>
+                      <td className="num">{peso(g.tamano)}</td>
+                      <td className="acc">
+                        <a className="btn chico" href={`/api/super/copias/globales/${g.fecha}`}>Descargar</a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </>
       )}
     </>

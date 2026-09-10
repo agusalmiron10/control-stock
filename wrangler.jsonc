@@ -49,10 +49,13 @@
     }
   ],
 
-  // Cron diario a las 05:00 UTC (02:00 en Argentina): calcula el resumen del
-  // día anterior y sube un backup a R2. Ver src/scheduled.ts.
+  // Dos crons, ver src/scheduled.ts (usa event.cron para saber cuál disparó):
+  //   "0 5 * * *"     una vez por día a las 05:00 UTC (02:00 en Argentina):
+  //                   resumen del día anterior + backup a R2.
+  //   "*/30 * * * *"  cada media hora: resuelve comprobantes huérfanos de
+  //                   facturación electrónica (ver ResultadoHuerfano).
   "triggers": {
-    "crons": ["0 5 * * *"]
+    "crons": ["0 5 * * *", "*/30 * * * *"]
   },
 
   "observability": {
@@ -61,8 +64,28 @@
 
   // Secretos que NO van acá. Se cargan con:
   //   wrangler secret put SESSION_SECRET
-  //   wrangler secret put CERT_ENC_KEY   (32 bytes al azar en base64 — cifra
-  //                                       la clave privada del certificado
-  //                                       ARCA de cada negocio, ver
-  //                                       src/facturacion/certificados.ts)
+  //   (CERT_ENC_KEY quedó del modelo viejo de "un certificado por negocio"
+  //   y ya no lo usa nada del código — si está cargado en Cloudflare de
+  //   antes, se puede borrar con `wrangler secret delete CERT_ENC_KEY`,
+  //   pero dejarlo tampoco molesta.)
+  //   wrangler secret put ALERTA_DISCORD_WEBHOOK   (opcional — URL del
+  //                                       Webhook de un canal de Discord.
+  //                                       Sin esto no pasa nada malo: el
+  //                                       error 500 se sigue guardando en
+  //                                       errores_sistema, sólo que sin
+  //                                       aviso en tiempo real. Se crea desde
+  //                                       Config. del canal → Integraciones
+  //                                       → Webhooks → Nuevo webhook → Copiar
+  //                                       URL del webhook.)
+  //   wrangler secret put RESEND_API_KEY   (opcional — cuenta en resend.com.
+  //                                       Sin esto, el cron diario sigue
+  //                                       corriendo el resto de sus tareas
+  //                                       —resumen, backup, corte por falta
+  //                                       de pago— sólo que no manda el
+  //                                       correo de stock bajo/vencimientos.)
+  //   wrangler secret put RESEND_FROM      (opcional — "Nombre <correo@tu-
+  //                                       dominio>", tiene que ser un
+  //                                       dominio verificado en Resend. Si no
+  //                                       se carga, usa un default que va a
+  //                                       fallar hasta verificar ese dominio.)
 }

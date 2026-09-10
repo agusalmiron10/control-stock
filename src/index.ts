@@ -20,6 +20,10 @@ import { facturacion } from "./routes/facturacion";
 import { compras } from "./routes/compras";
 import { remitos } from "./routes/remitos";
 import { catalogo } from "./routes/catalogo";
+import { rubros } from "./routes/rubros";
+import { cuenta } from "./routes/cuenta";
+import { mensajes } from "./routes/mensajes";
+import { insumos } from "./routes/insumos";
 import { scheduled } from "./scheduled";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -53,10 +57,64 @@ app.use("*", async (c, next) => {
   );
 });
 
+/**
+ * Aviso a Discord de un error 500, en paralelo al guardado en
+ * errores_sistema. Nunca puede ser lo que rompe la respuesta al usuario: si
+ * el webhook no está configurado, si Discord está caído, o si devuelve
+ * cualquier cosa rara, esto se traga el error y listo — el panel de
+ * Herramientas del proveedor (errores_sistema) sigue siendo la fuente de
+ * verdad, esto es sólo el aviso en tiempo real.
+ */
+async function avisarDiscord(env: Env, datos: { negocioId: string | null; metodo: string; ruta: string; mensaje: string }): Promise<void> {
+  const webhook = env.ALERTA_DISCORD_WEBHOOK;
+  if (!webhook) return;
+  try {
+    await fetch(webhook, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        embeds: [
+          {
+            title: "🔴 Error 500 en Stockeate",
+            color: 0xd64545,
+            fields: [
+              { name: "Negocio", value: datos.negocioId ?? "(sin sesión)", inline: true },
+              { name: "Ruta", value: `${datos.metodo} ${datos.ruta}`, inline: true },
+              { name: "Mensaje", value: "```" + datos.mensaje.slice(0, 1000) + "```" },
+            ],
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      }),
+    });
+  } catch {
+    // Best-effort: un webhook caído no puede volver a lanzar acá.
+  }
+}
+
 // Manejo central de errores: HttpError → { error } con su status.
 app.onError((err, c) => {
   if (err instanceof HttpError) return c.json({ error: err.message }, err.status as any);
   console.error("Error no controlado:", err);
+  // Best-effort: si esto falla, no tiene que tumbar la respuesta de error
+  // que ya se le está por mandar al usuario. waitUntil para no atrasarla.
+  try {
+    const negocioId = c.get("usuario")?.negocioId ?? null;
+    const mensaje = String((err as any)?.message ?? err).slice(0, 500);
+    const metodo = c.req.method;
+    const ruta = c.req.path;
+    c.executionCtx.waitUntil(
+      c.env.DB.prepare(
+        `INSERT INTO errores_sistema (id, negocio_id, metodo, ruta, mensaje) VALUES (?, ?, ?, ?, ?)`
+      )
+        .bind(crypto.randomUUID(), negocioId, metodo, ruta, mensaje)
+        .run()
+        .catch(() => {})
+    );
+    c.executionCtx.waitUntil(avisarDiscord(c.env, { negocioId, metodo, ruta, mensaje }));
+  } catch {
+    // Ni esto puede romper el manejo de errores.
+  }
   return c.json({ error: "Ocurrió un error inesperado. Probá de nuevo." }, 500);
 });
 
@@ -95,6 +153,10 @@ api.route("/facturacion", facturacion);
 api.route("/compras", compras);
 api.route("/remitos", remitos);
 api.route("/catalogo", catalogo);
+api.route("/rubros", rubros);
+api.route("/cuenta", cuenta);
+api.route("/mensajes", mensajes);
+api.route("/insumos", insumos);
 app.route("/api", api);
 
 // Cualquier otra ruta /api que no exista.

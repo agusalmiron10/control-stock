@@ -134,22 +134,41 @@ remitos.get("/:id", async (c) => {
   const neg = negocioDe(c);
   const r = await c.env.DB.prepare(
     `SELECT r.*, cl.nombre AS cliente_nombre, cl.telefono AS cliente_telefono,
-            v.numero AS venta_numero, v.fecha AS venta_fecha
+            v.numero AS venta_numero, v.fecha AS venta_fecha,
+            u.usuario AS atendido_por_nombre, u.foto AS atendido_por_foto
      FROM remitos r
      JOIN clientes cl ON cl.id = r.cliente_id AND cl.negocio_id = r.negocio_id
      JOIN ventas v    ON v.id = r.venta_id    AND v.negocio_id = r.negocio_id
+     LEFT JOIN usuarios u ON u.id = r.atendido_por AND u.negocio_id = r.negocio_id
      WHERE r.negocio_id = ? AND r.id = ?`
   )
     .bind(neg, c.req.param("id"))
     .first<any>();
   if (!r) throw new HttpError(404, "Remito no encontrado.");
 
+  // remito_items no guarda precio (a propósito: el remito nació para viajar
+  // sin plata). El precio unitario sale de la venta que le dio origen — el
+  // remito siempre corresponde a una sola venta, así que alcanza con juntar
+  // por producto. El subtotal se recalcula con la cantidad DEL REMITO, no la
+  // de la venta: puede ser una entrega parcial.
   const items = await c.env.DB
-    .prepare(`SELECT * FROM remito_items WHERE negocio_id = ? AND remito_id = ? ORDER BY rowid`)
-    .bind(neg, r.id)
-    .all();
+    .prepare(
+      `SELECT ri.*, vi.precio_unitario
+       FROM remito_items ri
+       LEFT JOIN venta_items vi
+         ON vi.negocio_id = ri.negocio_id AND vi.venta_id = ? AND vi.herramienta_id = ri.herramienta_id
+       WHERE ri.negocio_id = ? AND ri.remito_id = ?
+       ORDER BY ri.rowid`
+    )
+    .bind(r.venta_id, neg, r.id)
+    .all<any>();
+  const itemsConPrecio = (items.results ?? []).map((it) => ({
+    ...it,
+    precio_unitario: it.precio_unitario ?? 0,
+    subtotal: it.cantidad * (it.precio_unitario ?? 0),
+  }));
 
-  return c.json({ remito: r, items: items.results ?? [] });
+  return c.json({ remito: r, items: itemsConPrecio });
 });
 
 // ── Alta ───────────────────────────────────────────────────
@@ -210,13 +229,14 @@ remitos.post("/", async (c) => {
 
   const stmts: D1PreparedStatement[] = [
     c.env.DB.prepare(
-      `INSERT INTO remitos (id, negocio_id, numero, venta_id, cliente_id, fecha, transporte, domicilio, nota)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO remitos (id, negocio_id, numero, venta_id, cliente_id, fecha, transporte, domicilio, nota, atendido_por)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       remitoId, neg, numero, ventaId, venta.cliente_id, fecha,
       texto(b.transporte, "transporte", { requerido: false, max: 120 }),
       texto(b.domicilio, "domicilio", { requerido: false, max: 200 }),
-      texto(b.nota, "nota", { requerido: false, max: 1000 })
+      texto(b.nota, "nota", { requerido: false, max: 1000 }),
+      c.get("usuario").uid
     ),
   ];
   for (const p of pedidos) {

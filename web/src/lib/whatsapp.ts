@@ -51,13 +51,39 @@ export function waRecordatorioDeuda(cliente: any, saldo: number) {
   abrir(telefonoWa(cliente.telefono), l.join("\n"));
 }
 
+/**
+ * Recordatorio de vencimiento de la suscripción — lo manda el proveedor del
+ * sistema a un negocio cliente suyo, no una ferretería a SU cliente. Por eso
+ * no usa negocio() (acá no hay ningún negocio "logueado": el que manda el
+ * mensaje es el proveedor).
+ */
+export function waRecordatorioSuscripcion(n: { nombre: string; telefono: string | null }, diasParaVencer: number) {
+  const l: string[] = [];
+  l.push(`Hola, te escribo por la suscripción de ${n.nombre} al sistema.`);
+  if (diasParaVencer < 0) {
+    l.push(`Está vencida hace ${Math.abs(diasParaVencer)} día(s). ¿Coordinamos el pago?`);
+  } else if (diasParaVencer === 0) {
+    l.push(`Vence hoy. ¿Coordinamos el pago para no cortar el servicio?`);
+  } else {
+    l.push(`Vence en ${diasParaVencer} día(s). Te aviso con tiempo para coordinar el pago.`);
+  }
+  abrir(telefonoWa(n.telefono), l.join("\n"));
+}
+
 /** Manda un presupuesto (cotización) a un cliente. */
 export function waPresupuesto(cliente: any, presupuesto: any, items: any[]) {
   const l: string[] = [];
   l.push(`Hola ${cliente.nombre}, te paso el presupuesto de ${negocio().nombre}:`);
   l.push("");
-  for (const it of items) {
-    l.push(`${it.cantidad} x ${it.nombre_herramienta} — ${pesos(it.subtotal)}`);
+  if (items.length > 0) {
+    for (const it of items) {
+      l.push(`${it.cantidad} x ${it.nombre_herramienta} — ${pesos(it.subtotal)}`);
+    }
+  } else if (presupuesto.nota) {
+    // Trabajo a medida: no hay renglones de catálogo, la descripción libre
+    // ES el producto — sin esto el mensaje quedaba con el total y nada más,
+    // sin decir qué se está cotizando.
+    l.push(presupuesto.nota);
   }
   l.push("");
   if (presupuesto.descuento > 0) l.push(`Subtotal: ${pesos(presupuesto.subtotal)}`);
@@ -106,18 +132,39 @@ export function waResumenDiario(r: any) {
   abrir(null, l.join("\n"));
 }
 
-/** Comparte la lista de precios (texto) — abre WhatsApp para elegir contacto. */
-export function waListaDePrecios(herramientas: any[], tipo: "minorista" | "mayorista") {
+// Meter 90 renglones en un solo mensaje de WhatsApp no es sólo un tema de
+// límite técnico — es un mensaje horrible de leer del otro lado. A partir de
+// acá, mejor un mensaje corto + el Excel completo aparte para adjuntar a
+// mano (WhatsApp no tiene forma de pre-cargar un archivo por link, sólo
+// texto). Con menos, entra cómodo y sigue siendo más simple mandarlo así.
+const LIMITE_LINEAS_WA = 40;
+
+/**
+ * Comparte la lista de precios — abre WhatsApp para elegir contacto.
+ * Devuelve si mandó la lista completa como texto o no: si no, quien llama
+ * tiene que ofrecer el Excel completo aparte (ver exportarPrecios), porque
+ * el mensaje que se abrió es sólo un aviso corto, no la lista entera.
+ */
+export function waListaDePrecios(herramientas: any[], tipo: "minorista" | "mayorista"): { completa: boolean; cantidad: number } {
   const conPrecio = herramientas.filter((h) => (tipo === "mayorista" ? h.precio_mayor : h.precio) > 0);
   const l: string[] = [];
   l.push(`*${negocio().nombre} — Lista de precios (${tipo})*`);
   l.push(`${fecha(new Date().toISOString().slice(0, 10))}`);
   l.push("");
-  for (const h of conPrecio) {
-    l.push(`${h.nombre}: ${pesos(tipo === "mayorista" ? h.precio_mayor : h.precio)}`);
+
+  const completa = conPrecio.length <= LIMITE_LINEAS_WA;
+  if (completa) {
+    for (const h of conPrecio) {
+      l.push(`${h.nombre}: ${pesos(tipo === "mayorista" ? h.precio_mayor : h.precio)}`);
+    }
+    if (conPrecio.length === 0) l.push("(Todavía no hay precios cargados)");
+  } else {
+    l.push(
+      `Tenemos ${conPrecio.length} productos con precio — te mando la lista completa en un archivo aparte para que se vea bien. ¡Cualquier consulta, avisame!`
+    );
   }
-  if (conPrecio.length === 0) l.push("(Todavía no hay precios cargados)");
   l.push("");
   l.push(`Consultas: ${negocio().telefono} — ${negocio().instagram}`);
   abrir(null, l.join("\n"));
+  return { completa, cantidad: conPrecio.length };
 }

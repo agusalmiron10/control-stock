@@ -5,8 +5,10 @@ import { Cargando, Error, Vacio, Confirmar, Modal, Campo, useCarga } from "../co
 import { FormCliente } from "./Clientes";
 import { FormPago } from "../components/FormPago";
 import { Comprobante } from "../components/Comprobante";
+import { DetalleVentaModal } from "../components/DetalleVentaModal";
 import { exportarCliente } from "../excel";
 import { waEstadoDeCuenta, waRecordatorioDeuda } from "../lib/whatsapp";
+import { enviarEstadoDeCuenta, enviarRecordatorioDeuda } from "../lib/email";
 import { navegar } from "../lib/router";
 import { qrClienteSvg } from "../lib/qr";
 import { useModulo } from "../lib/config";
@@ -26,6 +28,7 @@ export function ClienteFicha({ id }: { id: string }) {
   const [ventaAnular, setVentaAnular] = useState<any | null>(null);
   const [ventaEditar, setVentaEditar] = useState<any | null>(null);
   const [comprobante, setComprobante] = useState<string | null>(null);
+  const [detalle, setDetalle] = useState<string | null>(null);
   const [archivar, setArchivar] = useState(false);
   const [verQr, setVerQr] = useState(false);
   const hayVentaRapida = useModulo("venta_rapida");
@@ -81,6 +84,22 @@ export function ClienteFicha({ id }: { id: string }) {
           </button>
           {data.saldo > 0 && (
             <button className="btn wa" onClick={() => waRecordatorioDeuda(c, data.saldo)}>Recordar deuda</button>
+          )}
+          {/* Mail sólo si el cliente tiene uno cargado — a diferencia de
+              WhatsApp, no hay "elegir destinatario" en el momento: mailto
+              necesita la dirección de una. */}
+          {c.email && (
+            <button
+              className="btn email"
+              onClick={() => enviarEstadoDeCuenta(c, data.saldo, data.total_comprado, data.total_pagado).then(setAviso)}
+            >
+              ✉ Mail: estado de cuenta
+            </button>
+          )}
+          {c.email && data.saldo > 0 && (
+            <button className="btn email" onClick={() => enviarRecordatorioDeuda(c, data.saldo).then(setAviso)}>
+              ✉ Recordar deuda
+            </button>
           )}
           <button className="btn" onClick={() => exportarCliente(id).catch((e) => setAviso(e.message))}>⬇ Excel</button>
           {hayVentaRapida && <button className="btn" onClick={() => setVerQr(true)}>QR del cliente</button>}
@@ -145,6 +164,7 @@ export function ClienteFicha({ id }: { id: string }) {
                     <td><span className={`badge ${v.estado}`}>{v.estado}</span></td>
                     <td className="acc">
                       <div className="btn-grupo" style={{ justifyContent: "flex-end" }}>
+                        <button className="btn chico" onClick={() => setDetalle(v.id)}>Detalle</button>
                         <button className="btn chico" onClick={() => setComprobante(v.id)}>Comprobante</button>
                         <button className="btn chico" onClick={() => setVentaEditar(v)}>Editar</button>
                         {v.estado !== "anulada" && (
@@ -172,6 +192,7 @@ export function ClienteFicha({ id }: { id: string }) {
                   {v.saldo > 0 && <span className="num debe">Debe {pesos(v.saldo)}</span>}
                 </div>
                 <div className="tf-datos" style={{ marginTop: 8 }}>
+                  <button className="btn chico" onClick={() => setDetalle(v.id)}>Detalle</button>
                   <button className="btn chico" onClick={() => setComprobante(v.id)}>Comprobante</button>
                   <button className="btn chico" onClick={() => setVentaEditar(v)}>Editar</button>
                   {v.estado !== "anulada" && (
@@ -235,6 +256,7 @@ export function ClienteFicha({ id }: { id: string }) {
       </div>
 
       {editar && <FormCliente cliente={c} onCerrar={(m) => { setEditar(false); actualizar(m); }} />}
+      {detalle && <DetalleVentaModal ventaId={detalle} onCerrar={() => setDetalle(null)} />}
       {comprobante && <Comprobante ventaId={comprobante} onCerrar={() => setComprobante(null)} />}
       {pagoNuevo && <FormPago clienteFijo={{ id, nombre: c.nombre }} onCerrar={(m) => { setPagoNuevo(false); actualizar(m); }} />}
       {pagoEditar && <FormPago clienteFijo={{ id, nombre: c.nombre }} pago={pagoEditar} onCerrar={(m) => { setPagoEditar(null); actualizar(m); }} />}

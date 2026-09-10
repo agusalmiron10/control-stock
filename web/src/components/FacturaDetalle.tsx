@@ -41,14 +41,22 @@ interface Props {
   onReintentar?: (ventaId: string) => void;
   /** Sólo se ofrece en los intentos que ARCA rechazó: nunca en una autorizada. */
   onBorrado?: (mensaje: string) => void;
+  /** Sólo se ofrece sobre una factura autorizada, no anulada, y que no sea a su vez NC/ND. */
+  onNotaDebito?: (ventaId: string, letra: string) => void;
 }
 
 /** Ficha completa de un comprobante: quién, qué, cuánto y qué dijo ARCA. */
-export function FacturaDetalle({ id, onCerrar, onImprimir, onVerificar, onReintentar, onBorrado }: Props) {
+export function FacturaDetalle({ id, onCerrar, onImprimir, onVerificar, onReintentar, onBorrado, onNotaDebito }: Props) {
   const { data, error, cargando } = useCarga<any>(() => api.get(`/api/facturacion/facturas/${id}`), [id]);
   const [borrar, setBorrar] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const f = data?.factura;
+  // IVA mixto: varias alícuotas en un mismo comprobante. Si no viene (el
+  // caso de siempre), se muestra la línea única de "Neto gravado / IVA (X%)".
+  let desglose: { ivaPorcentaje: number; neto: number; iva: number }[] | null = null;
+  if (f?.iva_desglose) {
+    try { desglose = JSON.parse(f.iva_desglose); } catch { desglose = null; }
+  }
 
   async function hacerBorrar() {
     setErr(null);
@@ -136,11 +144,22 @@ export function FacturaDetalle({ id, onCerrar, onImprimir, onVerificar, onReinte
 
           <h3 style={{ marginBottom: 4, marginTop: 18 }}>Importes</h3>
           <dl className="detalle-filas">
-            <div className="detalle-fila"><dt>Neto gravado</dt><dd>{pesos(f.neto_gravado)}</dd></div>
-            <div className="detalle-fila">
-              <dt>IVA {(f.iva_porcentaje / 100).toFixed(2).replace(".", ",")}%</dt>
-              <dd>{pesos(f.iva)}</dd>
-            </div>
+            {desglose ? (
+              desglose.map((d) => (
+                <div className="detalle-fila" key={d.ivaPorcentaje}>
+                  <dt>Neto + IVA {(d.ivaPorcentaje / 100).toFixed(2).replace(".", ",")}%</dt>
+                  <dd>{pesos(d.neto)} + {pesos(d.iva)}</dd>
+                </div>
+              ))
+            ) : (
+              <>
+                <div className="detalle-fila"><dt>Neto gravado</dt><dd>{pesos(f.neto_gravado)}</dd></div>
+                <div className="detalle-fila">
+                  <dt>IVA {(f.iva_porcentaje / 100).toFixed(2).replace(".", ",")}%</dt>
+                  <dd>{pesos(f.iva)}</dd>
+                </div>
+              </>
+            )}
             <div className="detalle-fila fuerte"><dt>Total</dt><dd>{pesos(f.total)}</dd></div>
           </dl>
 
@@ -172,8 +191,30 @@ export function FacturaDetalle({ id, onCerrar, onImprimir, onVerificar, onReinte
             </div>
           )}
 
+          {data.notas_debito?.length > 0 && (
+            <>
+              <h3 style={{ marginBottom: 4, marginTop: 18 }}>Notas de Débito sobre esta factura</h3>
+              <dl className="detalle-filas">
+                {data.notas_debito.map((nd: any) => (
+                  <div className="detalle-fila" key={nd.id}>
+                    <dt>
+                      {String(nd.punto_venta).padStart(5, "0")}-{String(nd.numero ?? 0).padStart(8, "0")}
+                      {nd.estado !== "autorizada" && <span className={`badge ${BADGE[nd.estado] ?? ""}`} style={{ marginLeft: 6 }}>{TEXTO_ESTADO[nd.estado] ?? nd.estado}</span>}
+                    </dt>
+                    <dd>{pesos(nd.total)}{nd.cae ? ` · CAE ${nd.cae}` : ""}</dd>
+                  </div>
+                ))}
+              </dl>
+            </>
+          )}
+
           <div className="btn-grupo" style={{ justifyContent: "flex-end", marginTop: 18 }}>
             <button className="btn" onClick={onCerrar}>Cerrar</button>
+            {f.estado === "autorizada" && !f.es_nota_credito && !f.es_nota_debito && !data.nota_credito && onNotaDebito && (
+              <button className="btn" onClick={() => onNotaDebito(f.venta_id, f.comprobante.slice(-1))}>
+                Nota de Débito
+              </button>
+            )}
             {f.estado === "autorizada" && onImprimir && (
               <button className="btn primario" onClick={() => onImprimir(f.venta_id)}>Ver / Imprimir</button>
             )}

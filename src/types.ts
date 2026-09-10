@@ -6,15 +6,24 @@ export interface Env {
   ASSETS: Fetcher;
   SESSION_SECRET: string;
   BACKUPS: R2Bucket;
-  /** Cifra en reposo la clave privada del certificado ARCA (AES-256-GCM).
-   *  Queda del modelo anterior (un certificado por negocio); ya no se usa
-   *  para facturar, pero todavía lo importa certificados.ts. */
-  CERT_ENC_KEY: string;
   /** Certificado del PROVEEDOR del sistema, en PEM. Uno solo para todos los
    *  negocios: cada uno delega el servicio a este CUIT desde ARCA. */
   ARCA_CERT_PEM: string;
   /** Clave privada de ese certificado, en PEM. Nunca va a la base. */
   ARCA_CLAVE_PEM: string;
+  /** Webhook de Discord para alertas de error 500 en tiempo real (ver
+   *  app.onError en src/index.ts). Opcional: si no está cargado, el error
+   *  se sigue guardando en errores_sistema como siempre, sólo que sin aviso
+   *  externo. Se carga con `wrangler secret put ALERTA_DISCORD_WEBHOOK`. */
+  ALERTA_DISCORD_WEBHOOK?: string;
+  /** API key de Resend (resend.com) para el correo diario de stock bajo y
+   *  vencimientos próximos (ver src/scheduled.ts). Opcional: sin esto, el
+   *  cron sigue corriendo el resto de sus tareas, sólo que no manda mails. */
+  RESEND_API_KEY?: string;
+  /** Remitente del correo de alertas, formato "Nombre <correo@dominio>".
+   *  Tiene que ser un dominio verificado en Resend. Si no se carga, se usa
+   *  un default (que va a fallar si ese dominio no está verificado ahí). */
+  RESEND_FROM?: string;
 }
 
 export type Rol = "super" | "dueño" | "empleado" | "soporte";
@@ -47,6 +56,13 @@ export interface Variables {
     /** Visita de soporte en modo mirar y no tocar. */
     soloLectura: boolean;
   };
+  /**
+   * Config del negocio ya resuelta, memorizada para este request. La lee
+   * configDe() en src/config.ts — sin esto, una request protegida por
+   * requireModulo consulta la config una vez para el middleware y otra vez
+   * adentro de la ruta.
+   */
+  configNegocio?: unknown;
 }
 
 /**
@@ -96,18 +112,13 @@ export interface FacturacionConfig {
   punto_venta: number | null;
   ambiente: "homologacion" | "produccion";
   iva_porcentaje_defecto: number;
-  cert_pem: string | null;
-  clave_privada_enc: string | null;
-  clave_privada_iv: string | null;
-  cert_subido_en: string | null;
-  wsaa_token: string | null;
-  wsaa_sign: string | null;
-  wsaa_expira_en: string | null;
+  /** Última vez que /probar-conexion confirmó que el negocio ya delegó el servicio en ARCA. null = todavía no se verificó. */
+  delegacion_verificada_en: string | null;
   actualizado_en: string;
 }
 
 /** Código AFIP de tipo de comprobante. 1/6/11 = Factura A/B/C, 3/8/13 = NC A/B/C. */
-export type TipoComprobante = 1 | 3 | 6 | 8 | 11 | 13;
+export type TipoComprobante = 1 | 2 | 3 | 6 | 7 | 8 | 11 | 12 | 13;
 
 export interface Factura {
   id: string;
@@ -119,11 +130,14 @@ export interface Factura {
   numero: number | null;
   cae: string | null;
   cae_vencimiento: string | null;
-  estado: "pendiente" | "autorizada" | "rechazada" | "error";
+  estado: "pendiente" | "autorizada" | "rechazada" | "error" | "huerfano";
   neto_gravado: number;
   iva: number;
   total: number;
+  /** Una sola alícuota — con IVA mixto (ver iva_desglose) vale 0: ninguna sola la describe. */
   iva_porcentaje: number;
+  /** JSON de DesgloseAlicuota[] cuando el comprobante mezcla alícuotas; null en el caso de siempre (una sola). */
+  iva_desglose: string | null;
   doc_tipo: number;
   doc_numero: string;
   respuesta_afip: string | null;
@@ -151,6 +165,21 @@ export interface Herramienta {
   iva_porcentaje: number | null;
 }
 
+/**
+ * Insumo = material de taller (cuero, hilo, hebillas…), NO producto de
+ * catálogo. Stock aparte del de herramientas, y puede ser fraccionario
+ * (2,5 metros), a diferencia del stock entero de herramientas.
+ */
+export interface Insumo {
+  id: string;
+  nombre: string;
+  unidad_medida: string;
+  costo_unitario: number; // centavos
+  stock_actual: number; // puede ser fraccionario
+  activo: number;
+  creado_en: string;
+}
+
 export type EstadoVenta = "borrador" | "sincronizada" | "confirmada" | "anulada";
 export type OrigenVenta = "celular" | "escritorio";
 
@@ -169,6 +198,8 @@ export interface Venta {
   motivo_revision: string | null;
   creado_en: string;
   sincronizado_en: string | null;
+  /** Quién la cargó (usuarios.id) — para mostrar "Atendido por" en el papel. null en ventas de antes de este campo. */
+  atendido_por: number | null;
 }
 
 export interface VentaItem {
@@ -227,6 +258,12 @@ export interface Presupuesto {
   nota: string | null;
   venta_id: string | null;
   creado_en: string;
+  /** Quién lo cargó (usuarios.id) — para mostrar "Atendido por" en el papel. null en presupuestos de antes de este campo. */
+  atendido_por: number | null;
+  /** Cuándo se descontó el stock de insumos (al aprobarlo). null = todavía no, o no tiene insumos. */
+  insumos_descontados_en: string | null;
+  /** Foto o boceto técnico del trabajo (croquis, moldería), como data URI. Sólo en presupuestos a medida. */
+  croquis: string | null;
 }
 
 export interface PresupuestoItem {
@@ -237,6 +274,16 @@ export interface PresupuestoItem {
   cantidad: number;
   precio_unitario: number;
   subtotal: number;
+}
+
+/** Un renglón del BOM (lista de materiales) de un presupuesto a medida. */
+export interface PresupuestoInsumo {
+  id: number;
+  presupuesto_id: number;
+  insumo_id: string;
+  nombre_insumo: string;
+  cantidad_requerida: number;
+  costo_unitario: number; // centavos, copia histórica
 }
 
 export interface ResumenDiario {
@@ -316,6 +363,8 @@ export interface Remito {
   entregado_en: string | null;
   nota: string | null;
   creado_en: string;
+  /** Quién lo cargó (usuarios.id) — para mostrar "Atendido por" en el papel. null en remitos de antes de este campo. */
+  atendido_por: number | null;
 }
 
 export interface RemitoItem {

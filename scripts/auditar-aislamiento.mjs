@@ -20,6 +20,8 @@ const TABLAS = [
   "facturacion_config", "facturas",
   "proveedores", "compras", "compra_items",
   "remitos", "remito_items",
+  "precios_escala", "series_vendidas",
+  "insumos", "presupuesto_insumos",
 ];
 
 /**
@@ -31,6 +33,7 @@ const EXCEPCIONES = [
   { archivo: "src/routes/super.ts", motivo: "super admin: opera a propósito sobre todos los negocios" },
   { archivo: "src/scheduled.ts", motivo: "cron: recorre los negocios de a uno; el backup a R2 es de toda la base" },
   { archivo: "src/routes/backup.ts", motivo: "arma el WHERE por interpolación de tabla, ya filtrado" },
+  { archivo: "src/secuencias.ts", motivo: "id de presupuestos es AUTOINCREMENT global, no por negocio (numero sí lo es y sigue filtrado)" },
 ];
 
 /**

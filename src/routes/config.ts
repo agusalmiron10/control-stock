@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Env, Variables } from "../types";
 import { texto } from "../validate";
 import { requireDueno } from "../auth";
-import { leerConfig } from "../config";
+import { leerConfig, guardarOverride, type Capacidades } from "../config";
 import { auditarDe } from "../auditoria";
 import { negocioDe } from "../types";
 
@@ -64,12 +64,27 @@ config.put("/", requireDueno, async (c) => {
     ["negocio_rubro", b.negocio?.rubro, 120],
     ["negocio_telefono", b.negocio?.telefono, 40],
     ["negocio_instagram", b.negocio?.instagram, 60],
-    ["producto_singular", b.vocabulario?.producto_singular, 30],
-    ["producto_plural", b.vocabulario?.producto_plural, 30],
   ];
   for (const [clave, valor, max] of campos) {
     if (valor === undefined) continue;
     guardar(clave, texto(valor, clave, { requerido: false, max }) ?? "");
+  }
+
+  // El vocabulario ya NO vive en esta tabla: es una capacidad, y las
+  // capacidades de una cuenta se guardan en su override. Si se escribiera
+  // acá además, habría dos lugares para el mismo dato y el que gana sería
+  // el que lea el código de turno.
+  const singular = b.vocabulario?.producto_singular;
+  const plural = b.vocabulario?.producto_plural;
+  if (singular !== undefined || plural !== undefined) {
+    const parcial: Partial<Capacidades> = {};
+    if (singular !== undefined) {
+      parcial.producto_singular = texto(singular, "producto (singular)", { max: 30 })!;
+    }
+    if (plural !== undefined) {
+      parcial.producto_plural = texto(plural, "producto (plural)", { max: 30 })!;
+    }
+    await guardarOverride(c.env, neg, parcial);
   }
 
   if (stmts.length > 0) {

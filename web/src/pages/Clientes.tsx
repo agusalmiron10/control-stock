@@ -7,10 +7,13 @@ import { exportarClientesTodos, exportarClientesContacto } from "../excel";
 import { ClientesPDF } from "../components/ClientesPDF";
 import { useModulo } from "../lib/config";
 
+type ColumnaOrden = "total_comprado" | "total_pagado" | "saldo";
+
 export function Clientes() {
   const [buscar, setBuscar] = useState("");
   const [localidad, setLocalidad] = useState("");
   const [soloDeben, setSoloDeben] = useState(false);
+  const [orden, setOrden] = useState<{ col: ColumnaOrden; dir: "asc" | "desc" } | null>(null);
   const [nuevo, setNuevo] = useState(false);
   const [mostrarPDF, setMostrarPDF] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -26,6 +29,19 @@ export function Clientes() {
     [buscar, localidad, soloDeben]
   );
   const locs = useCarga<any>(() => api.get("/api/clientes/localidades"), []);
+
+  let clientesVista: any[] = data?.clientes ?? [];
+  if (orden) {
+    const { col, dir } = orden;
+    clientesVista = [...clientesVista].sort((a, b) => (dir === "asc" ? a[col] - b[col] : b[col] - a[col]));
+  }
+  function ordenarPor(col: ColumnaOrden) {
+    setOrden((o) => (o?.col === col ? { col, dir: o.dir === "desc" ? "asc" : "desc" } : { col, dir: "desc" }));
+  }
+  function flechaOrden(col: ColumnaOrden): string {
+    if (orden?.col !== col) return "";
+    return orden.dir === "desc" ? " ▼" : " ▲";
+  }
 
   return (
     <div>
@@ -75,11 +91,14 @@ export function Clientes() {
               <thead>
                 <tr>
                   <th>Nombre</th><th>Localidad</th><th>Teléfono</th>
-                  <th className="num">Comprado</th><th className="num">Pagado</th><th className="num">Saldo</th><th></th>
+                  <th className="num" onClick={() => ordenarPor("total_comprado")} style={{ cursor: "pointer" }}>Comprado{flechaOrden("total_comprado")}</th>
+                  <th className="num" onClick={() => ordenarPor("total_pagado")} style={{ cursor: "pointer" }}>Pagado{flechaOrden("total_pagado")}</th>
+                  <th className="num" onClick={() => ordenarPor("saldo")} style={{ cursor: "pointer" }}>Saldo{flechaOrden("saldo")}</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
-                {data.clientes.map((c: any) => (
+                {clientesVista.map((c: any) => (
                   <tr key={c.id}>
                     <td><a href={`#/clientes/${c.id}`}>{c.nombre}</a></td>
                     <td>{c.localidad ?? "—"}</td>
@@ -99,7 +118,7 @@ export function Clientes() {
           </div>
 
           <div className="card-body solo-movil lista-tarjetas">
-            {data.clientes.map((c: any) => (
+            {clientesVista.map((c: any) => (
               <div className="tarjeta-fila" key={c.id}>
                 <div className="tf-titulo">
                   <a href={`#/clientes/${c.id}`}>{c.nombre}</a>

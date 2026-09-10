@@ -4,6 +4,8 @@ import { pesos, fecha } from "../format";
 import { Cargando, Error, Modal, Campo, Confirmar, useCarga } from "../components/ui";
 import { waPresupuesto, waRecordatorioPresupuesto } from "../lib/whatsapp";
 import { navegar } from "../lib/router";
+import { generarPdfPresupuesto } from "../lib/pdf";
+import { compartirArchivo, mensajeCompartir } from "../lib/compartirArchivo";
 
 const MEDIOS = ["efectivo", "mercado_pago", "tarjeta", "transferencia", "cheque", "otro"];
 const ETIQUETA_MEDIO: Record<string, string> = {
@@ -15,12 +17,60 @@ export function PresupuestoDetalle({ id }: { id: number }) {
   const { data, error, cargando, recargar } = useCarga<any>(() => api.get(`/api/presupuestos/${id}`), [id]);
   const [convertir, setConvertir] = useState(false);
   const [rechazar, setRechazar] = useState(false);
+  const [cancelarInsumos, setCancelarInsumos] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
+  const [error2, setError2] = useState<string | null>(null);
+  const [aprobando, setAprobando] = useState(false);
+  const [generandoPdf, setGenerandoPdf] = useState(false);
+
+  async function compartirPdf() {
+    setError2(null);
+    setGenerandoPdf(true);
+    try {
+      const blob = await generarPdfPresupuesto(data);
+      const p = data.presupuesto;
+      const resultado = await compartirArchivo(blob, `presupuesto-${p.numero}.pdf`, {
+        titulo: `Presupuesto ${p.numero}`,
+        texto: `Presupuesto de ${p.cliente_nombre}`,
+      });
+      setAviso(mensajeCompartir(resultado));
+    } catch (err: any) {
+      setError2("No se pudo generar el PDF: " + err.message);
+    } finally {
+      setGenerandoPdf(false);
+    }
+  }
 
   async function cambiarEstado(estado: string) {
     await api.post(`/api/presupuestos/${id}/estado`, { estado });
     setRechazar(false);
     recargar();
+  }
+
+  async function aprobarInsumos() {
+    setError2(null);
+    setAprobando(true);
+    try {
+      await api.post(`/api/presupuestos/${id}/insumos/aprobar`);
+      setAviso("Materiales descontados. Presupuesto marcado como aceptado.");
+      recargar();
+    } catch (err: any) {
+      setError2(err.message);
+    } finally {
+      setAprobando(false);
+    }
+  }
+
+  async function cancelarInsumosStock() {
+    try {
+      await api.post(`/api/presupuestos/${id}/insumos/cancelar`);
+      setCancelarInsumos(false);
+      setAviso("Stock de materiales devuelto.");
+      recargar();
+    } catch (err: any) {
+      setError2(err.message);
+      setCancelarInsumos(false);
+    }
   }
 
   if (cargando) return <Cargando />;
@@ -41,10 +91,14 @@ export function PresupuestoDetalle({ id }: { id: number }) {
           {p.estado === "pendiente" && (
             <button className="btn wa" onClick={() => waRecordatorioPresupuesto(cliente, p)}>Recordar</button>
           )}
+          <button className="btn wa" disabled={generandoPdf} onClick={compartirPdf}>
+            {generandoPdf ? "Generando PDF…" : "📄 Compartir PDF por WhatsApp"}
+          </button>
         </div>
       </div>
 
       {aviso && <div className="ok-box" onClick={() => setAviso(null)}>{aviso}</div>}
+      <Error msg={error2} />
 
       <div className="card">
         <div className="card-body">
@@ -56,6 +110,13 @@ export function PresupuestoDetalle({ id }: { id: number }) {
             {p.venta_id && <><dt>Venta generada</dt><dd><a href={`#/ventas`}>Venta #{p.venta_numero}</a></dd></>}
             {p.nota && <><dt>Nota</dt><dd>{p.nota}</dd></>}
           </dl>
+          {p.croquis && (
+            <img
+              src={p.croquis}
+              alt="Croquis del trabajo"
+              style={{ maxWidth: "100%", maxHeight: 320, borderRadius: 8, border: "1px solid var(--borde)", marginTop: 14 }}
+            />
+          )}
         </div>
       </div>
 
@@ -96,6 +157,50 @@ export function PresupuestoDetalle({ id }: { id: number }) {
         </div>
       </div>
 
+      {data.insumos.length > 0 && (
+        <div className="card taller-card">
+          <h2>Materiales (Taller) <span className="mut" style={{ fontWeight: 400, fontSize: 13 }}>(interno, no aparece en lo impreso)</span></h2>
+          <div className="tabla-wrap solo-escritorio">
+            <table className="tabla">
+              <thead><tr><th>Material</th><th className="num">Cant.</th><th className="num">Costo</th></tr></thead>
+              <tbody>
+                {data.insumos.map((it: any) => (
+                  <tr key={it.id}>
+                    <td>{it.nombre_insumo}</td>
+                    <td className="num">{it.cantidad_requerida}</td>
+                    <td className="num">{pesos(it.costo_unitario * it.cantidad_requerida)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="card-body">
+            {(() => {
+              const costoMateriales = data.insumos.reduce((acc: number, it: any) => acc + it.costo_unitario * it.cantidad_requerida, 0);
+              const margen = p.total - costoMateriales;
+              return (
+                <dl className="dt-list" style={{ gridTemplateColumns: "auto auto", marginLeft: "auto", width: 280 }}>
+                  <dt>Costo de materiales</dt><dd>{pesos(costoMateriales)}</dd>
+                  <dt><b>Margen</b></dt><dd><b className={margen < 0 ? "stock-cero" : ""}>{pesos(margen)}</b></dd>
+                </dl>
+              );
+            })()}
+            {p.insumos_descontados_en ? (
+              <div className="btn-grupo" style={{ marginTop: 12 }}>
+                <span className="mut">Stock descontado el {fecha(p.insumos_descontados_en)}.</span>
+                <button className="btn" onClick={() => setCancelarInsumos(true)}>Cancelar (devolver stock)</button>
+              </div>
+            ) : (
+              <div className="btn-grupo" style={{ marginTop: 12 }}>
+                <button className="btn primario" disabled={aprobando} onClick={aprobarInsumos}>
+                  {aprobando ? "Descontando…" : "Aprobar y descontar materiales"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {!p.venta_id && p.estado !== "rechazado" && (
         <div className="card">
           <h2>Acciones</h2>
@@ -107,6 +212,15 @@ export function PresupuestoDetalle({ id }: { id: number }) {
             )}
           </div>
         </div>
+      )}
+
+      {cancelarInsumos && (
+        <Confirmar
+          mensaje="¿Cancelar? Se devuelve al stock exactamente lo que se había descontado de cada material."
+          textoConfirmar="Cancelar y devolver stock"
+          onSi={cancelarInsumosStock}
+          onNo={() => setCancelarInsumos(false)}
+        />
       )}
 
       {convertir && (

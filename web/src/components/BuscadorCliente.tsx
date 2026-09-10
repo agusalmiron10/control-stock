@@ -1,10 +1,18 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { api } from "../api";
 
 /**
  * Selector de cliente con búsqueda por nombre (no solo desplegable) y alta
  * rápida si no existe. Se usa en los formularios de escritorio de Nueva
  * venta y Nuevo presupuesto.
+ *
+ * La lista se dibuja con un portal directo a <body>, posicionada "a mano"
+ * según dónde está el input. Si se dibujara adentro del formulario normal,
+ * quedaría atrapada dentro de la tarjeta (`.card { overflow: hidden }`, para
+ * que las esquinas redondeadas no se vean rotas) y se cortaba a mitad de
+ * lista en vez de flotar por encima de todo, como corresponde a un
+ * desplegable.
  */
 export function BuscadorCliente({
   clientes,
@@ -21,11 +29,30 @@ export function BuscadorCliente({
   const [abierto, setAbierto] = useState(false);
   const [creando, setCreando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
 
   const cliente = clientes.find((c) => c.id === clienteId);
   const q = buscar.trim().toLowerCase();
   const filtrados = (q ? clientes.filter((c) => c.nombre.toLowerCase().includes(q)) : clientes).slice(0, 40);
   const hayExacto = clientes.some((c) => c.nombre.toLowerCase() === q);
+
+  // Se recalcula cada vez que se abre (el formulario puede haber scrolleado
+  // o cambiado de tamaño desde la última vez).
+  useLayoutEffect(() => {
+    if (!abierto || !inputRef.current) return;
+    const actualizar = () => {
+      const r = inputRef.current!.getBoundingClientRect();
+      setPos({ top: r.bottom + 4, left: r.left, width: r.width });
+    };
+    actualizar();
+    window.addEventListener("scroll", actualizar, true);
+    window.addEventListener("resize", actualizar);
+    return () => {
+      window.removeEventListener("scroll", actualizar, true);
+      window.removeEventListener("resize", actualizar);
+    };
+  }, [abierto]);
 
   function elegir(id: string) {
     onElegir(id);
@@ -53,12 +80,15 @@ export function BuscadorCliente({
   return (
     <div className="bc">
       {cliente ? (
-        <div className="bc-elegido">
+        <div className="bc-elegido" role="button" tabIndex={0}
+          onClick={() => { onElegir(""); setAbierto(true); }}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onElegir(""); setAbierto(true); } }}>
           <span>{cliente.nombre}</span>
-          <button type="button" className="btn chico" onClick={() => { onElegir(""); setAbierto(true); }}>Cambiar</button>
+          <button type="button" className="btn chico" onClick={(e) => { e.stopPropagation(); onElegir(""); setAbierto(true); }}>Cambiar</button>
         </div>
       ) : (
         <input
+          ref={inputRef}
           value={buscar}
           onChange={(e) => { setBuscar(e.target.value); setAbierto(true); }}
           onFocus={() => setAbierto(true)}
@@ -66,10 +96,10 @@ export function BuscadorCliente({
           autoComplete="off"
         />
       )}
-      {abierto && !cliente && (
+      {abierto && !cliente && pos && createPortal(
         <>
           <div className="bc-fondo" onClick={() => setAbierto(false)} />
-          <div className="bc-lista">
+          <div className="bc-lista" style={{ top: pos.top, left: pos.left, width: pos.width }}>
             {filtrados.map((c) => (
               <button type="button" key={c.id} className="bc-opcion" onClick={() => elegir(c.id)}>{c.nombre}</button>
             ))}
@@ -80,7 +110,8 @@ export function BuscadorCliente({
               </button>
             )}
           </div>
-        </>
+        </>,
+        document.body
       )}
       {error && <p className="error-box" style={{ marginTop: 6 }}>{error}</p>}
     </div>

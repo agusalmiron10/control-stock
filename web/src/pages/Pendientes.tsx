@@ -44,6 +44,7 @@ export function Pendientes() {
   if (error) return <Error msg={error} />;
 
   const ventas: any[] = data?.ventas ?? [];
+  const fiado: any[] = data?.fiado ?? [];
 
   return (
     <div>
@@ -106,6 +107,59 @@ export function Pendientes() {
                     {confirmando === v.id ? "Confirmando…" : "Confirmar"}
                   </button>
                   <button className="btn chico peligro" onClick={() => setAnular(v)}>Anular</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="encabezado-seccion" style={{ marginTop: 28 }}>
+        <h1 style={{ fontSize: 18 }}>Fiado — con saldo sin cobrar</h1>
+      </div>
+      {fiado.length === 0 ? (
+        <Vacio mensaje="No hay ventas con saldo pendiente." />
+      ) : (
+        <div className="card">
+          <div className="tabla-wrap solo-escritorio">
+            <table className="tabla">
+              <thead>
+                <tr>
+                  <th>Fecha</th><th className="num">N°</th><th>Cliente</th>
+                  <th className="num">Total</th><th className="num">Pagado</th><th className="num">Saldo</th><th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {fiado.map((v) => (
+                  <tr key={v.id}>
+                    <td className="num">{fecha(v.fecha)}</td>
+                    <td className="num">{v.numero}</td>
+                    <td><a href={`#/clientes/${v.cliente_id}`}>{v.cliente_nombre}</a></td>
+                    <td className="num">{pesos(v.total)}</td>
+                    <td className="num">{pesos(v.pagado)}</td>
+                    <td className="num debe">{pesos(v.saldo)}</td>
+                    <td className="acc">
+                      <button className="btn chico" onClick={() => setDetalle(v.id)}>Detalle</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="card-body solo-movil lista-tarjetas">
+            {fiado.map((v) => (
+              <div className="tarjeta-fila" key={v.id}>
+                <div className="tf-titulo">
+                  #{v.numero} — <a href={`#/clientes/${v.cliente_id}`}>{v.cliente_nombre}</a>
+                  <span className="mut" style={{ fontWeight: 400 }}> · {fecha(v.fecha)}</span>
+                </div>
+                <div className="tf-datos">
+                  <span>Total {pesos(v.total)}</span>
+                  <span className="debe">Saldo {pesos(v.saldo)}</span>
+                </div>
+                <div className="tf-datos" style={{ marginTop: 8 }}>
+                  <button className="btn chico" onClick={() => setDetalle(v.id)}>Detalle</button>
                 </div>
               </div>
             ))}

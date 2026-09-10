@@ -13,6 +13,8 @@ export const MODULOS = [
   "caja_turno",
   "auditoria",
   "facturacion_electronica",
+  "insumos",
+  "croquis",
 ] as const;
 
 export type Modulo = (typeof MODULOS)[number];
@@ -63,18 +65,73 @@ export const INFO_MODULOS: Record<Modulo, { titulo: string; detalle: string }> =
     titulo: "Facturación electrónica (ARCA)",
     detalle: "Emitir Factura A/B/C con CAE real desde una venta, con certificado digital propio de este negocio.",
   },
+  insumos: {
+    titulo: "Insumos y presupuestos a medida",
+    detalle: "Stock de materiales de taller (cuero, hilo, hebillas…) para armar presupuestos a medida: calcula el costo y descuenta el material al aprobar.",
+  },
+  croquis: {
+    titulo: "Foto o croquis del trabajo",
+    detalle: "Adjuntar una foto de referencia o un boceto técnico a un presupuesto a medida — moldería, diseño, plano. Útil para marroquinería, carpintería, sastrería o cualquier trabajo a medida.",
+  },
+};
+
+/**
+ * Capacidades: CÓMO se comporta el sistema para este negocio, según el rubro
+ * que eligió. Espejo de `Capacidades` en src/config.ts.
+ *
+ * Regla dura: ningún componente pregunta por el rubro. Se pregunta por la
+ * capacidad. Sumar un rubro nuevo es una fila en la base, no un deploy.
+ *   Prohibido:  if (rubro === "indumentaria")
+ *   Correcto:   if (useCapacidad("permite_variantes"))
+ */
+export interface Capacidades {
+  permite_variantes: boolean;
+  tipos_variante: string[];
+  permite_vencimientos: boolean;
+  alerta_dias_antes_vencer: number;
+  venta_fraccionada: boolean;
+  requiere_numero_serie: boolean;
+  precios_por_escala: boolean;
+  producto_singular: string;
+  producto_plural: string;
+  unidad_default: string;
+  categorias_sugeridas: string[];
+  campos_extra_producto: string[];
+  /** Qué vende el negocio, para el Concepto de ARCA. Se puede cambiar por comprobante. */
+  concepto_default: "productos" | "servicios" | "ambos";
+}
+
+export const CAPACIDADES_INICIAL: Capacidades = {
+  permite_variantes: false,
+  tipos_variante: [],
+  permite_vencimientos: false,
+  alerta_dias_antes_vencer: 30,
+  venta_fraccionada: false,
+  requiere_numero_serie: false,
+  precios_por_escala: false,
+  producto_singular: "Producto",
+  producto_plural: "Productos",
+  unidad_default: "unidad",
+  categorias_sugeridas: [],
+  campos_extra_producto: [],
+  concepto_default: "productos",
 };
 
 export interface ConfigNegocio {
-  negocio: { nombre: string; rubro: string; telefono: string; instagram: string };
+  negocio: { nombre: string; rubro: string; telefono: string; instagram: string; logo: string | null };
   vocabulario: { producto_singular: string; producto_plural: string };
   modulos: Record<Modulo, boolean>;
+  capacidades: Capacidades;
+  /** Informativo: qué rubro eligió la cuenta. No se decide nada con esto. */
+  rubro: { id: string | null; nombre: string | null; otro_texto: string | null; configurado: boolean };
 }
 
 export const CONFIG_INICIAL: ConfigNegocio = {
-  negocio: { nombre: "Mi negocio", rubro: "", telefono: "", instagram: "" },
+  negocio: { nombre: "Mi negocio", rubro: "", telefono: "", instagram: "", logo: null },
   vocabulario: { producto_singular: "Producto", producto_plural: "Productos" },
   modulos: Object.fromEntries(MODULOS.map((m) => [m, false])) as Record<Modulo, boolean>,
+  capacidades: CAPACIDADES_INICIAL,
+  rubro: { id: null, nombre: null, otro_texto: null, configurado: false },
 };
 
 /**
@@ -117,4 +174,17 @@ export function useModulo(m: Modulo): boolean {
 export function useVocab(): { singular: string; plural: string } {
   const { vocabulario } = useContext(ConfigContext);
   return { singular: vocabulario.producto_singular, plural: vocabulario.producto_plural };
+}
+
+/**
+ * La única forma correcta de preguntar por el comportamiento del sistema.
+ * Devuelve el valor de una capacidad para el negocio de la sesión.
+ */
+export function useCapacidad<K extends keyof Capacidades>(k: K): Capacidades[K] {
+  return useContext(ConfigContext).capacidades[k];
+}
+
+/** Todas las capacidades juntas, para cuando hacen falta varias. */
+export function useCapacidades(): Capacidades {
+  return useContext(ConfigContext).capacidades;
 }

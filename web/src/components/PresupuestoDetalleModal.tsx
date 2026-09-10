@@ -45,27 +45,43 @@ export function PresupuestoDetalleModal({ id, onCerrar, onPdf, onAbrirCompleto }
             )}
           </dl>
 
-          <h3 style={{ marginBottom: 4, marginTop: 18 }}>Qué se cotizó</h3>
-          <div className="tabla-wrap">
-            <table className="tabla">
-              <thead>
-                <tr>
-                  <th>Detalle</th><th className="num">Cant.</th>
-                  <th className="num">Precio</th><th className="num">Subtotal</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.items.map((it: any) => (
-                  <tr key={it.id}>
-                    <td>{it.nombre_herramienta}</td>
-                    <td className="num">{numero(it.cantidad)}</td>
-                    <td className="num">{pesos(it.precio_unitario)}</td>
-                    <td className="num">{pesos(it.subtotal)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {data.items.length > 0 ? (
+            <>
+              <h3 style={{ marginBottom: 4, marginTop: 18 }}>Qué se cotizó</h3>
+              <div className="tabla-wrap">
+                <table className="tabla">
+                  <thead>
+                    <tr>
+                      <th>Detalle</th><th className="num">Cant.</th>
+                      <th className="num">Precio</th><th className="num">Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.items.map((it: any) => (
+                      <tr key={it.id}>
+                        <td>{it.nombre_herramienta}</td>
+                        <td className="num">{numero(it.cantidad)}</td>
+                        <td className="num">{pesos(it.precio_unitario)}</td>
+                        <td className="num">{pesos(it.subtotal)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            // Trabajo a medida: no hay renglones de catálogo, la descripción
+            // libre ES el producto — mostrarla acá en vez de una tabla vacía.
+            (p.nota || p.croquis) && (
+              <>
+                <h3 style={{ marginBottom: 4, marginTop: 18 }}>Qué se cotizó</h3>
+                {p.nota && <p style={{ marginTop: 0 }}>{p.nota}</p>}
+                {p.croquis && (
+                  <img src={p.croquis} alt="Croquis del trabajo" style={{ maxWidth: "100%", maxHeight: 260, borderRadius: 8, border: "1px solid var(--borde)" }} />
+                )}
+              </>
+            )
+          )}
 
           <h3 style={{ marginBottom: 4, marginTop: 18 }}>Importes</h3>
           <dl className="detalle-filas">
@@ -76,7 +92,7 @@ export function PresupuestoDetalleModal({ id, onCerrar, onPdf, onAbrirCompleto }
             <div className="detalle-fila fuerte"><dt>Total</dt><dd>{pesos(p.total)}</dd></div>
           </dl>
 
-          {p.nota && (
+          {data.items.length > 0 && p.nota && (
             <>
               <h3 style={{ marginBottom: 4, marginTop: 18 }}>Nota</h3>
               <p className="mut" style={{ marginTop: 0 }}>{p.nota}</p>

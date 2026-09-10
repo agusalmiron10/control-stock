@@ -78,7 +78,7 @@ async function pedirTicketNuevo(
   });
   const textoRespuesta = await res.text();
   if (!res.ok) {
-    throw new HttpError(502, `WSAA respondió ${res.status}: ${textoRespuesta.slice(0, 300)}`);
+    throw new HttpError(502, `WSAA respondió ${res.status}: ${textoRespuesta.slice(0, 900)}`);
   }
 
   const parser = new XMLParser({ ignoreAttributes: false });

@@ -2,6 +2,7 @@ import { api } from "../api";
 import { pesos, fecha, numero } from "../format";
 import { negocio } from "../lib/negocio";
 import { Cargando, Error, useCarga } from "./ui";
+import { AtendidoPor } from "./AtendidoPor";
 
 /** Comprobante / remito imprimible de una venta. Botón imprime → "Guardar como PDF". */
 export function Comprobante({ ventaId, onCerrar }: { ventaId: string; onCerrar: () => void }) {
@@ -25,10 +26,13 @@ export function Comprobante({ ventaId, onCerrar }: { ventaId: string; onCerrar: 
         {data && (
           <div className="comprobante">
             <div className="comp-header">
-              <div>
-                <div className="comp-marca">{negocio().nombre}</div>
-                <div className="comp-sub">{negocio().rubro}</div>
-                <div className="comp-sub">Tel: {negocio().telefono} · {negocio().instagram}</div>
+              <div className="comp-header-izq">
+                {negocio().logo && <img src={negocio().logo ?? undefined} alt="" className="comp-logo" />}
+                <div>
+                  <div className="comp-marca">{negocio().nombre}</div>
+                  <div className="comp-sub">{negocio().rubro}</div>
+                  <div className="comp-sub">Tel: {negocio().telefono} · {negocio().instagram}</div>
+                </div>
               </div>
               <div className="comp-doc">
                 <div className="comp-doc-tit">COMPROBANTE</div>
@@ -76,6 +80,8 @@ export function Comprobante({ ventaId, onCerrar }: { ventaId: string; onCerrar: 
             </div>
 
             {data.venta.nota && <div className="comp-nota"><b>Nota:</b> {data.venta.nota}</div>}
+
+            <AtendidoPor nombre={data.venta.atendido_por_nombre} foto={data.venta.atendido_por_foto} />
 
             <div className="comp-pie">¡Gracias por su compra! — {negocio().nombre}</div>
           </div>

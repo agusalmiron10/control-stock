@@ -5,6 +5,7 @@ import { Cargando, Error, Vacio, useCarga } from "../components/ui";
 import { ComprobanteFiscal } from "../components/ComprobanteFiscal";
 import { EmitirFacturaModal } from "../components/EmitirFacturaModal";
 import { FacturaDetalle } from "../components/FacturaDetalle";
+import { NotaDebitoModal } from "../components/NotaDebitoModal";
 import { FiltroComprobantes, FILTROS_VACIOS, comoQuery, type Filtros } from "../components/FiltroComprobantes";
 
 function mesActual(): string {
@@ -37,6 +38,7 @@ export function Facturas() {
   const [aviso, setAviso] = useState<string | null>(null);
   const [verificando, setVerificando] = useState(false);
   const [errorVerif, setErrorVerif] = useState<string | null>(null);
+  const [notaDebito, setNotaDebito] = useState<{ ventaId: string; letra: string } | null>(null);
 
   const porFecha = filtros.desde !== "" || filtros.hasta !== "";
   const hayBusqueda = filtros.buscar.trim() !== "";
@@ -228,10 +230,21 @@ export function Facturas() {
           onVerificar={() => { setDetalle(null); void verificarHuerfanos(); }}
           onReintentar={(ventaId) => { setDetalle(null); setReintentar(ventaId); }}
           onBorrado={(m) => { setDetalle(null); setAviso(m); recargar(); }}
+          onNotaDebito={(ventaId, letra) => { setDetalle(null); setNotaDebito({ ventaId, letra }); }}
         />
       )}
 
       {verFactura && <ComprobanteFiscal ventaId={verFactura} onCerrar={() => setVerFactura(null)} />}
+      {notaDebito && (
+        <NotaDebitoModal
+          ventaId={notaDebito.ventaId}
+          letra={notaDebito.letra}
+          onCerrar={(mensaje) => {
+            setNotaDebito(null);
+            if (mensaje) { setAviso(mensaje); recargar(); }
+          }}
+        />
+      )}
       {reintentar && (
         <EmitirFacturaModal
           ventaId={reintentar}

@@ -56,6 +56,18 @@ auth.get("/status", async (c) => {
     ? await c.env.DB.prepare(`SELECT foto FROM usuarios WHERE id = ?`).bind(sesion.uid).first<{ foto: string | null }>()
     : null;
 
+  // Un negocio que todavía no eligió su rubro tiene que pasar por esa
+  // pantalla antes del panel. Va en /status y no sólo en la respuesta del
+  // login a propósito: si cierra la pestaña sin elegir, al volver la sesión
+  // sigue viva y el login no se ejecuta de nuevo — mirando sólo el login,
+  // ese negocio no vería nunca la pantalla.
+  const faltaRubro = sesion?.negocioId
+    ? !(await c.env.DB
+        .prepare(`SELECT rubro_configurado_en FROM negocios WHERE id = ?`)
+        .bind(sesion.negocioId)
+        .first<{ rubro_configurado_en: string | null }>())?.rubro_configurado_en
+    : false;
+
   return c.json({
     needsSetup,
     authenticated: !!sesion,
@@ -64,6 +76,7 @@ auth.get("/status", async (c) => {
     negocio,
     modulosPermitidos: permitidos,
     foto: propia?.foto ?? null,
+    requiere_seleccion_rubro: faltaRubro,
     // Visita de soporte: la pantalla necesita saber en qué modo está para
     // avisarlo. Igual el que manda es el servidor — la UI sólo lo muestra.
     soporte: sesion?.sesionSoporte
@@ -182,7 +195,19 @@ auth.post("/login", async (c) => {
   return c.json({ ok: true, usuario: elegido.usuario, rol: elegido.rol });
 });
 
-auth.post("/logout", (c) => {
+auth.post("/logout", async (c) => {
+  // Si estaba adentro de la cuenta de un cliente, la visita se cierra acá.
+  // Sin esto, salir (o cerrar la pestaña y volver a entrar) dejaba la visita
+  // "abierta" para siempre en el registro de soporte, y ese registro existe
+  // justamente para poder decir qué se tocó y hasta cuándo.
+  const sesion = await leerSesionOpcional(c);
+  if (sesion?.sesionSoporte) {
+    await c.env.DB
+      .prepare(`UPDATE sesiones_soporte SET cerrada_en = datetime('now') WHERE id = ? AND cerrada_en IS NULL`)
+      .bind(sesion.sesionSoporte)
+      .run()
+      .catch(() => {});
+  }
   cerrarSesion(c);
   return c.json({ ok: true });
 });

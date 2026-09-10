@@ -1,0 +1,13 @@
+-- IVA mixto: hasta ahora, una venta que mezclaba productos con distinta
+-- alícuota de IVA (ej. algo gravado al 21% y algo al 10,5%) bloqueaba la
+-- emisión — "facturala manualmente fuera del sistema". Ahora se agrupa por
+-- alícuota y se arma un <AlicIva> por grupo (ver src/facturacion/calculo.ts
+-- agruparPorAlicuota() y src/facturacion/wsfe.ts feCaeSolicitar).
+--
+-- facturas.iva_porcentaje sigue siendo una sola alícuota — no alcanza para
+-- describir un comprobante mixto. Se guarda el desglose completo acá al
+-- lado, en JSON, sólo cuando hay más de una alícuota; en el caso de
+-- siempre (una sola) queda NULL y nada cambia. Cuando es mixto,
+-- iva_porcentaje guarda 0 como señal de "ver el desglose" — el frontend
+-- (ComprobanteFiscal.tsx, FacturaDetalle.tsx) ya sabe mostrar uno u otro.
+ALTER TABLE facturas ADD COLUMN iva_desglose TEXT;

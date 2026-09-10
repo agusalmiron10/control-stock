@@ -11,7 +11,11 @@
 import { XMLParser } from "fast-xml-parser";
 import type { TipoComprobante } from "../types";
 import { HttpError } from "../validate";
-import { codigoAlicuota } from "./calculo";
+import { codigoAlicuota, TIPO_FACTURA, TIPO_NOTA_CREDITO, type DesgloseAlicuota } from "./calculo";
+
+// Un monotributista (Factura/NC C) no discrimina IVA — ARCA rechaza el
+// comprobante (10071) si el XML trae el objeto <Iva> para estos tipos.
+const TIPOS_SIN_IVA: TipoComprobante[] = [TIPO_FACTURA.C, TIPO_NOTA_CREDITO.C];
 
 const URL_WSFE = {
   homologacion: "https://wswhomo.afip.gov.ar/wsfev1/service.asmx",
@@ -48,7 +52,11 @@ async function postSoap(ambiente: "homologacion" | "produccion", soapAction: str
 }
 
 function auth({ token, sign, cuit }: Credenciales): string {
-  return `<Auth><Token>${token}</Token><Sign>${sign}</Sign><Cuit>${cuit}</Cuit></Auth>`;
+  // Todo lo demás en estos sobres va prefijado "ar:" (mismo namespace que
+  // FECompUltimoAutorizado, PtoVta, etc.) — Auth sin el prefijo queda fuera
+  // de ese namespace y ARCA contesta "Campo Auth no fue ingresado o esta
+  // mal formado" aunque el resto del pedido esté bien.
+  return `<ar:Auth><ar:Token>${token}</ar:Token><ar:Sign>${sign}</ar:Sign><ar:Cuit>${cuit}</ar:Cuit></ar:Auth>`;
 }
 
 /** No requiere autenticación: sólo confirma que el servicio está arriba. */
@@ -90,7 +98,16 @@ export async function feCompUltimoAutorizado(
 
 export interface DetalleComprobante {
   cbteTipo: TipoComprobante;
-  concepto?: number; // 1 = productos (default)
+  /** 1 = Productos, 2 = Servicios, 3 = Productos y Servicios. */
+  concepto?: number;
+  /**
+   * Período del servicio y vencimiento del pago, en yyyyMMdd. ARCA los EXIGE
+   * cuando el concepto es 2 o 3, y los rechaza si el concepto es 1: por eso
+   * viajan juntos con él y no sueltos.
+   */
+  fchServDesde?: string;
+  fchServHasta?: string;
+  fchVtoPago?: string;
   docTipo: number;
   docNro: string;
   cbteFch: string; // yyyyMMdd
@@ -101,6 +118,15 @@ export interface DetalleComprobante {
   condicionIVAReceptorId: number;
   /** Sólo para Nota de Crédito: el comprobante que credita. */
   cbteAsoc?: { tipo: TipoComprobante; ptoVta: number; nro: number };
+  /**
+   * IVA mixto: una venta con productos de distinta alícuota arma un
+   * <ar:AlicIva> por cada una, todos dentro de un mismo <ar:Iva> — así lo
+   * acepta ARCA. Si no viene (el caso de siempre: una sola alícuota, o
+   * Nota de Crédito/Débito que repiten el desglose ya calculado de la
+   * factura original), se arma un único <ar:AlicIva> con ivaPorcentaje/
+   * impNeto/impIVA, como siempre se hizo.
+   */
+  desglosesIva?: DesgloseAlicuota[];
 }
 
 export interface ResultadoCAE {
@@ -132,7 +158,36 @@ export async function feCaeSolicitar(
   detalle: DetalleComprobante,
   numero: number
 ): Promise<ResultadoCAE> {
-  const alicuota = codigoAlicuota(detalle.ivaPorcentaje);
+  const sinIva = TIPOS_SIN_IVA.includes(detalle.cbteTipo);
+  // Sin desglose explícito (el caso de toda la vida), un solo <AlicIva> con
+  // los totales de siempre — mismo XML que se mandaba antes de IVA mixto.
+  const lineasIva: DesgloseAlicuota[] =
+    detalle.desglosesIva && detalle.desglosesIva.length > 0
+      ? detalle.desglosesIva
+      : [{ ivaPorcentaje: detalle.ivaPorcentaje, neto: detalle.impNeto, iva: detalle.impIVA }];
+  const ivaXml = sinIva
+    ? ""
+    : `<ar:Iva>${lineasIva
+        .map(
+          (l) => `
+              <ar:AlicIva>
+                <ar:Id>${codigoAlicuota(l.ivaPorcentaje)}</ar:Id>
+                <ar:BaseImp>${centavosAPesos(l.neto)}</ar:BaseImp>
+                <ar:Importe>${centavosAPesos(l.iva)}</ar:Importe>
+              </ar:AlicIva>`
+        )
+        .join("")}
+            </ar:Iva>`;
+
+  // Con concepto 1 (Productos) estas fechas no van: ARCA rechaza el
+  // comprobante si se mandan igual.
+  const concepto = detalle.concepto ?? 1;
+  const fechasServicioXml =
+    concepto === 1
+      ? ""
+      : `<ar:FchServDesde>${detalle.fchServDesde}</ar:FchServDesde>
+            <ar:FchServHasta>${detalle.fchServHasta}</ar:FchServHasta>
+            <ar:FchVtoPago>${detalle.fchVtoPago}</ar:FchVtoPago>`;
 
   const cbtesAsocXml = detalle.cbteAsoc
     ? `<ar:CbtesAsoc><ar:CbteAsoc>
@@ -156,12 +211,13 @@ export async function feCaeSolicitar(
         </ar:FeCabReq>
         <ar:FeDetReq>
           <ar:FECAEDetRequest>
-            <ar:Concepto>${detalle.concepto ?? 1}</ar:Concepto>
+            <ar:Concepto>${concepto}</ar:Concepto>
             <ar:DocTipo>${detalle.docTipo}</ar:DocTipo>
             <ar:DocNro>${detalle.docNro}</ar:DocNro>
             <ar:CbteDesde>${numero}</ar:CbteDesde>
             <ar:CbteHasta>${numero}</ar:CbteHasta>
             <ar:CbteFch>${detalle.cbteFch}</ar:CbteFch>
+            ${fechasServicioXml}
             <ar:ImpTotal>${centavosAPesos(detalle.impTotal)}</ar:ImpTotal>
             <ar:ImpTotConc>0.00</ar:ImpTotConc>
             <ar:ImpNeto>${centavosAPesos(detalle.impNeto)}</ar:ImpNeto>
@@ -172,13 +228,7 @@ export async function feCaeSolicitar(
             <ar:MonCotiz>1</ar:MonCotiz>
             <ar:CondicionIVAReceptorId>${detalle.condicionIVAReceptorId}</ar:CondicionIVAReceptorId>
             ${cbtesAsocXml}
-            <ar:Iva>
-              <ar:AlicIva>
-                <ar:Id>${alicuota}</ar:Id>
-                <ar:BaseImp>${centavosAPesos(detalle.impNeto)}</ar:BaseImp>
-                <ar:Importe>${centavosAPesos(detalle.impIVA)}</ar:Importe>
-              </ar:AlicIva>
-            </ar:Iva>
+            ${ivaXml}
           </ar:FECAEDetRequest>
         </ar:FeDetReq>
       </ar:FeCAEReq>
@@ -295,6 +345,13 @@ export async function feParamGetPtosVenta(
   const errores: ErrorAfip[] = arreglar(r?.Errors?.Err);
   if (errores.some((e) => Number(e.Code) === ERROR_SIN_DELEGACION)) {
     throw new SinDelegacion(cred.cuit);
+  }
+  // 602 "Sin Resultados": en homologación este método SIEMPRE contesta así,
+  // delegación hecha o no — ARCA no simula datos de puntos de venta ahí. No
+  // es un rechazo, es la forma normal de responder en ese ambiente; se trata
+  // como "sin datos" en vez de cortar la conexión.
+  if (errores.some((e) => Number(e.Code) === 602)) {
+    return [];
   }
   if (errores.length > 0) {
     throw new HttpError(502, `ARCA rechazó la consulta: ${errores.map((e) => `${e.Code} ${e.Msg}`).join("; ")}`);

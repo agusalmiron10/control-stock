@@ -16,6 +16,11 @@ const COLUMNAS: { clave: string; alias: string[]; obligatoria?: boolean }[] = [
   { clave: "stock", alias: ["stock", "cantidad", "existencia"] },
   { clave: "stock_minimo", alias: ["stock minimo", "stock mínimo", "minimo", "mínimo"] },
   { clave: "rubro", alias: ["rubro", "categoria", "categoría", "familia"] },
+  // Sólo para negocios que facturan con productos a distinta alícuota
+  // (algunos gravados, otros exentos, o a otro %) — el resto puede ignorar
+  // esta columna tranquilo, no hace falta traerla. Acepta "21", "21%",
+  // "10,5", "Exento": ver parsearAlicuota en el backend.
+  { clave: "iva_porcentaje", alias: ["iva", "% iva", "iva %", "alicuota", "alícuota", "alicuota iva", "alícuota iva"] },
 ];
 
 
@@ -198,6 +203,11 @@ export function ImportarProductos({ onCerrar }: { onCerrar: (mensaje?: string) =
             Traé toda tu lista de una. El encabezado tiene que tener al menos
             {" "}<b>codigo</b> y <b>nombre</b>; si además trae <b>precio</b>, <b>costo</b>,{" "}
             <b>stock</b>, <b>stock_minimo</b>, <b>precio_mayor</b> o <b>rubro</b>, se cargan también.
+          </p>
+          <p className="mut" style={{ marginTop: -8 }}>
+            ¿Algunos productos llevan IVA y otros no, o a distinta alícuota? Agregá una columna{" "}
+            <b>iva</b> con el valor de cada uno — "21", "10,5", "Exento" — y el que no la traiga sigue
+            usando la alícuota general de tus Ajustes de facturación.
           </p>
 
           <Campo label="Opción 1 — subir el archivo (.xlsx o .csv)">

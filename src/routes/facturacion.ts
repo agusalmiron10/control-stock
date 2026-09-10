@@ -3,18 +3,27 @@ import type { Env, Variables, Venta, Cliente, FacturacionConfig, CondicionIva, F
 import { HttpError, texto, entero, enumerado, fechaISO, normalizarBusqueda } from "../validate";
 import { negocioDe } from "../types";
 import { requireDueno } from "../auth";
-import { requireModulo } from "../config";
+import { requireModulo, configDe } from "../config";
+import { estadoDeCuenta } from "../cuenta";
 import { auditarDe } from "../auditoria";
 import { armarAnulacionVenta } from "../ventas-anular";
 import { obtenerTicketAcceso, hayCertificadoDelProveedor } from "../facturacion/wsaa";
+import { leerCertificado } from "../facturacion/certificado-info";
 import { feDummy, feCaeSolicitar, feCompUltimoAutorizado, feCompConsultar, feParamGetPtosVenta, SinDelegacion } from "../facturacion/wsfe";
 import {
-  calcularNetoIva,
+  calcularNetoIvaParaTipo,
+  agruparPorAlicuota,
+  prorratearDescuento,
+  CONCEPTO,
+  ventanaFecha,
+  fechaParaEmitir,
   codigoDocumento,
   inferirTipoComprobante,
   validarDocumentoParaTipo,
   TIPO_FACTURA,
   TIPO_NOTA_CREDITO,
+  TIPO_NOTA_DEBITO,
+  type DesgloseAlicuota,
 } from "../facturacion/calculo";
 
 export const facturacion = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -118,7 +127,17 @@ function exigirConfigLista(cfg: FacturacionConfig | null): FacturacionConfig {
 // ── Config fiscal ──────────────────────────────────────────
 facturacion.get("/config", requireDueno, async (c) => {
   const cfg = await leerConfigFiscal(c.env, negocioDe(c));
-  if (!cfg) return c.json({ configurado: false });
+  // El CUIT al que hay que delegar es del certificado del proveedor, no de
+  // este negocio — se informa exista o no cfg todavía, porque es lo primero
+  // que hace falta para saber qué delegar en ARCA, antes incluso de cargar
+  // los datos fiscales propios.
+  const cert = leerCertificado(c.env.ARCA_CERT_PEM);
+  const proveedor = { cuit: cert?.cuit ?? null, titular: cert?.titular ?? null };
+  // tiene_certificado va también acá: si no, un negocio que todavía no cargó
+  // sus propios datos fiscales veía "el sistema no tiene certificado" aunque
+  // sí lo tenga — el problema era sólo que a ESTE negocio le faltaba llenar
+  // el formulario, no que el sistema entero estuviera roto.
+  if (!cfg) return c.json({ configurado: false, tiene_certificado: hayCertificadoDelProveedor(c.env), proveedor });
   // Nunca se devuelve la clave privada ni su cifrado.
   return c.json({
     configurado: true,
@@ -134,6 +153,8 @@ facturacion.get("/config", requireDueno, async (c) => {
     // este negocio subió algo — no hay nada que este negocio tenga que
     // subir.
     tiene_certificado: hayCertificadoDelProveedor(c.env),
+    delegacion_verificada_en: cfg.delegacion_verificada_en,
+    proveedor,
   });
 });
 
@@ -245,14 +266,16 @@ facturacion.post("/probar-conexion", requireDueno, async (c) => {
     puntos = await feParamGetPtosVenta(cred);
   } catch (err: any) {
     if (err instanceof SinDelegacion) {
+      const cuitProveedor = leerCertificado(c.env.ARCA_CERT_PEM)?.cuit;
       return c.json({
         ok: false,
         paso: "delegacion",
         arca: dummy,
         mensaje:
           `Falta un trámite tuyo en ARCA: entrá con tu clave fiscal a "Administrador de Relaciones", ` +
-          `y delegá el servicio "Facturación Electrónica" al CUIT del sistema. ` +
-          `Es una sola vez y no tenés que darnos ninguna contraseña.`,
+          `y delegá el servicio "Facturación Electrónica" al CUIT ${cuitProveedor ?? "del sistema"}. ` +
+          `Es una sola vez y no tenés que darnos ninguna contraseña. Los pasos completos están más abajo, ` +
+          `en esta misma pantalla.`,
       });
     }
     throw err;
@@ -264,13 +287,15 @@ facturacion.post("/probar-conexion", requireDueno, async (c) => {
     .bind(neg)
     .run();
 
+  const sinDatosEsperado = habilitados.length === 0 && cfg.ambiente === "homologacion";
   return c.json({
     ok: true,
     paso: "listo",
     arca: dummy,
     puntos_venta: habilitados,
-    mensaje:
-      habilitados.length === 0
+    mensaje: sinDatosEsperado
+      ? "Todo listo para probar. ARCA no informa puntos de venta en homologación (es normal ahí) — ya podés emitir un comprobante de prueba."
+      : habilitados.length === 0
         ? "La delegación está hecha, pero todavía no tenés ningún punto de venta habilitado para Web Services en ARCA."
         : `Todo listo. Tenés ${habilitados.length} punto(s) de venta habilitado(s).`,
   });
@@ -291,8 +316,10 @@ async function credencialesPara(env: Env, cfg: FacturacionConfig) {
 const NOMBRE_COMPROBANTE: Record<number, string> = {
   1: "Factura A", 6: "Factura B", 11: "Factura C",
   3: "Nota de Crédito A", 8: "Nota de Crédito B", 13: "Nota de Crédito C",
+  2: "Nota de Débito A", 7: "Nota de Débito B", 12: "Nota de Débito C",
 };
 const ES_NOTA_CREDITO = new Set([3, 8, 13]);
+const ES_NOTA_DEBITO = new Set([2, 7, 12]);
 
 /**
  * Todas las facturas del negocio, de la más nueva a la más vieja. `mes`
@@ -351,6 +378,7 @@ facturacion.get("/facturas", async (c) => {
     ...f,
     comprobante: NOMBRE_COMPROBANTE[f.tipo_comprobante] ?? `Tipo ${f.tipo_comprobante}`,
     es_nota_credito: ES_NOTA_CREDITO.has(f.tipo_comprobante),
+    es_nota_debito: ES_NOTA_DEBITO.has(f.tipo_comprobante),
     numero_formateado: f.numero
       ? `${String(f.punto_venta).padStart(5, "0")}-${String(f.numero).padStart(8, "0")}`
       : null,
@@ -362,9 +390,14 @@ facturacion.get("/facturas", async (c) => {
   // Un comprobante por venta, no un renglón por reintento: si se intentó
   // cinco veces, al usuario le importa el estado actual, no las cinco filas.
   // Gana el autorizado; si no hay, el intento más reciente.
+  //
+  // La Nota de Débito queda afuera de este colapso: a diferencia de la
+  // factura y la NC (una por venta), puede haber varias ND sobre la misma
+  // venta —cada una es un cargo distinto, no un reintento del mismo—, así
+  // que cada una se muestra como su propia fila (clave = su propio id).
   const porVenta = new Map<string, (typeof todas)[number] & { intentos?: number }>();
   for (const f of todas) {
-    const clave = `${f.venta_id}|${f.es_nota_credito ? "nc" : "f"}`;
+    const clave = f.es_nota_debito ? f.id : `${f.venta_id}|${f.es_nota_credito ? "nc" : "f"}`;
     const previo = porVenta.get(clave);
     if (!previo) {
       porVenta.set(clave, { ...f, intentos: 1 });
@@ -383,8 +416,9 @@ facturacion.get("/facturas", async (c) => {
   const autorizadas = lista.filter((f) => f.estado === "autorizada");
   const signo = (f: (typeof lista)[number]) => (f.es_nota_credito ? -1 : 1);
   const totales = {
-    emitidas: autorizadas.filter((f) => !f.es_nota_credito).length,
+    emitidas: autorizadas.filter((f) => !f.es_nota_credito && !f.es_nota_debito).length,
     notas_credito: autorizadas.filter((f) => f.es_nota_credito).length,
+    notas_debito: autorizadas.filter((f) => f.es_nota_debito).length,
     con_problema: lista.filter((f) => f.estado === "rechazada" || f.estado === "error").length,
     neto: autorizadas.reduce((s, f) => s + signo(f) * f.neto_gravado, 0),
     iva: autorizadas.reduce((s, f) => s + signo(f) * f.iva, 0),
@@ -490,13 +524,30 @@ facturacion.get("/facturas/:id", async (c) => {
 
   // Si a esta factura le hicieron una NC, se muestra acá para que no haya que
   // buscarla: es la diferencia entre "esta factura vale" y "está anulada".
+  //
+  // OJO: filtrar por tipo_comprobante acá es necesario y no cosmético — sin
+  // esto, una Nota de Débito sobre esta misma factura (que también tiene
+  // factura_original_id = id) caería en esta misma consulta y la pantalla
+  // diría "anulada por Nota de Crédito" sobre algo que en realidad le sumó
+  // plata, no se la restó.
   const notaCredito = await c.env.DB
     .prepare(
       `SELECT id, numero, punto_venta, cae, estado, creado_en, tipo_comprobante
-       FROM facturas WHERE negocio_id = ? AND factura_original_id = ? AND estado = 'autorizada'`
+       FROM facturas WHERE negocio_id = ? AND factura_original_id = ? AND estado = 'autorizada'
+         AND tipo_comprobante IN (3, 8, 13)`
     )
     .bind(neg, id)
     .first();
+
+  // Puede haber más de una: cada Nota de Débito es un cargo aparte.
+  const notasDebito = await c.env.DB
+    .prepare(
+      `SELECT id, numero, punto_venta, cae, cae_vencimiento, total, estado, creado_en, tipo_comprobante
+       FROM facturas WHERE negocio_id = ? AND factura_original_id = ? AND tipo_comprobante IN (2, 7, 12)
+       ORDER BY creado_en DESC`
+    )
+    .bind(neg, id)
+    .all();
 
   const cfg = await leerConfigFiscal(c.env, neg);
 
@@ -505,6 +556,7 @@ facturacion.get("/facturas/:id", async (c) => {
       ...f,
       comprobante: NOMBRE_COMPROBANTE[f.tipo_comprobante] ?? `Tipo ${f.tipo_comprobante}`,
       es_nota_credito: ES_NOTA_CREDITO.has(f.tipo_comprobante),
+      es_nota_debito: ES_NOTA_DEBITO.has(f.tipo_comprobante),
       numero_formateado: f.numero
         ? `${String(f.punto_venta).padStart(5, "0")}-${String(f.numero).padStart(8, "0")}`
         : null,
@@ -512,6 +564,7 @@ facturacion.get("/facturas/:id", async (c) => {
     },
     items: items.results ?? [],
     nota_credito: notaCredito ?? null,
+    notas_debito: notasDebito.results ?? [],
     emisor: cfg ? { cuit: cfg.cuit, razon_social: cfg.razon_social, ambiente: cfg.ambiente } : null,
   });
 });
@@ -593,7 +646,7 @@ facturacion.get("/ventas/:ventaId/previo", async (c) => {
     { letra: "C", disponible: esMonotributo, motivo: esMonotributo ? null : "La Factura C es sólo para emisores Monotributistas." },
   ];
 
-  const { neto, iva } = calcularNetoIva(venta.total, cfg.iva_porcentaje_defecto);
+  const { neto, iva } = calcularNetoIvaParaTipo(venta.total, cfg.iva_porcentaje_defecto, sugerida);
   return c.json({
     sugerida,
     opciones,
@@ -622,66 +675,108 @@ facturacion.get("/ventas/:ventaId/previo", async (c) => {
  *
  * Esto es lo que evita terminar con dos facturas reales para una misma venta.
  */
-facturacion.post("/huerfanos/verificar", async (c) => {
-  const neg = negocioDe(c);
-  const cfg = exigirConfigLista(await leerConfigFiscal(c.env, neg));
+/** Qué pasó con un huérfano al preguntarle a ARCA. */
+export interface ResultadoHuerfano {
+  id: string;
+  numero: number | null;
+  puntoVenta: number;
+  tipoComprobante: number;
+  resultado: "autorizada" | "liberada";
+  cae?: string;
+  caeVencimiento?: string;
+}
 
-  const pendientes = await c.env.DB
-    .prepare(
-      `SELECT * FROM facturas WHERE negocio_id = ? AND estado = 'huerfano' ORDER BY creado_en`
-    )
-    .bind(neg)
+/**
+ * El núcleo de "preguntarle a ARCA qué pasó con cada huérfano de este
+ * negocio" — lo usa tanto la ruta que toca el dueño a mano (más abajo) como
+ * el cron que lo hace solo (ver src/scheduled.ts). No escribe auditoría acá:
+ * cada llamador sabe mejor quién fue ("cron" para el automático, el usuario
+ * real para el manual) y decide cómo dejarlo asentado.
+ *
+ * No atrapa errores de `credencialesPara`: si no se puede ni entrar a ARCA,
+ * es mejor que explote y no se toque nada — los huérfanos siguen huérfanos
+ * y las ventas siguen bloqueadas, que es la dirección segura. Cada llamador
+ * decide qué hacer con ese error.
+ */
+export async function resolverHuerfanosDeNegocio(
+  env: Env,
+  negocioId: string,
+  cfg: FacturacionConfig
+): Promise<ResultadoHuerfano[]> {
+  const pendientes = await env.DB
+    .prepare(`SELECT * FROM facturas WHERE negocio_id = ? AND estado = 'huerfano' ORDER BY creado_en`)
+    .bind(negocioId)
     .all<Factura>();
   const lista = pendientes.results ?? [];
-  if (lista.length === 0) return c.json({ ok: true, revisados: 0, autorizados: 0, liberados: 0 });
+  if (lista.length === 0) return [];
 
-  let cred;
-  try {
-    cred = await credencialesPara(c.env, cfg);
-  } catch (err: any) {
-    // Si no se puede ni entrar a ARCA, no se toca nada: los huérfanos siguen
-    // huérfanos y las ventas siguen bloqueadas. Es la dirección segura.
-    throw new HttpError(502, `No se pudo consultar a ARCA, así que no se cambió nada. ${mensajeAmigable(err)}`);
-  }
-  let autorizados = 0;
-  let liberados = 0;
+  const cred = await credencialesPara(env, cfg);
+  const resultados: ResultadoHuerfano[] = [];
 
   for (const f of lista) {
     // Sin número no hay nada que consultar (no debería pasar con el flujo
     // nuevo, pero puede haber filas viejas de antes de este arreglo).
     if (f.numero == null) {
-      await c.env.DB.prepare(
+      await env.DB.prepare(
         `UPDATE facturas SET estado = 'rechazada',
            respuesta_afip = 'Quedó sin número asignado: no se llegó a pedir el CAE.'
          WHERE negocio_id = ? AND id = ?`
-      ).bind(neg, f.id).run();
-      liberados++;
+      ).bind(negocioId, f.id).run();
+      resultados.push({ id: f.id, numero: f.numero, puntoVenta: f.punto_venta, tipoComprobante: f.tipo_comprobante, resultado: "liberada" });
       continue;
     }
 
     const enArca = await feCompConsultar(cred, f.punto_venta, f.tipo_comprobante, f.numero);
     if (enArca) {
-      await c.env.DB.batch([
-        c.env.DB.prepare(
-          `UPDATE facturas SET estado = 'autorizada', cae = ?, cae_vencimiento = ?,
-             observaciones = ?, autorizado_en = datetime('now')
-           WHERE negocio_id = ? AND id = ?`
-        ).bind(enArca.cae, enArca.caeVencimiento, enArca.observaciones, neg, f.id),
-        auditarDe(c, "recuperar_factura", "factura", f.id,
-          `La factura ${f.punto_venta}-${f.numero} sí estaba autorizada en ARCA · CAE ${enArca.cae}`),
-      ]);
-      autorizados++;
+      await env.DB.prepare(
+        `UPDATE facturas SET estado = 'autorizada', cae = ?, cae_vencimiento = ?,
+           observaciones = ?, autorizado_en = datetime('now')
+         WHERE negocio_id = ? AND id = ?`
+      ).bind(enArca.cae, enArca.caeVencimiento, enArca.observaciones, negocioId, f.id).run();
+      resultados.push({
+        id: f.id, numero: f.numero, puntoVenta: f.punto_venta, tipoComprobante: f.tipo_comprobante,
+        resultado: "autorizada", cae: enArca.cae, caeVencimiento: enArca.caeVencimiento,
+      });
     } else {
-      await c.env.DB.prepare(
+      await env.DB.prepare(
         `UPDATE facturas SET estado = 'rechazada',
            respuesta_afip = 'Verificado con ARCA: el comprobante nunca se emitió. Se puede facturar de nuevo.'
          WHERE negocio_id = ? AND id = ?`
-      ).bind(neg, f.id).run();
-      liberados++;
+      ).bind(negocioId, f.id).run();
+      resultados.push({ id: f.id, numero: f.numero, puntoVenta: f.punto_venta, tipoComprobante: f.tipo_comprobante, resultado: "liberada" });
     }
   }
 
-  return c.json({ ok: true, revisados: lista.length, autorizados, liberados });
+  return resultados;
+}
+
+facturacion.post("/huerfanos/verificar", async (c) => {
+  const neg = negocioDe(c);
+  const cfg = exigirConfigLista(await leerConfigFiscal(c.env, neg));
+
+  let resultados: ResultadoHuerfano[];
+  try {
+    resultados = await resolverHuerfanosDeNegocio(c.env, neg, cfg);
+  } catch (err: any) {
+    throw new HttpError(502, `No se pudo consultar a ARCA, así que no se cambió nada. ${mensajeAmigable(err)}`);
+  }
+
+  const autorizadas = resultados.filter((r) => r.resultado === "autorizada");
+  if (autorizadas.length > 0) {
+    await c.env.DB.batch(
+      autorizadas.map((r) =>
+        auditarDe(c, "recuperar_factura", "factura", r.id,
+          `La factura ${r.puntoVenta}-${r.numero} sí estaba autorizada en ARCA · CAE ${r.cae}`)
+      )
+    );
+  }
+
+  return c.json({
+    ok: true,
+    revisados: resultados.length,
+    autorizados: autorizadas.length,
+    liberados: resultados.length - autorizadas.length,
+  });
 });
 
 facturacion.get("/ventas/:ventaId", async (c) => {
@@ -740,35 +835,136 @@ facturacion.post("/ventas/:ventaId/emitir", async (c) => {
   const cliente = await c.env.DB.prepare(`SELECT * FROM clientes WHERE negocio_id = ? AND id = ?`).bind(neg, venta.cliente_id).first<Cliente>();
   if (!cliente) throw new HttpError(404, "Cliente no encontrado.");
 
-  // Alícuota mixta: si algún ítem trae un override distinto al default del negocio, se bloquea (v1).
-  const alicuotasDistintas = await c.env.DB
-    .prepare(
-      `SELECT DISTINCT COALESCE(h.iva_porcentaje, ?) AS iva FROM venta_items vi
-       JOIN herramientas h ON h.id = vi.herramienta_id AND h.negocio_id = vi.negocio_id
-       WHERE vi.negocio_id = ? AND vi.venta_id = ?`
-    )
-    .bind(cfg.iva_porcentaje_defecto, neg, ventaId)
-    .all<{ iva: number }>();
-  const alicuotas = (alicuotasDistintas.results ?? []).map((r) => r.iva);
-  if (new Set(alicuotas).size > 1) {
-    throw new HttpError(
-      400,
-      "Esta venta mezcla productos con distinta alícuota de IVA. Por ahora facturala manualmente fuera del sistema."
-    );
-  }
-  const ivaPorcentaje = alicuotas[0] ?? cfg.iva_porcentaje_defecto;
-
   const letra = letraForzada ?? inferirTipoComprobante(cfg.condicion_iva!, cliente);
   validarDocumentoParaTipo(letra, cliente);
 
-  const { neto, iva } = calcularNetoIva(venta.total, ivaPorcentaje);
+  // IVA: para C nunca se discrimina —un monotributista no manda desglose,
+  // sin importar qué alícuotas tengan los productos por dentro— así que ni
+  // hace falta agrupar. Para A/B se agrupa por alícuota: si hay más de una,
+  // ARCA se manda con varios <AlicIva> (uno por alícuota) en vez de
+  // bloquear la emisión como antes.
+  let neto: number;
+  let iva: number;
+  let ivaPorcentajeGuardado: number;
+  let desglosesIva: DesgloseAlicuota[] | undefined;
+  if (letra === "C") {
+    neto = venta.total;
+    iva = 0;
+    ivaPorcentajeGuardado = cfg.iva_porcentaje_defecto;
+  } else {
+    const renglonesCrudos = await c.env.DB
+      .prepare(
+        `SELECT vi.subtotal AS subtotal, COALESCE(h.iva_porcentaje, ?) AS iva_porcentaje
+         FROM venta_items vi
+         JOIN herramientas h ON h.id = vi.herramienta_id AND h.negocio_id = vi.negocio_id
+         WHERE vi.negocio_id = ? AND vi.venta_id = ?`
+      )
+      .bind(cfg.iva_porcentaje_defecto, neg, ventaId)
+      .all<{ subtotal: number; iva_porcentaje: number }>();
+    const renglones = prorratearDescuento(
+      (renglonesCrudos.results ?? []).map((r) => ({ subtotal: r.subtotal, ivaPorcentaje: r.iva_porcentaje })),
+      venta.total
+    );
+    const grupos = agruparPorAlicuota(renglones);
+    neto = grupos.reduce((s, g) => s + g.neto, 0);
+    iva = grupos.reduce((s, g) => s + g.iva, 0);
+    if (grupos.length > 1) {
+      desglosesIva = grupos;
+      ivaPorcentajeGuardado = 0; // señal de "mixto, ver iva_desglose" — ninguna alícuota sola lo describe
+    } else {
+      ivaPorcentajeGuardado = grupos[0]?.ivaPorcentaje ?? cfg.iva_porcentaje_defecto;
+    }
+  }
+
   const doc = codigoDocumento(cliente);
   const condicionReceptor = cliente.condicion_iva
     ? CONDICION_IVA_RECEPTOR[cliente.condicion_iva]
     : CONDICION_IVA_RECEPTOR.consumidor_final;
 
+  // ── Concepto y fechas ────────────────────────────────────
+  // El default sale de la capacidad del rubro (una fumigadora factura
+  // Servicios); en cada comprobante se puede cambiar.
+  const conceptoNombre = enumerado(
+    b.concepto ?? (await configDe(c)).capacidades.concepto_default,
+    "concepto",
+    ["productos", "servicios", "ambos"] as const
+  );
+  const concepto = CONCEPTO[conceptoNombre];
+
+  // Con Servicios o Ambos, ARCA exige el período del servicio y el
+  // vencimiento del pago. Se piden explícitamente en vez de inventarlos:
+  // son datos del negocio, no del sistema.
+  let fchServDesde: string | undefined;
+  let fchServHasta: string | undefined;
+  let fchVtoPago: string | undefined;
+  if (concepto !== 1) {
+    fchServDesde = fechaISO(b.fch_serv_desde ?? venta.fecha, "desde (servicio)");
+    fchServHasta = fechaISO(b.fch_serv_hasta ?? venta.fecha, "hasta (servicio)");
+    fchVtoPago = fechaISO(b.fch_vto_pago ?? venta.fecha, "vencimiento del pago");
+    if (fchServHasta < fchServDesde) {
+      throw new HttpError(400, "El período del servicio termina antes de empezar.");
+    }
+  }
+
+  // Fecha del comprobante: la de la venta si ARCA todavía la acepta (5 días
+  // para productos, 10 para servicios), si no hoy. Antes era siempre hoy, y
+  // una venta del lunes facturada el martes salía con fecha del martes.
+  const hoyISO = new Date().toISOString().slice(0, 10);
+  const fechaPedida = b.fecha
+    ? fechaISO(b.fecha, "fecha del comprobante")
+    : fechaParaEmitir(venta.fecha, hoyISO, concepto);
+
+  // No la pide ARCA: va impresa en el comprobante. Si no la mandan, se
+  // deduce de la venta — que es lo que el usuario haría a mano igual.
+  let condicionVenta = texto(b.condicion_venta, "condición de venta", { requerido: false, max: 40 });
+  if (!condicionVenta) {
+    const cta = await estadoDeCuenta(c.env, neg, venta.cliente_id);
+    const saldo = cta.porVenta.get(ventaId)?.saldo ?? venta.total;
+    condicionVenta = saldo > 0 ? "Cuenta Corriente" : "Contado";
+  }
+
   const facturaId = crypto.randomUUID();
   const tipo = TIPO_FACTURA[letra];
+
+  // ARCA exige que los comprobantes de un mismo punto de venta y tipo salgan
+  // en orden de fecha no decreciente: si el último salió hoy, el siguiente no
+  // puede ser de ayer (error 10016). Se toma la fecha del último autorizado y
+  // no se emite nunca antes de esa.
+  const ultimo = await c.env.DB
+    .prepare(
+      `SELECT fecha_comprobante FROM facturas
+        WHERE negocio_id = ? AND punto_venta = ? AND tipo_comprobante = ? AND estado = 'autorizada'
+          AND fecha_comprobante IS NOT NULL
+        ORDER BY numero DESC LIMIT 1`
+    )
+    .bind(neg, cfg.punto_venta, tipo)
+    .first<{ fecha_comprobante: string }>();
+
+  const fechaComprobante =
+    ultimo?.fecha_comprobante && fechaPedida < ultimo.fecha_comprobante
+      ? ultimo.fecha_comprobante
+      : fechaPedida;
+
+  const diasDeHoy = Math.abs(
+    (new Date(hoyISO + "T00:00:00Z").getTime() - new Date(fechaComprobante + "T00:00:00Z").getTime()) / 86400000
+  );
+  if (diasDeHoy > ventanaFecha(concepto)) {
+    throw new HttpError(
+      400,
+      `ARCA no acepta fechar este comprobante a más de ${ventanaFecha(concepto)} días de hoy.`
+    );
+  }
+
+
+  // Si lo pidió explícitamente, se le dice por qué no se puede en vez de
+  // emitir con otra fecha en silencio.
+  if (b.fecha && fechaComprobante !== fechaPedida) {
+    throw new HttpError(
+      400,
+      `No se puede fechar el ${fechaPedida}: el último comprobante ${letra} de este punto de venta ` +
+      `es del ${ultimo!.fecha_comprobante}, y ARCA no acepta emitir con fecha anterior a esa.`
+    );
+  }
 
   // Autenticarse y averiguar el número van ANTES de grabar nada: si fallan,
   // todavía no se pidió ningún CAE, así que no hay comprobante que rastrear.
@@ -787,23 +983,32 @@ facturacion.post("/ventas/:ventaId/emitir", async (c) => {
   await c.env.DB.prepare(
     `INSERT INTO facturas
        (id, negocio_id, venta_id, tipo_comprobante, punto_venta, numero, estado,
-        neto_gravado, iva, total, iva_porcentaje, doc_tipo, doc_numero)
-     VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, ?, ?, ?, ?, ?)`
+        neto_gravado, iva, total, iva_porcentaje, iva_desglose, doc_tipo, doc_numero,
+        concepto, fch_serv_desde, fch_serv_hasta, fch_vto_pago, condicion_venta, fecha_comprobante)
+     VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
-    .bind(facturaId, neg, ventaId, tipo, cfg.punto_venta, numero, neto, iva, venta.total, ivaPorcentaje, doc.tipo, doc.numero)
+    .bind(facturaId, neg, ventaId, tipo, cfg.punto_venta, numero, neto, iva, venta.total, ivaPorcentajeGuardado,
+          desglosesIva ? JSON.stringify(desglosesIva) : null, doc.tipo, doc.numero,
+          concepto, fchServDesde ?? null, fchServHasta ?? null, fchVtoPago ?? null, condicionVenta,
+          fechaComprobante)
     .run();
 
   try {
     const resultado = await feCaeSolicitar(cred, cfg.punto_venta!, {
       cbteTipo: tipo,
+      concepto,
+      fchServDesde: fchServDesde?.replace(/-/g, ""),
+      fchServHasta: fchServHasta?.replace(/-/g, ""),
+      fchVtoPago: fchVtoPago?.replace(/-/g, ""),
       docTipo: doc.tipo,
       docNro: doc.numero,
-      cbteFch: hoyAAAAMMDD(),
+      cbteFch: fechaComprobante.replace(/-/g, ""),
       impTotal: venta.total,
       impNeto: neto,
       impIVA: iva,
-      ivaPorcentaje,
+      ivaPorcentaje: ivaPorcentajeGuardado,
       condicionIVAReceptorId: condicionReceptor,
+      desglosesIva,
     }, numero);
 
     await c.env.DB.batch([
@@ -858,6 +1063,15 @@ facturacion.post("/ventas/:ventaId/nota-credito", async (c) => {
     .first<Factura>();
   if (!original) throw new HttpError(404, "Esta venta no tiene una factura autorizada, no hace falta Nota de Crédito.");
 
+  // Antes se mandaba siempre "Consumidor Final" acá, sin importar quién era
+  // el cliente real — mismo bug que ya se había evitado en /emitir y en
+  // Nota de Débito. Se corrige con la misma lógica que esas dos rutas.
+  const cliente = await c.env.DB.prepare(`SELECT * FROM clientes WHERE negocio_id = ? AND id = ?`).bind(neg, venta.cliente_id).first<Cliente>();
+  if (!cliente) throw new HttpError(404, "Cliente no encontrado.");
+  const condicionReceptor = cliente.condicion_iva
+    ? CONDICION_IVA_RECEPTOR[cliente.condicion_iva]
+    : CONDICION_IVA_RECEPTOR.consumidor_final;
+
   const letra = (Object.entries(TIPO_FACTURA).find(([, v]) => v === original.tipo_comprobante)?.[0] ?? "B") as "A" | "B" | "C";
   const cred = await credencialesPara(c.env, cfg);
   const ncId = crypto.randomUUID();
@@ -873,7 +1087,7 @@ facturacion.post("/ventas/:ventaId/nota-credito", async (c) => {
     impNeto: original.neto_gravado,
     impIVA: original.iva,
     ivaPorcentaje: original.iva_porcentaje,
-    condicionIVAReceptorId: CONDICION_IVA_RECEPTOR.consumidor_final, // se reconfirma con el cliente real en Fase 7
+    condicionIVAReceptorId: condicionReceptor,
     cbteAsoc: { tipo: original.tipo_comprobante, ptoVta: original.punto_venta, nro: original.numero! },
   }, numeroNC);
 
@@ -885,12 +1099,12 @@ facturacion.post("/ventas/:ventaId/nota-credito", async (c) => {
     c.env.DB.prepare(
       `INSERT INTO facturas
          (id, negocio_id, venta_id, factura_original_id, tipo_comprobante, punto_venta, numero, cae, cae_vencimiento,
-          estado, neto_gravado, iva, total, iva_porcentaje, doc_tipo, doc_numero, autorizado_en)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'autorizada', ?, ?, ?, ?, ?, ?, datetime('now'))`
+          estado, neto_gravado, iva, total, iva_porcentaje, doc_tipo, doc_numero, fecha_comprobante, autorizado_en)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'autorizada', ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
     ).bind(
       ncId, neg, ventaId, original.id, TIPO_NOTA_CREDITO[letra], cfg.punto_venta, resultado.numero,
       resultado.cae, resultado.caeVencimiento, original.neto_gravado, original.iva, original.total,
-      original.iva_porcentaje, original.doc_tipo, original.doc_numero
+      original.iva_porcentaje, original.doc_tipo, original.doc_numero, hoyAAAAMMDD().replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3")
     ),
     auditarDe(c, "emitir_nota_credito", "factura", ncId,
       `NC ${letra} ${cfg.punto_venta}-${resultado.numero} sobre factura ${original.id} · Venta #${venta.numero}`),
@@ -898,4 +1112,150 @@ facturacion.post("/ventas/:ventaId/nota-credito", async (c) => {
   ]);
 
   return c.json({ ok: true, id: ncId, numero: resultado.numero, cae: resultado.cae, caeVencimiento: resultado.caeVencimiento });
+});
+
+/**
+ * Nota de Débito: cobrar algo MÁS sobre una venta ya facturada — un interés,
+ * un ajuste, un flete que se cobra aparte. A diferencia de la Nota de
+ * Crédito, esto no anula nada: la venta original sigue como está, no se
+ * toca stock ni pagos, y puede haber más de una ND sobre la misma factura
+ * (cada cargo es su propio comprobante).
+ *
+ * El monto es libre — lo carga el que factura — a diferencia de la NC, que
+ * siempre repite el total exacto de lo que anula.
+ */
+facturacion.post("/ventas/:ventaId/nota-debito", async (c) => {
+  const neg = negocioDe(c);
+  const ventaId = c.req.param("ventaId");
+  const b = await c.req.json().catch(() => ({}));
+  const cfg = exigirConfigLista(await leerConfigFiscal(c.env, neg));
+
+  const venta = await c.env.DB.prepare(`SELECT * FROM ventas WHERE negocio_id = ? AND id = ?`).bind(neg, ventaId).first<Venta>();
+  if (!venta) throw new HttpError(404, "Venta no encontrada.");
+  if (venta.estado === "anulada") throw new HttpError(400, "No se puede debitar sobre una venta anulada.");
+
+  const original = await c.env.DB
+    .prepare(
+      `SELECT * FROM facturas
+       WHERE negocio_id = ? AND venta_id = ? AND factura_original_id IS NULL AND estado = 'autorizada'`
+    )
+    .bind(neg, ventaId)
+    .first<Factura>();
+  if (!original) throw new HttpError(404, "Esta venta no tiene una factura autorizada para debitarle algo.");
+
+  const cliente = await c.env.DB.prepare(`SELECT * FROM clientes WHERE negocio_id = ? AND id = ?`).bind(neg, venta.cliente_id).first<Cliente>();
+  if (!cliente) throw new HttpError(404, "Cliente no encontrado.");
+
+  const letra = (Object.entries(TIPO_FACTURA).find(([, v]) => v === original.tipo_comprobante)?.[0] ?? "B") as "A" | "B" | "C";
+  const tipoND = TIPO_NOTA_DEBITO[letra];
+
+  const monto = entero(b.monto, "monto", { min: 1 });
+  const motivo = texto(b.motivo, "motivo", { requerido: false, max: 200 });
+  const { neto, iva } = calcularNetoIvaParaTipo(monto, cfg.iva_porcentaje_defecto, letra);
+  const condicionReceptor = cliente.condicion_iva
+    ? CONDICION_IVA_RECEPTOR[cliente.condicion_iva]
+    : CONDICION_IVA_RECEPTOR.consumidor_final;
+
+  // Mismo criterio que al facturar: el concepto por defecto sale del rubro,
+  // y con Servicios/Ambos hay que mandar el período.
+  const conceptoNombre = enumerado(
+    b.concepto ?? (await configDe(c)).capacidades.concepto_default,
+    "concepto",
+    ["productos", "servicios", "ambos"] as const
+  );
+  const concepto = CONCEPTO[conceptoNombre];
+  let fchServDesde: string | undefined;
+  let fchServHasta: string | undefined;
+  let fchVtoPago: string | undefined;
+  if (concepto !== 1) {
+    fchServDesde = fechaISO(b.fch_serv_desde ?? venta.fecha, "desde (servicio)");
+    fchServHasta = fechaISO(b.fch_serv_hasta ?? venta.fecha, "hasta (servicio)");
+    fchVtoPago = fechaISO(b.fch_vto_pago ?? venta.fecha, "vencimiento del pago");
+    if (fchServHasta < fchServDesde) {
+      throw new HttpError(400, "El período del servicio termina antes de empezar.");
+    }
+  }
+
+  // Misma regla de fecha que al facturar (ventana de ARCA + orden no
+  // decreciente), pero contra el último ND — es su propia numeración en
+  // ARCA, separada de la Factura.
+  const hoyISO = new Date().toISOString().slice(0, 10);
+  const fechaPedida = b.fecha ? fechaISO(b.fecha, "fecha del comprobante") : hoyISO;
+  const ultimoND = await c.env.DB
+    .prepare(
+      `SELECT fecha_comprobante FROM facturas
+        WHERE negocio_id = ? AND punto_venta = ? AND tipo_comprobante = ? AND estado = 'autorizada'
+          AND fecha_comprobante IS NOT NULL
+        ORDER BY numero DESC LIMIT 1`
+    )
+    .bind(neg, cfg.punto_venta, tipoND)
+    .first<{ fecha_comprobante: string }>();
+  const fechaComprobante =
+    ultimoND?.fecha_comprobante && fechaPedida < ultimoND.fecha_comprobante
+      ? ultimoND.fecha_comprobante
+      : fechaPedida;
+  const diasDeHoy = Math.abs(
+    (new Date(hoyISO + "T00:00:00Z").getTime() - new Date(fechaComprobante + "T00:00:00Z").getTime()) / 86400000
+  );
+  if (diasDeHoy > ventanaFecha(concepto)) {
+    throw new HttpError(400, `ARCA no acepta fechar este comprobante a más de ${ventanaFecha(concepto)} días de hoy.`);
+  }
+  if (b.fecha && fechaComprobante !== fechaPedida) {
+    throw new HttpError(
+      400,
+      `No se puede fechar el ${fechaPedida}: la última Nota de Débito ${letra} de este punto de venta ` +
+      `es del ${ultimoND!.fecha_comprobante}, y ARCA no acepta emitir con fecha anterior a esa.`
+    );
+  }
+
+  let cred, numeroND: number;
+  try {
+    cred = await credencialesPara(c.env, cfg);
+    numeroND = (await feCompUltimoAutorizado(cred, cfg.punto_venta!, tipoND)) + 1;
+  } catch (err: any) {
+    if (err instanceof HttpError && err.status < 500) throw err;
+    throw new HttpError(502, mensajeAmigable(err));
+  }
+
+  const ndId = crypto.randomUUID();
+  try {
+    const resultado = await feCaeSolicitar(cred, cfg.punto_venta!, {
+      cbteTipo: tipoND,
+      concepto,
+      fchServDesde: fchServDesde?.replace(/-/g, ""),
+      fchServHasta: fchServHasta?.replace(/-/g, ""),
+      fchVtoPago: fchVtoPago?.replace(/-/g, ""),
+      docTipo: original.doc_tipo,
+      docNro: original.doc_numero,
+      cbteFch: fechaComprobante.replace(/-/g, ""),
+      impTotal: monto,
+      impNeto: neto,
+      impIVA: iva,
+      ivaPorcentaje: cfg.iva_porcentaje_defecto,
+      condicionIVAReceptorId: condicionReceptor,
+      cbteAsoc: { tipo: original.tipo_comprobante, ptoVta: original.punto_venta, nro: original.numero! },
+    }, numeroND);
+
+    await c.env.DB.batch([
+      c.env.DB.prepare(
+        `INSERT INTO facturas
+           (id, negocio_id, venta_id, factura_original_id, tipo_comprobante, punto_venta, numero, cae, cae_vencimiento,
+            estado, neto_gravado, iva, total, iva_porcentaje, doc_tipo, doc_numero,
+            concepto, fch_serv_desde, fch_serv_hasta, fch_vto_pago, fecha_comprobante, observaciones, autorizado_en)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'autorizada', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+      ).bind(
+        ndId, neg, ventaId, original.id, tipoND, cfg.punto_venta, resultado.numero,
+        resultado.cae, resultado.caeVencimiento, neto, iva, monto, cfg.iva_porcentaje_defecto,
+        original.doc_tipo, original.doc_numero,
+        concepto, fchServDesde ?? null, fchServHasta ?? null, fchVtoPago ?? null, fechaComprobante, motivo ?? null
+      ),
+      auditarDe(c, "emitir_nota_debito", "factura", ndId,
+        `ND ${letra} ${cfg.punto_venta}-${resultado.numero} sobre factura ${original.id} · Venta #${venta.numero} · $${(monto / 100).toFixed(2)}`),
+    ]);
+
+    return c.json({ ok: true, id: ndId, numero: resultado.numero, cae: resultado.cae, caeVencimiento: resultado.caeVencimiento });
+  } catch (err: any) {
+    if (err instanceof HttpError && err.status < 500) throw err;
+    throw new HttpError(502, mensajeAmigable(err));
+  }
 });

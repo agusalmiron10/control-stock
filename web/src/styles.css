@@ -288,6 +288,40 @@ a:hover { text-decoration: underline; }
 }
 .card-body { padding: 16px; }
 
+/* Secciones "de taller": internas, nunca aparecen en lo que se imprime para
+   el cliente. El borde punteado ámbar avisa de un vistazo que eso no lo ve
+   nadie de afuera. (El encabezado ámbar se define más abajo, junto al resto
+   del estilo de encabezados de tarjeta: si se definiera acá, esa regla
+   posterior lo pisaría por orden de cascada.) */
+.taller-card { border-style: dashed; border-color: var(--ambar); }
+
+/* Elegir "catálogo" o "a medida" al armar un presupuesto: antes era un
+   tilde chiquito, fácil de pasar de largo, y no quedaba claro que cambiaba
+   TODO el formulario de abajo. Ahora son dos tarjetas grandes, una al lado
+   de la otra — la decisión se ve antes de tocar nada más. */
+.modo-presupuesto { display: flex; gap: 10px; flex-wrap: wrap; }
+.modo-opcion {
+  flex: 1; min-width: 220px; display: flex; align-items: flex-start; gap: 10px;
+  text-align: left; padding: 14px; border-radius: var(--radio);
+  border: 1.5px solid var(--borde); background: var(--superficie);
+  cursor: pointer; font: inherit; color: inherit;
+  transition: border-color .15s ease, background .15s ease;
+}
+.modo-opcion:hover { border-color: var(--borde-fuerte); }
+.modo-opcion.activo { border-color: var(--acento); background: color-mix(in srgb, var(--acento) 7%, var(--panel)); }
+.modo-opcion-icono { font-size: 22px; line-height: 1; flex: none; }
+.modo-opcion-titulo { font-weight: 600; display: block; }
+.modo-opcion.activo .modo-opcion-titulo { color: var(--acento); }
+.modo-opcion-detalle { display: block; font-size: 12.5px; color: var(--texto-suave); margin-top: 2px; }
+
+/* Aviso cuando todavía no se cargó ningún insumo: sin esto, el selector de
+   materiales aparecía vacío sin explicar por qué ni qué hacer. */
+.aviso-vacio-insumos {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+  background: var(--ambar-bg); border: 1px solid var(--ambar); border-radius: var(--radio);
+  padding: 10px 14px; font-size: 13.5px; color: var(--ambar);
+}
+
 .grid-kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-bottom: 18px; }
 .kpi {
   background: var(--panel); border: 1px solid var(--borde);
@@ -330,14 +364,9 @@ a:hover { text-decoration: underline; }
 }
 .resumen-factura strong { margin: 0 4px; }
 
-/* Utilidades: mostrar una vista en escritorio (tabla completa) y otra en
-   celular (tarjetas de 2 líneas), para las listas donde la tabla es la
-   mejor opción en pantallas anchas pero queda apretada en un celular. */
-.solo-movil { display: none; }
-@media (max-width: 640px) {
-  .solo-escritorio { display: none; }
-  .solo-movil { display: block; }
-}
+/* Las utilidades .solo-movil / .solo-escritorio están al FINAL del archivo
+   (buscá "Utilidades de visibilidad"). Tienen que ir últimas para que
+   siempre ganen. */
 
 /* ── Buscador de cliente (Nueva venta, Nuevo presupuesto) ──── */
 .bc { position: relative; }
@@ -348,10 +377,15 @@ a:hover { text-decoration: underline; }
 .bc-elegido {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 8px 10px; border: 1px solid var(--borde-fuerte); border-radius: 6px;
+  cursor: pointer;
 }
+.bc-elegido:hover { border-color: var(--acento); }
 .bc-fondo { position: fixed; inset: 0; z-index: 29; }
+/* Portal a <body>: top/left/width los pone BuscadorCliente por inline style
+   (calculados desde el input), position:fixed para no depender de dónde
+   cayó en el DOM ni de que algún ancestro recorte overflow. */
 .bc-lista {
-  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30;
+  position: fixed; z-index: 30;
   background: var(--panel); border: 1px solid var(--borde); border-radius: 8px;
   box-shadow: var(--sombra); max-height: 260px; overflow-y: auto;
 }
@@ -531,6 +565,8 @@ input.num { text-align: right; font-variant-numeric: tabular-nums; }
 /* ── WhatsApp ────────────────────────────────────────── */
 .btn.wa { background: #25d366; color: #072b12; border-color: #1da851; }
 .btn.wa:hover { background: #20bd5a; }
+.btn.email { background: #3b82f6; color: #fff; border-color: #2563eb; }
+.btn.email:hover { background: #2563eb; }
 
 /* ── Comprobante imprimible ──────────────────────────── */
 .comprobante-overlay {
@@ -544,6 +580,10 @@ input.num { text-align: right; font-variant-numeric: tabular-nums; }
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3); font-size: 14px;
 }
 .comp-header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111827; padding-bottom: 12px; margin-bottom: 12px; gap: 12px; }
+.comp-header-izq { display: flex; align-items: center; gap: 12px; }
+/* La foto del dueño, como logo del papel — mismos colores fijos que el
+   resto de .comp-*, el papel no sigue el tema oscuro de la app. */
+.comp-logo { width: 52px; height: 52px; border-radius: 8px; object-fit: cover; flex: none; border: 1px solid #d1d5db; }
 .comp-marca { font-size: 26px; font-weight: 800; letter-spacing: .02em; }
 .comp-sub { font-size: 12px; color: #4b5563; }
 .comp-doc { text-align: right; }
@@ -561,7 +601,40 @@ table.comp-tabla { width: 100%; border-collapse: collapse; margin-bottom: 12px; 
 .comp-total { border-top: 1px solid #111827; border-bottom: 1px solid #111827; font-weight: 800; font-size: 16px; padding: 6px 0 !important; margin: 4px 0; }
 .comp-saldo { font-weight: 700; }
 .comp-nota { margin-top: 14px; font-size: 13px; }
+.comp-croquis { display: block; max-width: 100%; max-height: 320px; margin: 12px 0; border: 1px solid #d1d5db; border-radius: 4px; }
 .comp-pie { margin-top: 18px; text-align: center; color: #6b7280; font-size: 12px; border-top: 1px dashed #d1d5db; padding-top: 10px; }
+
+/* Sin esto el QR se imprime a su tamaño "natural" (el SVG de la librería no
+   trae ancho/alto propios) — bastante grande como para empujar el CAE a una
+   segunda hoja. Achicado a un tamaño de factura real, y todo el bloque junto
+   para que no se corte entre el QR y el CAE si cae justo al borde de la hoja. */
+.comp-fiscal-pie {
+  display: flex; align-items: center; gap: 16px;
+  margin-top: 16px; padding-top: 12px; border-top: 1px dashed #d1d5db;
+  page-break-inside: avoid; break-inside: avoid;
+}
+.comp-qr { flex: none; width: 90px; height: 90px; }
+.comp-qr svg { display: block; width: 100%; height: 100%; }
+.comp-cae { font-size: 12px; color: #374151; }
+.comp-cae div { margin-bottom: 2px; }
+
+/* Quién atendió — foto de perfil (si tiene) + nombre, antes del pie del
+   papel. Mismos colores fijos que el resto de .comp-*: el papel es blanco
+   siempre, no sigue el tema de la app. */
+.comp-atendido {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 14px; font-size: 12px; color: #374151;
+}
+.comp-atendido img {
+  width: 26px; height: 26px; border-radius: 50%; object-fit: cover;
+  border: 1px solid #d1d5db; flex: none;
+}
+.comp-atendido .sin-foto {
+  width: 26px; height: 26px; border-radius: 50%; flex: none;
+  background: #e5e7eb; color: #374151; border: 1px solid #d1d5db;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700;
+}
 
 @media print {
   body * { visibility: hidden; }
@@ -1051,9 +1124,9 @@ table.tabla td.acc .btn-grupo { flex-wrap: nowrap; }
 /* El título es el botón que despliega el grupo. Se toca entero, no sólo la
    flechita: un objetivo chico es incómodo, y más en un celular. */
 .nav-grupo-titulo {
-  display: flex; align-items: center; gap: 6px; width: 100%;
-  font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em;
-  font-weight: 700; color: #6b7a90;
+  display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%;
+  font-size: 12.5px; text-transform: uppercase; letter-spacing: .08em;
+  font-weight: 700; color: #fff;
   padding: 9px 12px; margin-bottom: 2px;
   background: none; border: none; border-radius: var(--radio-chico);
   font-family: inherit; text-align: left; cursor: pointer;
@@ -1141,6 +1214,15 @@ table.tabla td.acc .btn-grupo { flex-wrap: nowrap; }
   width: 3px; height: 14px; border-radius: 2px;
   background: var(--acento);
 }
+/* Encabezado de las tarjetas "de taller" (ver .taller-card más arriba): va
+   acá, después del encabezado normal, porque tiene la misma especificidad y
+   si no ganaría el de arriba. */
+.taller-card > h2 {
+  background: color-mix(in srgb, var(--ambar) 12%, var(--superficie));
+  color: var(--ambar);
+  border-bottom-color: var(--ambar);
+}
+.taller-card > h2::before { background: var(--ambar); }
 
 /* El título de sección también se ancla con color. */
 .encabezado-seccion h1 {
@@ -1239,12 +1321,16 @@ table.tabla tbody tr:hover { background: color-mix(in srgb, var(--acento) 9%, tr
 }
 .be-input:focus { outline: none; }
 
+/* Sin nada tipeado esto muestra el catálogo entero para tocar y listo, no
+   sólo el puñado de resultados de una búsqueda — por eso el scroll propio:
+   que un negocio con 300 productos no estire la página entera. */
 .be-sugerencias {
   margin-top: 6px;
   box-shadow: var(--sombra-media);
   border: 1px solid var(--borde);
   border-radius: 10px;
-  overflow: hidden;
+  overflow-y: auto;
+  max-height: 360px;
   background: var(--panel);
 }
 
@@ -1351,6 +1437,14 @@ table.tabla tbody tr:hover { background: color-mix(in srgb, var(--acento) 9%, tr
   border-bottom: 1px solid var(--borde);
 }
 .ticket-fila:hover { background: var(--superficie); }
+/* Confirmación visual de que el escaneo entró, sin tener que leer el
+   nombre: un destello breve y listo — no hace falta sonido para saber que
+   se cargó. */
+@keyframes ticket-flash { from { background: var(--acento-suave); } to { background: transparent; } }
+.ticket-fila-flash { animation: ticket-flash 700ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .ticket-fila-flash { animation: none; background: var(--acento-suave); }
+}
 .ticket-fila-manual { grid-template-columns: 1fr 80px 110px 100px auto; }
 .ticket-nombre { font-size: 14px; font-weight: 500; min-width: 0; }
 .ticket-stepper { display: flex; align-items: center; gap: 6px; justify-self: center; }
@@ -1363,6 +1457,17 @@ table.tabla tbody tr:hover { background: color-mix(in srgb, var(--acento) 9%, tr
 .ticket-precio { width: 100%; }
 .ticket-sub { font-weight: 600; }
 
+@container (max-width: 560px) {
+  /* El mismo apilado de arriba, pero disparado por el ancho real de
+     .pos-principal (ver container-type ahí) en vez del viewport: en
+     escritorio, con el panel de cierre al costado, esta columna se achica
+     mucho antes de que la pantalla se considere "chica". */
+  .ticket-fila, .ticket-fila-manual {
+    grid-template-columns: 1fr auto;
+    row-gap: 8px;
+  }
+  .ticket-nombre, .ticket-fila-manual select { grid-column: 1 / -1; }
+}
 @media (max-width: 720px) {
   .ticket-fila, .ticket-fila-manual {
     grid-template-columns: 1fr auto;
@@ -1386,4 +1491,126 @@ table.tabla tbody tr:hover { background: color-mix(in srgb, var(--acento) 9%, tr
 
 @media (max-width: 560px) {
   .barra-total-venta { flex-wrap: wrap; }
+}
+
+/* ── Nueva venta: cierre en un panel aparte, no al final de la página ──
+   A la izquierda se sigue cargando el ticket como siempre (cliente,
+   escaneo, productos); a la derecha, en una pantalla lo bastante ancha,
+   queda fijo el "cierre de venta" — total, medio de pago y confirmar —
+   así no hace falta bajar hasta el final ni perderlo de vista mientras se
+   sigue agregando. En una pantalla angosta se apila como una tarjeta más
+   y .barra-total-venta (fija abajo) vuelve a hacer ese trabajo. */
+.pos-venta { display: grid; grid-template-columns: 1fr; gap: 20px; align-items: start; }
+/* container-type: para que .ticket-fila (más abajo) responda al ancho que
+   REALMENTE le queda a esta columna, no al de toda la pantalla. Con el
+   panel de cierre de 340px al costado, esta columna se achica bastante
+   antes de que la pantalla entera se considere "chica" — un media query
+   por viewport no se enteraba de eso y el nombre del producto quedaba
+   aplastado a 0px de ancho en pantallas de ~1000px. */
+.pos-principal { display: flex; flex-direction: column; gap: 20px; min-width: 0; container-type: inline-size; }
+
+.pos-cierre {
+  display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--borde); border-radius: var(--radio);
+  box-shadow: var(--sombra); overflow: hidden; /* clip a las esquinas redondeadas */
+}
+/* El contenido que puede crecer (medios de pago, vuelto, descuento, nota)
+   scrollea acá adentro — el total y "Confirmar venta" NUNCA se mueven de
+   .pos-cierre-pie, así que tocar un producto nunca obliga a bajar a
+   confirmar: el botón ya está a la vista siempre. */
+.pos-cierre-scroll {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 16px;
+  padding: 18px;
+}
+.pos-cierre-pie {
+  flex: none; display: flex; flex-direction: column; gap: 10px;
+  padding: 14px 18px; border-top: 1px solid var(--borde); background: var(--panel);
+}
+.pos-cierre-titulo {
+  font-size: 12.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--texto-suave); margin: 0;
+}
+
+.pos-resumen { display: flex; flex-direction: column; gap: 6px; }
+.pos-resumen-linea { display: flex; justify-content: space-between; font-size: 14px; color: var(--texto-suave); }
+
+.pos-seccion { display: flex; flex-direction: column; gap: 8px; }
+.pos-label { font-size: 12.5px; font-weight: 600; color: var(--texto-suave); }
+
+/* Medio de pago como grilla de botones grandes, no un <select> — es lo
+   que más se toca en cada venta, así que gana espacio en pantalla. */
+.pos-medios { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.pos-medio {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  border: 1px solid var(--borde-fuerte); border-radius: var(--radio-chico);
+  background: var(--superficie); padding: 10px 4px; font-size: 12px; font-weight: 600;
+  cursor: pointer; color: var(--texto);
+}
+.pos-medio-icono { font-size: 17px; line-height: 1; }
+.pos-medio:hover { border-color: var(--acento); }
+.pos-medio.activo { border-color: var(--acento); background: var(--acento-suave); color: var(--acento); }
+
+.pos-finalizar { width: 100%; font-size: 16px; padding: 14px 18px; }
+
+/* Vuelto: es la cuenta que más apuro tiene en el mostrador, así que va
+   grande y en un color que se lee de reojo (verde = ya está, listo para
+   entregar el vuelto; rojo = todavía falta que ponga plata). */
+.pos-vuelto {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 10px 12px; border-radius: var(--radio-chico); font-size: 14px; font-weight: 600;
+}
+.pos-vuelto b { font-size: 19px; font-variant-numeric: tabular-nums; }
+.pos-vuelto.ok { background: var(--verde-bg); color: var(--verde); }
+.pos-vuelto.falta { background: var(--rojo-bg); color: var(--rojo); }
+
+@media (min-width: 960px) {
+  .pos-venta { grid-template-columns: 1fr 340px; }
+  /* Alto acotado a la pantalla: adentro, .pos-cierre-scroll es lo único
+     que se desborda — el pie con el total y "Confirmar venta" queda
+     siempre fijo y visible, nunca hay que bajar para llegar a él. */
+  .pos-cierre { position: sticky; top: 16px; max-height: calc(100vh - 32px); }
+  .pos-barra-movil { display: none; }
+}
+
+/* ── Selección de rubro (primer ingreso) ───────────────────
+   Tarjetas grandes y tocables: es la primera pantalla que ve un dueño que
+   recién entra, casi siempre desde el celular. */
+.grid-rubros {
+  display: grid; gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+.tarjeta-rubro {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; min-height: 104px; padding: 14px 10px; text-align: center;
+  background: var(--panel); color: var(--texto);
+  border: 1px solid var(--borde); border-radius: var(--radio);
+  font: inherit; font-size: 13.5px; font-weight: 500; cursor: pointer;
+  transition: border-color .14s ease, box-shadow .14s ease, transform .1s ease;
+}
+.tarjeta-rubro:hover { border-color: var(--acento); }
+.tarjeta-rubro:active { transform: translateY(1px); }
+.tarjeta-rubro.elegida {
+  border-color: var(--acento);
+  box-shadow: 0 0 0 2px var(--acento) inset, var(--sombra-media);
+}
+.tarjeta-rubro-icono { font-size: 28px; line-height: 1; }
+
+/* ── Utilidades de visibilidad ──────────────────────────────────
+   Mostrar una vista en escritorio (tabla completa) y otra en celular
+   (tarjetas de 2 líneas), para las listas donde la tabla es la mejor
+   opción en pantallas anchas pero queda apretada en un celular.
+
+   VAN AL FINAL DEL ARCHIVO A PROPÓSITO. Son de una sola clase, así que
+   empatan en especificidad con cualquier regla de componente que también
+   defina `display` sobre el mismo elemento (`.lista-tarjetas`,
+   `.reng-lista`…) y en un empate gana la última. Estando acá abajo ganan
+   siempre. Ya pasó al revés: `.reng-lista { display: flex }` estaba
+   después y le ganaba a `.solo-movil { display: none }`, así que en Nuevo
+   presupuesto los renglones se veían DOS veces en escritorio y tablet —
+   la tabla y las tarjetas de celular, una debajo de la otra. */
+.solo-movil { display: none; }
+@media (max-width: 640px) {
+  .solo-escritorio { display: none; }
+  .solo-movil { display: block; }
 }

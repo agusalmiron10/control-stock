@@ -35,6 +35,32 @@ export function entero(
   return n;
 }
 
+/**
+ * Cantidad de una venta o un movimiento de stock.
+ *
+ * Entera salvo que el negocio tenga la capacidad `venta_fraccionada` (una
+ * verdulería vende 1,5 kg; una ferretería no vende 1,5 martillos). Se redondea
+ * a 3 decimales para que no entren cantidades absurdas por un float sucio.
+ *
+ * En la base no hace falta nada especial: SQLite guarda 1.5 tal cual en una
+ * columna declarada INTEGER, porque sólo convierte cuando la conversión es
+ * exacta.
+ */
+export function cantidad(
+  v: unknown,
+  campo: string,
+  { fraccionada = false, min = 0 }: { fraccionada?: boolean; min?: number } = {}
+): number {
+  if (!fraccionada) return entero(v, campo, { min });
+  const n = typeof v === "string" ? Number(v) : (v as number);
+  if (typeof n !== "number" || !Number.isFinite(n)) {
+    throw new HttpError(400, `El campo "${campo}" tiene que ser un número.`);
+  }
+  const redondeada = Math.round(n * 1000) / 1000;
+  if (redondeada < min) throw new HttpError(400, `El campo "${campo}" no puede ser menor a ${min}.`);
+  return redondeada;
+}
+
 export function decimalOpt(v: unknown, campo: string): number | null {
   if (v == null || v === "") return null;
   const n = typeof v === "string" ? Number(v) : (v as number);

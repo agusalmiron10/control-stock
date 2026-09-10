@@ -2,6 +2,7 @@ import { api } from "../api";
 import { pesos, fecha, numero } from "../format";
 import { negocio } from "../lib/negocio";
 import { Cargando, Error, useCarga } from "./ui";
+import { AtendidoPor } from "./AtendidoPor";
 
 /** Comprobante / presupuesto imprimible. Botón imprime → "Guardar como PDF". */
 export function PresupuestoPDF({ presupuestoId, onCerrar }: { presupuestoId: number; onCerrar: () => void }) {
@@ -21,10 +22,13 @@ export function PresupuestoPDF({ presupuestoId, onCerrar }: { presupuestoId: num
         {data && (
           <div className="comprobante">
             <div className="comp-header">
-              <div>
-                <div className="comp-marca">{negocio().nombre}</div>
-                <div className="comp-sub">{negocio().rubro}</div>
-                <div className="comp-sub">Tel: {negocio().telefono} · {negocio().instagram}</div>
+              <div className="comp-header-izq">
+                {negocio().logo && <img src={negocio().logo ?? undefined} alt="" className="comp-logo" />}
+                <div>
+                  <div className="comp-marca">{negocio().nombre}</div>
+                  <div className="comp-sub">{negocio().rubro}</div>
+                  <div className="comp-sub">Tel: {negocio().telefono} · {negocio().instagram}</div>
+                </div>
               </div>
               <div className="comp-doc">
                 <div className="comp-doc-tit">PRESUPUESTO</div>
@@ -43,23 +47,33 @@ export function PresupuestoPDF({ presupuestoId, onCerrar }: { presupuestoId: num
               </div>
             )}
 
-            <table className="comp-tabla">
-              <thead>
-                <tr>
-                  <th>Cant.</th><th>Detalle</th><th className="num">P. unit.</th><th className="num">Subtotal</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.items.map((it: any) => (
-                  <tr key={it.id}>
-                    <td className="num">{numero(it.cantidad)}</td>
-                    <td>{it.nombre_herramienta}</td>
-                    <td className="num">{pesos(it.precio_unitario)}</td>
-                    <td className="num">{pesos(it.subtotal)}</td>
+            {data.items.length === 0 && data.presupuesto.nota && (
+              <div className="comp-nota" style={{ margin: "12px 0" }}>{data.presupuesto.nota}</div>
+            )}
+
+            {data.presupuesto.croquis && (
+              <img src={data.presupuesto.croquis} alt="Croquis del trabajo" className="comp-croquis" />
+            )}
+
+            {data.items.length > 0 && (
+              <table className="comp-tabla">
+                <thead>
+                  <tr>
+                    <th>Cant.</th><th>Detalle</th><th className="num">P. unit.</th><th className="num">Subtotal</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {data.items.map((it: any) => (
+                    <tr key={it.id}>
+                      <td className="num">{numero(it.cantidad)}</td>
+                      <td>{it.nombre_herramienta}</td>
+                      <td className="num">{pesos(it.precio_unitario)}</td>
+                      <td className="num">{pesos(it.subtotal)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
 
             <div className="comp-totales">
               <div><span>Subtotal</span><span className="num">{pesos(data.presupuesto.subtotal)}</span></div>
@@ -69,7 +83,11 @@ export function PresupuestoPDF({ presupuestoId, onCerrar }: { presupuestoId: num
               <div className="comp-total"><span>TOTAL</span><span className="num">{pesos(data.presupuesto.total)}</span></div>
             </div>
 
-            {data.presupuesto.nota && <div className="comp-nota"><b>Nota:</b> {data.presupuesto.nota}</div>}
+            {data.items.length > 0 && data.presupuesto.nota && (
+              <div className="comp-nota"><b>Nota:</b> {data.presupuesto.nota}</div>
+            )}
+
+            <AtendidoPor nombre={data.presupuesto.atendido_por_nombre} foto={data.presupuesto.atendido_por_foto} />
 
             <div className="comp-pie">
               Presupuesto sujeto a cambios de precio sin previo aviso — {negocio().nombre}

@@ -1,13 +1,14 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
 import { pesos, numero, aCentavos, aPesos, hoyISO } from "../format";
 import { Cargando, Error, Vacio, Modal, Campo, Confirmar, useCarga } from "../components/ui";
 import { ImportarProductos } from "../components/ImportarProductos";
 import { exportarPrecios } from "../excel";
 import { waListaDePrecios } from "../lib/whatsapp";
+import { emailListaDePrecios } from "../lib/email";
 import { FormProduccion } from "../components/FormProduccion";
 import { useRol, esDueno } from "../lib/rol";
-import { useModulo, useVocab } from "../lib/config";
+import { useModulo, useVocab, useCapacidades } from "../lib/config";
 
 type Modo =
   | { t: "cerrado" }
@@ -55,6 +56,25 @@ export function Herramientas() {
     rubrosQ.recargar();
   }
 
+  /**
+   * Con pocos productos, el mensaje trae la lista entera. Con muchos,
+   * wa/emailListaDePrecios mandan sólo un aviso corto — acá se completa con
+   * la descarga del Excel completo, para adjuntarlo a mano (no hay forma de
+   * pre-cargar un archivo en un link de WhatsApp ni de mailto, sólo texto).
+   */
+  function compartirLista(canal: "whatsapp" | "email") {
+    const { completa, cantidad } =
+      canal === "whatsapp"
+        ? waListaDePrecios(data?.herramientas ?? [], "minorista")
+        : emailListaDePrecios(data?.herramientas ?? [], "minorista");
+    if (!completa) {
+      exportarPrecios().catch((e) => setAviso(e.message));
+      setAviso(
+        `Se abrió ${canal === "whatsapp" ? "WhatsApp" : "el mail"} con un aviso corto (son ${cantidad} productos, no entran bien como texto) — te descargamos también el Excel completo para que lo adjuntes.`
+      );
+    }
+  }
+
   let lista: any[] = data?.herramientas ?? [];
   if (rubroF) lista = lista.filter((h) => (h.rubro ?? "") === rubroF);
   
@@ -74,13 +94,16 @@ export function Herramientas() {
         <div className="btn-grupo">
           <button className="btn" onClick={() => setImportar(true)}>⬆ Importar</button>
           <button className="btn" onClick={() => setModo({ t: "masivo" })}>% Ajuste masivo</button>
-          <button className="btn wa" onClick={() => waListaDePrecios(data?.herramientas ?? [], "minorista")}>
+          <button className="btn wa" onClick={() => compartirLista("whatsapp")}>
             Compartir lista
+          </button>
+          <button className="btn email" onClick={() => compartirLista("email")}>
+            ✉ Mail
           </button>
           <button className="btn" onClick={() => exportarPrecios().catch((e) => setAviso(e.message))}>
             ⬇ Excel precios
           </button>
-          <button className="btn primario" onClick={() => setModo({ t: "nueva" })}>+ Nueva</button>
+          <button className="btn primario" data-tour="nueva-herramienta" onClick={() => setModo({ t: "nueva" })}>+ Nueva</button>
         </div>
       </div>
 
@@ -235,6 +258,40 @@ function FormHerramienta({ modo, onCerrar }: { modo: any; onCerrar: (m?: string)
   const [notas, setNotas] = useState(h?.notas ?? "");
   const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
+  // Qué campos extra tiene un producto lo decide la capacidad del rubro, no
+  // este componente: acá sólo se renderiza la lista que venga.
+  const {
+    campos_extra_producto, categorias_sugeridas, permite_vencimientos, precios_por_escala,
+    requiere_numero_serie, permite_variantes, tipos_variante,
+  } = useCapacidades();
+  const [requiereSerie, setRequiereSerie] = useState(!!h?.requiere_serie);
+  // Valores por tipo de variante, separados por coma: "S, M, L" × "negro, blanco".
+  const [valoresVariante, setValoresVariante] = useState<Record<string, string>>({});
+  const [creandoVariantes, setCreandoVariantes] = useState(false);
+  const [venceEl, setVenceEl] = useState(h?.vence_el ?? "");
+  const [escalas, setEscalas] = useState<{ desde_cantidad: number | string; precio: number | string }[]>([]);
+  // En blanco = "usa la alícuota general del negocio" (Ajustes → Facturación
+  // electrónica) — no es lo mismo que elegir "0% Exento", que es un valor
+  // real. Sólo tiene sentido si el negocio factura.
+  const [ivaPorcentaje, setIvaPorcentaje] = useState(h?.iva_porcentaje != null ? String(h.iva_porcentaje) : "");
+  const factura = useModulo("facturacion_electronica");
+
+  // Los tramos se piden aparte y sólo cuando hacen falta: es un producto ya
+  // existente en un negocio que usa precio por cantidad.
+  useEffect(() => {
+    if (!precios_por_escala || !editar || !h?.id) return;
+    api.get<{ escalas: { desde_cantidad: number; precio: number }[] }>(`/api/herramientas/${h.id}/escalas`)
+      .then((r) => setEscalas(r.escalas.map((e) => ({ desde_cantidad: e.desde_cantidad, precio: aPesos(e.precio) }))))
+      .catch(() => {});
+  }, [precios_por_escala, editar, h?.id]);
+  const [datosExtra, setDatosExtra] = useState<Record<string, string>>(() => {
+    try {
+      const guardado = h?.datos_extra ? JSON.parse(h.datos_extra) : {};
+      return guardado && typeof guardado === "object" ? guardado : {};
+    } catch {
+      return {};
+    }
+  });
 
   async function guardar(e: React.FormEvent) {
     e.preventDefault();
@@ -244,7 +301,11 @@ function FormHerramienta({ modo, onCerrar }: { modo: any; onCerrar: (m?: string)
       const body: any = {
         codigo, nombre, rubro,
         stock_minimo: Number(stockMin || 0), notas,
+        datos_extra: datosExtra,
       };
+      if (factura) body.iva_porcentaje = ivaPorcentaje === "" ? null : Number(ivaPorcentaje);
+      if (permite_vencimientos) body.vence_el = venceEl || null;
+      if (requiere_numero_serie) body.requiere_serie = requiereSerie;
       if (esDueno(rol)) body.costo = aCentavos(costo || "0");
       if (editar) {
         await api.put(`/api/herramientas/${h.id}`, body);
@@ -253,6 +314,15 @@ function FormHerramienta({ modo, onCerrar }: { modo: any; onCerrar: (m?: string)
         body.precio_mayor = aCentavos(precioMayor || "0");
         body.stock = Number(stock || 0);
         await api.post("/api/herramientas", body);
+      }
+      // Los tramos van en su propio pedido: son otra tabla y sólo aplican a
+      // un producto que ya existe.
+      if (precios_por_escala && editar && h?.id) {
+        await api.put(`/api/herramientas/${h.id}/escalas`, {
+          escalas: escalas
+            .filter((e) => Number(e.desde_cantidad) > 0)
+            .map((e) => ({ desde_cantidad: Number(e.desde_cantidad), precio: aCentavos(String(e.precio || 0)) })),
+        });
       }
       onCerrar(editar ? "Herramienta actualizada." : "Herramienta creada.");
     } catch (err: any) {
@@ -274,7 +344,132 @@ function FormHerramienta({ modo, onCerrar }: { modo: any; onCerrar: (m?: string)
           <Campo label="Código"><input value={codigo} onChange={(e) => setCodigo(e.target.value)} autoFocus /></Campo>
           <Campo label="Nombre"><input value={nombre} onChange={(e) => setNombre(e.target.value)} /></Campo>
         </div>
-        <Campo label="Rubro"><input value={rubro} onChange={(e) => setRubro(e.target.value)} placeholder="Ej: Masas, Grinfas, Barretas" /></Campo>
+        <Campo label="Rubro">
+          <input
+            value={rubro}
+            onChange={(e) => setRubro(e.target.value)}
+            list="rubros-sugeridos"
+            placeholder={categorias_sugeridas.length > 0 ? `Ej: ${categorias_sugeridas.slice(0, 3).join(", ")}` : "Categoría del producto"}
+          />
+          {/* Sugerencias del rubro del negocio: ayudan sin obligar — el campo
+              sigue siendo texto libre, se puede escribir cualquier otra. */}
+          <datalist id="rubros-sugeridos">
+            {categorias_sugeridas.map((cat) => <option key={cat} value={cat} />)}
+          </datalist>
+        </Campo>
+        {campos_extra_producto.length > 0 && (
+          <div className="fila">
+            {campos_extra_producto.map((campo) => (
+              <Campo key={campo} label={campo.charAt(0).toUpperCase() + campo.slice(1)}>
+                <input
+                  value={datosExtra[campo] ?? ""}
+                  onChange={(e) => setDatosExtra((d) => ({ ...d, [campo]: e.target.value }))}
+                  maxLength={120}
+                />
+              </Campo>
+            ))}
+          </div>
+        )}
+        {permite_vencimientos && (
+          <Campo label="Vence el">
+            <input type="date" value={venceEl} onChange={(e) => setVenceEl(e.target.value)} />
+          </Campo>
+        )}
+        {precios_por_escala && editar && (
+          <>
+            <hr />
+            <p className="mut" style={{ marginTop: 0 }}>
+              <b>Precio por cantidad.</b> El precio que se aplica es el del tramo más alto que
+              alcance lo que se lleva. Dejalo vacío si este producto no tiene descuento por volumen.
+            </p>
+            {escalas.map((e, i) => (
+              <div className="fila" key={i}>
+                <Campo label="Desde (cantidad)">
+                  <input
+                    className="num" type="number" min={1} value={e.desde_cantidad}
+                    onChange={(ev) => setEscalas((arr) =>
+                      arr.map((x, j) => (j === i ? { ...x, desde_cantidad: ev.target.value } : x)))}
+                  />
+                </Campo>
+                <Campo label="Precio por unidad ($)">
+                  <input
+                    className="num" type="number" step="0.01" min={0} value={e.precio}
+                    onChange={(ev) => setEscalas((arr) =>
+                      arr.map((x, j) => (j === i ? { ...x, precio: ev.target.value } : x)))}
+                  />
+                </Campo>
+                <button type="button" className="btn chico" style={{ alignSelf: "flex-end", marginBottom: 10 }}
+                  onClick={() => setEscalas((arr) => arr.filter((_, j) => j !== i))}>
+                  Quitar
+                </button>
+              </div>
+            ))}
+            <button type="button" className="btn chico"
+              onClick={() => setEscalas((arr) => [...arr, { desde_cantidad: "", precio: "" }])}>
+              + Agregar tramo
+            </button>
+          </>
+        )}
+        {requiere_numero_serie && (
+          <label className="tarjeta-fila modulo-fila" style={{ marginTop: 10 }}>
+            <input type="checkbox" checked={requiereSerie} onChange={(e) => setRequiereSerie(e.target.checked)} />
+            <span>
+              Lleva número de serie
+              <div className="mut">
+                Al venderlo se va a pedir una serie por unidad. Dejalo apagado para lo que no
+                la lleva (fundas, accesorios).
+              </div>
+            </span>
+          </label>
+        )}
+        {permite_variantes && editar && !h?.padre_id && tipos_variante.length > 0 && (
+          <>
+            <hr />
+            <p className="mut" style={{ marginTop: 0 }}>
+              <b>Variantes.</b> Cada combinación pasa a ser un producto propio con su stock.
+              Este producto queda como agrupación.
+            </p>
+            {tipos_variante.map((tipo) => (
+              <Campo key={tipo} label={`${tipo.charAt(0).toUpperCase() + tipo.slice(1)} (separados por coma)`}>
+                <input
+                  value={valoresVariante[tipo] ?? ""}
+                  onChange={(e) => setValoresVariante((v) => ({ ...v, [tipo]: e.target.value }))}
+                  placeholder={tipo === "talle" ? "S, M, L, XL" : tipo === "color" ? "negro, blanco" : ""}
+                />
+              </Campo>
+            ))}
+            <button type="button" className="btn chico" disabled={creandoVariantes}
+              onClick={async () => {
+                // Producto cartesiano de lo que se cargó en cada tipo.
+                const listas = tipos_variante
+                  .map((t) => ({ tipo: t, vals: (valoresVariante[t] ?? "").split(",").map((x) => x.trim()).filter(Boolean) }))
+                  .filter((l) => l.vals.length > 0);
+                if (listas.length === 0) { setError("Cargá al menos un valor."); return; }
+                let combos: Record<string, string>[] = [{}];
+                for (const l of listas) {
+                  combos = combos.flatMap((c) => l.vals.map((v) => ({ ...c, [l.tipo]: v })));
+                }
+                setCreandoVariantes(true);
+                setError(null);
+                try {
+                  const r = await api.post<{ creadas: number; stock_padre_anterior: number }>(
+                    `/api/herramientas/${h.id}/variantes`, { combinaciones: combos }
+                  );
+                  onCerrar(
+                    `${r.creadas} variante(s) creada(s).` +
+                    (r.stock_padre_anterior > 0
+                      ? ` Ojo: el producto padre tenía ${r.stock_padre_anterior} de stock y quedó en 0 — repartilo entre las variantes.`
+                      : "")
+                  );
+                } catch (err: any) {
+                  setError(err.message);
+                  setCreandoVariantes(false);
+                }
+              }}>
+              {creandoVariantes ? "Creando…" : "Generar variantes"}
+            </button>
+          </>
+        )}
         {!editar && (
           <div className="fila">
             <Campo label="Precio minorista ($)">
@@ -300,6 +495,23 @@ function FormHerramienta({ modo, onCerrar }: { modo: any; onCerrar: (m?: string)
             <input className="num" type="number" value={stockMin} onChange={(e) => setStockMin(e.target.value)} />
           </Campo>
         </div>
+        {factura && (
+          <Campo label="% IVA de este producto (opcional)">
+            <select value={ivaPorcentaje} onChange={(e) => setIvaPorcentaje(e.target.value)}>
+              <option value="">Usar la alícuota general del negocio</option>
+              <option value="0">0% (Exento)</option>
+              <option value="250">2,5%</option>
+              <option value="500">5%</option>
+              <option value="1050">10,5%</option>
+              <option value="2100">21%</option>
+              <option value="2700">27%</option>
+            </select>
+            <span className="mut" style={{ fontSize: 12.5 }}>
+              Sólo si este producto va a otra alícuota que el resto — por ejemplo, si vendés algo
+              exento junto con productos gravados. Si no sabés qué elegir, dejalo así.
+            </span>
+          </Campo>
+        )}
         {editar && <p className="mut">Los precios se cambian con el botón "Precio" (guarda historial). Acá no se tocan.</p>}
         <Campo label="Notas"><textarea rows={2} value={notas} onChange={(e) => setNotas(e.target.value)} /></Campo>
       </form>

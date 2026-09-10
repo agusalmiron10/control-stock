@@ -1,10 +1,11 @@
 import { Hono } from "hono";
 import type { Env, Variables, Venta, VentaItem, Herramienta } from "../types";
-import { HttpError, texto, entero, fechaISO, enumerado, boolOpt, uuid, uuidOpt } from "../validate";
+import { HttpError, texto, entero, cantidad, fechaISO, enumerado, boolOpt, uuid, uuidOpt } from "../validate";
 import { estadoDeCuenta, estadoDeCuentaTodos } from "../cuenta";
 import { auditarDe } from "../auditoria";
 import { negocioDe } from "../types";
 import { armarAnulacionVenta } from "../ventas-anular";
+import { configDe } from "../config";
 
 export const ventas = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -63,25 +64,49 @@ ventas.get("/", async (c) => {
   return c.json({ ventas: lista });
 });
 
-/** Ventas que llegaron del celular sin revisar, o que quedaron marcadas para revisar. */
+/**
+ * Ventas que llegaron del celular sin revisar, o que quedaron marcadas para
+ * revisar — más, aparte, las que ya están confirmadas pero fiadas (con saldo
+ * sin cobrar): no necesitan "revisarse", pero es justo el tipo de cosa que
+ * se deja pasar y después nadie se acuerda de cobrar.
+ */
 ventas.get("/pendientes", async (c) => {
+  const neg = negocioDe(c);
   const rows = await c.env.DB.prepare(
     `SELECT v.*, cl.nombre AS cliente_nombre FROM ventas v
      JOIN clientes cl ON cl.id = v.cliente_id
      WHERE v.negocio_id = ? AND (v.estado = 'sincronizada' OR v.necesita_revision = 1)
      ORDER BY v.creado_en ASC`
-  ).bind(negocioDe(c)).all<Venta & { cliente_nombre: string }>();
-  return c.json({ ventas: rows.results ?? [] });
+  ).bind(neg).all<Venta & { cliente_nombre: string }>();
+
+  const activas = await c.env.DB.prepare(
+    `SELECT v.*, cl.nombre AS cliente_nombre FROM ventas v
+     JOIN clientes cl ON cl.id = v.cliente_id
+     WHERE v.negocio_id = ? AND v.estado IN ('sincronizada', 'confirmada')
+     ORDER BY v.fecha ASC, v.numero ASC`
+  ).bind(neg).all<Venta & { cliente_nombre: string }>();
+  const cuentas = await estadoDeCuentaTodos(c.env, neg);
+  const fiado = (activas.results ?? [])
+    .map((v) => {
+      const r = cuentas.get(v.cliente_id)?.porVenta.get(v.id);
+      return { ...v, pagado: r?.pagado ?? 0, saldo: r?.saldo ?? v.total };
+    })
+    .filter((v) => v.saldo > 0);
+
+  return c.json({ ventas: rows.results ?? [], fiado });
 });
 
 ventas.get("/:id", async (c) => {
   const id = c.req.param("id");
   const venta = await c.env.DB.prepare(
-    `SELECT v.*, cl.nombre AS cliente_nombre FROM ventas v JOIN clientes cl ON cl.id = v.cliente_id
+    `SELECT v.*, cl.nombre AS cliente_nombre, u.usuario AS atendido_por_nombre, u.foto AS atendido_por_foto
+     FROM ventas v
+     JOIN clientes cl ON cl.id = v.cliente_id
+     LEFT JOIN usuarios u ON u.id = v.atendido_por AND u.negocio_id = v.negocio_id
      WHERE v.negocio_id = ? AND v.id = ?`
   )
     .bind(negocioDe(c), id)
-    .first<Venta & { cliente_nombre: string }>();
+    .first<Venta & { cliente_nombre: string; atendido_por_nombre: string | null; atendido_por_foto: string | null }>();
   if (!venta) throw new HttpError(404, "Venta no encontrada.");
 
   const items = await c.env.DB.prepare(`SELECT * FROM venta_items WHERE negocio_id = ? AND venta_id = ? ORDER BY id`)
@@ -144,6 +169,7 @@ interface ItemEntrada {
   herramienta_id: string;
   cantidad: number;
   precio_unitario: number;
+  series: string[];
 }
 
 /**
@@ -188,11 +214,35 @@ ventas.post("/", async (c) => {
   const itemsIn = Array.isArray(b.items) ? (b.items as any[]) : [];
   if (itemsIn.length === 0) throw new HttpError(400, "La venta tiene que tener al menos un renglón.");
 
+  // Venta fraccionada: una verdulería vende 1,5 kg. Si el negocio no tiene
+  // la capacidad, sigue exigiendo enteros exactamente como antes.
+  const cfgVenta = await configDe(c);
+  const fraccionada = cfgVenta.capacidades.venta_fraccionada;
+
   const items: ItemEntrada[] = itemsIn.map((it, i) => ({
     herramienta_id: uuid(it.herramienta_id, `herramienta del renglón ${i + 1}`),
-    cantidad: entero(it.cantidad, `cantidad del renglón ${i + 1}`, { min: 1 }),
+    cantidad: cantidad(it.cantidad, `cantidad del renglón ${i + 1}`, { fraccionada, min: fraccionada ? 0.001 : 1 }),
     precio_unitario: entero(it.precio_unitario, `precio del renglón ${i + 1}`, { min: 0 }),
+    // Una serie por unidad. Si el renglón no las manda, la lista queda
+    // vacía y todo sigue igual que siempre: es opcional a propósito, para
+    // no romper a ningún negocio que no use la capacidad.
+    series: Array.isArray(it.series)
+      ? (it.series as any[])
+          .map((x) => String(x ?? "").trim().slice(0, 80))
+          .filter((x) => x !== "")
+      : [],
   }));
+
+  // Más series que unidades es siempre un error de quien llama (pasa si en
+  // pantalla se cargan 3 y después se baja la cantidad a 2). No se exige la
+  // cantidad exacta a propósito: la venta del celular es offline y no
+  // siempre puede cargarlas, y perder la venta sería peor que no tener la
+  // serie.
+  for (const [i, it] of items.entries()) {
+    if (it.series.length > it.cantidad) {
+      throw new HttpError(400, `El renglón ${i + 1} tiene ${it.series.length} series para ${it.cantidad} unidad(es).`);
+    }
+  }
 
   // Traer las herramientas involucradas.
   const ids = [...new Set(items.map((i) => i.herramienta_id))];
@@ -251,9 +301,9 @@ ventas.post("/", async (c) => {
   const stmts: D1PreparedStatement[] = [];
   stmts.push(
     c.env.DB.prepare(
-      `INSERT INTO ventas (id, negocio_id, numero, cliente_id, fecha, subtotal, descuento, total, nota, estado, origen, necesita_revision, motivo_revision, creado_en, sincronizado_en)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(ventaId, neg, numero, clienteId, fecha, subtotal, descuento, total, nota, estado, origen, necesitaRevision ? 1 : 0, motivoRevision, creadoEn, ahoraSQL())
+      `INSERT INTO ventas (id, negocio_id, numero, cliente_id, fecha, subtotal, descuento, total, nota, estado, origen, necesita_revision, motivo_revision, creado_en, sincronizado_en, atendido_por)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(ventaId, neg, numero, clienteId, fecha, subtotal, descuento, total, nota, estado, origen, necesitaRevision ? 1 : 0, motivoRevision, creadoEn, ahoraSQL(), c.get("usuario").uid)
   );
 
   for (const it of items) {
@@ -264,6 +314,18 @@ ventas.post("/", async (c) => {
          VALUES (?, ?, ?, ?, ?, ?, ?)`
       ).bind(neg, ventaId, it.herramienta_id, h.nombre, it.cantidad, it.precio_unitario, it.cantidad * it.precio_unitario)
     );
+  }
+
+  // Las series van en el mismo batch que la venta: si algo falla no puede
+  // quedar una venta sin sus series ni series sin su venta.
+  for (const it of items) {
+    for (const serie of it.series) {
+      stmts.push(
+        c.env.DB.prepare(
+          `INSERT INTO series_vendidas (id, negocio_id, venta_id, herramienta_id, serie) VALUES (?, ?, ?, ?, ?)`
+        ).bind(crypto.randomUUID(), neg, ventaId, it.herramienta_id, serie)
+      );
+    }
   }
 
   // Descontar stock y registrar un movimiento 'venta' por herramienta.
@@ -351,4 +413,35 @@ ventas.post("/:id/anular", async (c) => {
   const stmts = await armarAnulacionVenta(c.env, neg, c.get("usuario").usuario, c.get("usuario").sesionSoporte, venta);
   await c.env.DB.batch(stmts);
   return c.json({ ok: true });
+});
+
+/**
+ * ¿A quién le vendí esta serie? Es la pregunta real cuando alguien vuelve
+ * con una garantía y un aparato en la mano.
+ *
+ * Busca por coincidencia parcial porque nadie tipea bien un número de serie
+ * de 15 caracteres.
+ */
+ventas.get("/serie/:serie", async (c) => {
+  const neg = negocioDe(c);
+  const q = c.req.param("serie").trim();
+  if (q.length < 3) throw new HttpError(400, "Escribí al menos 3 caracteres de la serie.");
+
+  const filas = await c.env.DB
+    .prepare(
+      `SELECT sv.serie, sv.garantia_hasta, sv.creado_en,
+              v.id AS venta_id, v.numero AS venta_numero, v.fecha, v.estado,
+              cl.id AS cliente_id, cl.nombre AS cliente_nombre,
+              h.nombre AS producto
+         FROM series_vendidas sv
+         JOIN ventas v      ON v.id = sv.venta_id      AND v.negocio_id = sv.negocio_id
+         JOIN clientes cl   ON cl.id = v.cliente_id    AND cl.negocio_id = sv.negocio_id
+         JOIN herramientas h ON h.id = sv.herramienta_id AND h.negocio_id = sv.negocio_id
+        WHERE sv.negocio_id = ? AND sv.serie LIKE ?
+        ORDER BY v.fecha DESC
+        LIMIT 20`
+    )
+    .bind(neg, `%${q}%`)
+    .all();
+  return c.json({ resultados: filas.results ?? [] });
 });

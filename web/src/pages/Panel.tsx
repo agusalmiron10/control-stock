@@ -1,9 +1,16 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { api } from "../api";
 import { pesos, numero, fecha, mesLargo } from "../format";
 import { Cargando, Error, useCarga } from "../components/ui";
 import { navegar } from "../lib/router";
 import { waResumenDiario } from "../lib/whatsapp";
+
+// recharts pesa bastante (~150 KB gzip) para algo que sólo se usa acá — se
+// carga aparte, no en el bundle principal, para no atrasar el primer render
+// de toda la app (importa sobre todo en el celular, en el local, con datos).
+const GraficoVentas7Dias = lazy(() =>
+  import("../components/GraficoVentas7Dias").then((m) => ({ default: m.GraficoVentas7Dias }))
+);
 
 const STOCK_POR_PAGINA = 10;
 
@@ -60,6 +67,19 @@ export function Panel() {
         </div>
       )}
 
+      {(data.por_vencer?.length ?? 0) > 0 && (
+        <div className="pill-alerta" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+          <div>
+            <b>{numero(data.por_vencer.length)} producto(s) por vencer</b> —{" "}
+            {data.por_vencer.slice(0, 4).map((p: any) =>
+              `${p.nombre} (${p.dias < 0 ? `vencido hace ${Math.abs(p.dias)}d` : `en ${p.dias}d`})`
+            ).join(", ")}
+            {data.por_vencer.length > 4 && `, y ${data.por_vencer.length - 4} más`}.
+          </div>
+          <button className="btn chico" onClick={() => navegar("/herramientas")}>Ver</button>
+        </div>
+      )}
+
       <div className="grid-kpi">
         <div className="kpi">
           <div className="rot">Total a cobrar</div>
@@ -82,6 +102,10 @@ export function Panel() {
           <Variacion actual={data.cobranzas_mes.total} anterior={data.cobranzas_mes_anterior?.total} />
         </div>
       </div>
+
+      <Suspense fallback={<div className="card"><div className="card-body"><Cargando /></div></div>}>
+        <GraficoVentas7Dias datos={data.ventas_ultimos_7_dias ?? []} />
+      </Suspense>
 
       <div className="card">
         <h2>Los que más deben</h2>
