@@ -114,7 +114,7 @@ export function Proveedor({ onEntrar }: { onEntrar: () => void }) {
 
   return (
     <div className="app">
-      <main className="contenido" style={{ maxWidth: 1400, margin: "0 auto" }}>
+      <main className="contenido">
         <div className="encabezado-seccion">
           <div>
             <h1 style={{ margin: 0 }}>Mis clientes</h1>
