@@ -49,6 +49,36 @@ const ESTADOS = [
   { id: "baja", label: "De baja" },
 ] as const;
 
+/**
+ * Cada bloque de "Herramientas del proveedor" se abre y cierra: son tablas
+ * largas y no se miran todas a la vez. Arrancan cerradas y cuál quedó
+ * abierto se recuerda entre sesiones (mismo criterio que los grupos del
+ * menú lateral). El contenido no se monta hasta que se abre por primera
+ * vez, así abrir el panel no dispara 7 llamadas a la API de una.
+ */
+function SeccionColapsable({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+  const clave = `cs_prov_seccion_${titulo}`;
+  const [abierto, setAbierto] = useState(() => {
+    try { return localStorage.getItem(clave) === "1"; } catch { return false; }
+  });
+  function alternar() {
+    setAbierto((v) => {
+      const siguiente = !v;
+      try { localStorage.setItem(clave, siguiente ? "1" : "0"); } catch { /* incógnito o storage lleno */ }
+      return siguiente;
+    });
+  }
+  return (
+    <div className="card">
+      <button type="button" className="card-header card-header-toggle" aria-expanded={abierto} onClick={alternar}>
+        <span className="card-header-chevron" aria-hidden>{abierto ? "▾" : "▸"}</span>
+        {titulo}
+      </button>
+      {abierto && <div className="card-body">{children}</div>}
+    </div>
+  );
+}
+
 function plata(n: number): string {
   return n.toLocaleString("es-AR");
 }
@@ -322,40 +352,13 @@ export function Proveedor({ onEntrar }: { onEntrar: () => void }) {
               </div>
             </div>
 
-            <div className="card">
-              <div className="card-header">Rubros y perfiles</div>
-              <div className="card-body"><RubrosYPerfiles /></div>
-            </div>
-
-            <div className="card">
-              <div className="card-header">Rubros pedidos como "Otro"</div>
-              <div className="card-body"><RubrosOtro /></div>
-            </div>
-
-            <div className="card">
-              <div className="card-header">Errores del sistema</div>
-              <div className="card-body"><ErroresProveedor /></div>
-            </div>
-
-            <div className="card">
-              <div className="card-header">Uso por cliente</div>
-              <div className="card-body"><MetricasProveedor /></div>
-            </div>
-
-            <div className="card">
-              <div className="card-header">Facturación electrónica</div>
-              <div className="card-body"><SaludArca /></div>
-            </div>
-
-            <div className="card">
-              <div className="card-header">Registro</div>
-              <div className="card-body"><RegistroProveedor /></div>
-            </div>
-
-            <div className="card">
-              <div className="card-header">Copias de seguridad</div>
-              <div className="card-body"><CopiasProveedor /></div>
-            </div>
+            <SeccionColapsable titulo="Rubros y perfiles"><RubrosYPerfiles /></SeccionColapsable>
+            <SeccionColapsable titulo='Rubros pedidos como "Otro"'><RubrosOtro /></SeccionColapsable>
+            <SeccionColapsable titulo="Errores del sistema"><ErroresProveedor /></SeccionColapsable>
+            <SeccionColapsable titulo="Uso por cliente"><MetricasProveedor /></SeccionColapsable>
+            <SeccionColapsable titulo="Facturación electrónica"><SaludArca /></SeccionColapsable>
+            <SeccionColapsable titulo="Registro"><RegistroProveedor /></SeccionColapsable>
+            <SeccionColapsable titulo="Copias de seguridad"><CopiasProveedor /></SeccionColapsable>
           </>
         )}
       </main>
