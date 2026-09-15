@@ -4,6 +4,7 @@ import { pesos, numero, fecha, mesLargo } from "../format";
 import { Cargando, Error, useCarga } from "../components/ui";
 import { navegar } from "../lib/router";
 import { waResumenDiario } from "../lib/whatsapp";
+import { useConfig } from "../lib/config";
 
 // recharts pesa bastante (~150 KB gzip) para algo que sólo se usa acá — se
 // carga aparte, no en el bundle principal, para no atrasar el primer render
@@ -31,6 +32,7 @@ export function Panel() {
   const { data, error, cargando } = useCarga<any>(() => api.get("/api/panel"), []);
   const resumenQ = useCarga<any>(() => api.get("/api/reportes/resumen-diario"), []);
   const [paginaStock, setPaginaStock] = useState(1);
+  const { negocio } = useConfig();
 
   if (cargando) return <Cargando />;
   if (error) return <Error msg={error} />;
@@ -47,9 +49,21 @@ export function Panel() {
 
   return (
     <div>
-      <div className="encabezado-seccion">
-        <h1>Panel</h1>
-        <span className="mut">{mesLargo(data.mes)}</span>
+      {/* El panel es la primera pantalla del día, así que arranca con quién
+          es el negocio, no con la palabra "Panel" — eso ya lo dice el menú.
+          Mismo logo que ya se usa en comprobantes y PDFs (negocio.logo, la
+          foto de perfil del dueño): no hace falta subir nada aparte. */}
+      <div className="panel-hero">
+        <div className="panel-hero-id">
+          {negocio.logo
+            ? <img src={negocio.logo} alt="" className="avatar avatar-grande" />
+            : <div className="avatar avatar-grande avatar-vacio">🏢</div>}
+          <div className="panel-hero-txt">
+            <h1>{negocio.nombre}</h1>
+            {negocio.rubro && <p className="mut">{negocio.rubro}</p>}
+          </div>
+        </div>
+        <div className="panel-hero-fecha">{mesLargo(data.mes)}</div>
       </div>
 
       {r && (
