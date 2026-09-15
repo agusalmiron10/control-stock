@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api";
 import { pesos, aCentavos, aPesos, hoyISO, numero } from "../format";
 import { Cargando, Error, Campo, Confirmar, useCarga } from "../components/ui";
@@ -103,6 +103,41 @@ export function NuevaVenta() {
     const t = setTimeout(() => setFlashId(null), 700);
     return () => clearTimeout(t);
   }, [flashId]);
+
+  /**
+   * Cuánto alto le queda de verdad a la pantalla de venta.
+   *
+   * El panel de cierre tiene que terminar SIEMPRE dentro de la pantalla,
+   * porque abajo de todo está "Confirmar venta" y bajar a buscarlo con el
+   * cliente enfrente es justo lo que no puede pasar. En CSS esto se hacía
+   * con `100vh`, pero la pantalla de venta no empieza arriba de todo: abajo
+   * del encabezado —y de la barra de soporte, cuando está— ya se perdieron
+   * más de 100px, así que el panel terminaba por debajo del borde.
+   *
+   * Cuánto se perdió sólo lo sabe el navegador, así que se mide acá y se
+   * pasa a CSS como variable. Se mide con la página arriba de todo, que es
+   * el caso más exigente: si entra ahí, entra siempre.
+   */
+  const posRef = useRef<HTMLDivElement>(null);
+  // Ojo con las dependencias: mientras cargan clientes y productos esta
+  // pantalla devuelve <Cargando/>, así que el div todavía no existe. Sin
+  // volver a correr cuando aparece (y cuando se vuelve desde la
+  // confirmación), la medición se perdía y el alto quedaba sin definir.
+  const cargandoDatos = clientesQ.cargando || herrQ.cargando;
+  useEffect(() => {
+    const el = posRef.current;
+    if (!el) return;
+    const medir = () => {
+      const desdeArriba = el.getBoundingClientRect().top + window.scrollY;
+      const disponible = window.innerHeight - desdeArriba - 16;
+      // El piso evita que en una pantalla muy baja el panel quede impracticable:
+      // ahí sí es preferible que la página scrollee un poco.
+      el.style.setProperty("--alto-pos", `${Math.max(420, Math.round(disponible))}px`);
+    };
+    medir();
+    window.addEventListener("resize", medir);
+    return () => window.removeEventListener("resize", medir);
+  }, [cargandoDatos, ventaHecha]);
 
   function elegirMedio(m: string) {
     setPagoMedio(m);
@@ -473,7 +508,7 @@ export function NuevaVenta() {
         </div>
       )}
 
-      <div className="pos-venta">
+      <div className="pos-venta" ref={posRef}>
         <div className="pos-principal">
           <div className="card">
             <div className="card-body">

@@ -1607,11 +1607,19 @@ table.tabla tbody tr:hover { background: color-mix(in srgb, var(--acento) 9%, tr
 .pos-vuelto.falta { background: var(--rojo-bg); color: var(--rojo); }
 
 @media (min-width: 960px) {
-  .pos-venta { grid-template-columns: 1fr 340px; }
-  /* Alto acotado a la pantalla: adentro, .pos-cierre-scroll es lo único
-     que se desborda — el pie con el total y "Confirmar venta" queda
-     siempre fijo y visible, nunca hay que bajar para llegar a él. */
-  .pos-cierre { position: sticky; top: 16px; max-height: calc(100vh - 32px); }
+  /* La pantalla de venta ocupa exactamente el alto que le queda libre
+     (lo mide NuevaVenta y lo deja en --alto-pos, porque el navegador es el
+     único que sabe cuánto se comió el encabezado y la barra de soporte).
+     Con el alto fijo, la página no scrollea: scrollea cada columna por
+     dentro, y el pie con el total y "Confirmar venta" queda siempre a la
+     vista sin tener que bajar a buscarlo. */
+  .pos-venta {
+    grid-template-columns: 1fr 340px;
+    height: var(--alto-pos, auto);
+    align-items: stretch;
+  }
+  .pos-principal { overflow-y: auto; min-height: 0; }
+  .pos-cierre { min-height: 0; }
   .pos-barra-movil { display: none; }
 }
 
