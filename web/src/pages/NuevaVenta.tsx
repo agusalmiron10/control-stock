@@ -536,7 +536,9 @@ export function NuevaVenta() {
             </div>
           </div>
 
-          <div className="card">
+          {/* pos-ticket-card: en pantallas anchas es la tarjeta que absorbe el
+              alto sobrante, y adentro scrollea sólo la lista del ticket. */}
+          <div className="card pos-ticket-card">
             <div className="card-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span>Productos</span>
               {items.length > 0 && (
