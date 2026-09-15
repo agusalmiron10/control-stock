@@ -307,14 +307,12 @@ export async function generarPdfListaPrecios(
     .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
 
   const X_PRODUCTO = MARGEN + 2;
-  const X_RUBRO = MARGEN + 110;
   const X_PRECIO = DERECHA;
 
   function dibujarEncabezadoTabla(y: number): number {
     doc.setFillColor(240, 240, 240).rect(MARGEN, y, DERECHA - MARGEN, 7, "F");
     doc.setFont("helvetica", "bold").setFontSize(9).setTextColor(80);
     doc.text(vocab.singular, X_PRODUCTO, y + 5);
-    doc.text("Rubro", X_RUBRO, y + 5);
     doc.text("Precio", X_PRECIO, y + 5, { align: "right" });
     return y + 11;
   }
@@ -360,9 +358,10 @@ export async function generarPdfListaPrecios(
         doc.setFont("helvetica", "normal").setTextColor(20);
       }
       doc.setFontSize(9);
+      // Sin la columna de rubro, el nombre tiene casi todo el ancho de la
+      // hoja para respirar — antes se cortaba a los 58 caracteres.
       const nombre = String(h.nombre);
-      doc.text(nombre.length > 58 ? nombre.slice(0, 57) + "…" : nombre, X_PRODUCTO, y);
-      doc.text(h.rubro ? String(h.rubro).slice(0, 22) : "—", X_RUBRO, y);
+      doc.text(nombre.length > 95 ? nombre.slice(0, 94) + "…" : nombre, X_PRODUCTO, y);
       doc.text(pesos(tipo === "mayorista" ? h.precio_mayor : h.precio), X_PRECIO, y, { align: "right" });
       y += 6;
     }
