@@ -8,7 +8,7 @@ import { useFacturacionLista } from "../lib/facturacion";
 import { navegar } from "../lib/router";
 import { BarraEscaneo } from "../components/BarraEscaneo";
 import { CrearProductoExpress } from "../components/CrearProductoExpress";
-import { useCapacidades } from "../lib/config";
+import { useCapacidades, useModulo } from "../lib/config";
 
 interface Reng {
   herramienta_id: string;
@@ -55,6 +55,15 @@ export function NuevaVenta() {
   const [descValor, setDescValor] = useState("");
   const [descOtro, setDescOtro] = useState(false);
   const [nota, setNota] = useState("");
+  // Acopio: el cliente paga esto ahora pero se lo lleva de a poco después.
+  // Sólo tiene sentido ofrecerlo si el negocio tiene los dos módulos que
+  // hacen falta — vender reteniendo y, después, remitar el retiro. Ojo: los
+  // dos useModulo() se llaman siempre, sin && de por medio, porque son hooks
+  // (no se pueden llamar condicionalmente).
+  const moduloAcopio = useModulo("acopio");
+  const moduloRemitos = useModulo("remitos");
+  const hayAcopio = moduloAcopio && moduloRemitos;
+  const [esAcopio, setEsAcopio] = useState(false);
   // La mayoría de las ventas se cobran ahí mismo, en el mostrador: arrancar
   // en "no paga nada" obligaba a tocar el desplegable en todas las ventas,
   // cuando lo normal es lo contrario.
@@ -136,7 +145,10 @@ export function NuevaVenta() {
     const out: string[] = [];
     for (const [hid, cant] of ped) {
       const h = hMap.get(hid);
-      if (h && cant > h.stock) out.push(`${h.nombre} (hay ${h.stock}, pedís ${cant})`);
+      // Si el negocio usa Acopio, lo comprometido en otros acopios tampoco
+      // se puede vender de nuevo — mismo criterio que valida el servidor.
+      const disponible = h ? (h.stock_disponible ?? h.stock) : 0;
+      if (h && cant > disponible) out.push(`${h.nombre} (hay ${disponible} disponible, pedís ${cant})`);
     }
     return out;
   }, [items, hMap]);
@@ -237,6 +249,7 @@ export function NuevaVenta() {
     setDescOtro(false);
     setNota("");
     setRecibido("");
+    setEsAcopio(false);
     setConfirmarVaciar(false);
   }
 
@@ -303,6 +316,7 @@ export function NuevaVenta() {
         })),
       nota,
       permitir_stock_negativo: force || faltantes.length === 0 ? force : false,
+      es_acopio: hayAcopio && esAcopio,
     };
     if (descValor && Number(descValor) > 0) body.descuento = { tipo: descTipo, valor: descTipo === "monto" ? aCentavos(descValor) : Number(descValor) };
     if (pagoModo !== "nada" && pagoCent > 0) body.pago_inicial = { monto: pagoCent, medio: pagoMedio };
@@ -578,6 +592,22 @@ export function NuevaVenta() {
                 <div className={`pos-vuelto ${vuelto >= 0 ? "ok" : "falta"}`}>
                   {vuelto >= 0 ? <>Vuelto <b>{pesos(vuelto)}</b></> : <>Todavía falta <b>{pesos(-vuelto)}</b></>}
                 </div>
+              )}
+            </div>
+          )}
+
+          {hayAcopio && (
+            <div className="pos-seccion">
+              <label className="campo check">
+                <input type="checkbox" checked={esAcopio} onChange={(e) => setEsAcopio(e.target.checked)} />
+                Es un acopio
+              </label>
+              {esAcopio && (
+                <p className="mut" style={{ marginTop: 4 }}>
+                  El cliente paga esto ahora, pero se lo lleva de a poco más adelante. El stock queda
+                  reservado (no se le puede vender a otro) pero sigue en el depósito hasta cada retiro —
+                  se descuenta recién cuando hagas el remito de esa entrega.
+                </p>
               )}
             </div>
           )}

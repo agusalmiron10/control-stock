@@ -5,6 +5,7 @@ import { auditarDe } from "../auditoria";
 import { requireModulo, configDe } from "../config";
 import { negocioDe } from "../types";
 import { parsearAlicuota, ALICUOTAS_VALIDAS } from "../facturacion/calculo";
+import { acopioPendientePorHerramienta } from "../acopio";
 
 /**
  * Alícuota de IVA por producto, para el alta/edición manual (no la
@@ -105,6 +106,14 @@ herramientas.get("/", async (c) => {
       porProducto.set(t.herramienta_id, arr);
     }
     for (const h of salida) h.escalas = porProducto.get(h.id) ?? [];
+  }
+
+  // Igual que con las escalas: sólo se calcula (y viaja) si el negocio usa
+  // Acopio. Para el resto, "stock" ya ES lo disponible — no hace falta un
+  // segundo número que siempre coincidiría con el primero.
+  if (cfg.modulos.acopio) {
+    const pendiente = await acopioPendientePorHerramienta(c.env, negocioDe(c));
+    for (const h of salida) h.stock_disponible = h.stock - (pendiente.get(h.id) ?? 0);
   }
 
   return c.json({ herramientas: salida });

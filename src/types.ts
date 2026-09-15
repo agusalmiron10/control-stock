@@ -200,6 +200,9 @@ export interface Venta {
   sincronizado_en: string | null;
   /** Quién la cargó (usuarios.id) — para mostrar "Atendido por" en el papel. null en ventas de antes de este campo. */
   atendido_por: number | null;
+  /** Acopio: el cliente paga ahora, pero el stock físico no baja hasta que
+   *  se retira (de a poco) por remitos contra esta venta. Ver src/acopio.ts. */
+  es_acopio: number;
 }
 
 export interface VentaItem {
@@ -233,6 +236,8 @@ export interface MovimientoStock {
   venta_id: string | null;
   motivo: string | null;
   costo_unitario: number | null;
+  /** Remito de retiro que originó este movimiento, sólo en acopio (ver src/acopio.ts). */
+  remito_id: string | null;
 }
 
 export interface PrecioHistorial {

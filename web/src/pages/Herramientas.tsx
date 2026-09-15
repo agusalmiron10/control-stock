@@ -31,6 +31,7 @@ export function Herramientas() {
   const LIMITE = 20;
   const hayProduccion = useModulo("produccion");
   const hayMayorista = useModulo("precio_mayorista");
+  const hayAcopio = useModulo("acopio");
   const vocab = useVocab();
 
   const qs = new URLSearchParams();
@@ -149,13 +150,15 @@ export function Herramientas() {
                 <tr>
                   <th>Código</th><th>{vocab.singular}</th><th>Rubro</th>
                   <th className="num">Minorista</th>{hayMayorista && <th className="num">Mayorista</th>}
-                  <th className="num">Stock</th><th className="num">Mín.</th><th></th>
+                  <th className="num">Stock</th>{hayAcopio && <th className="num">Disponible</th>}<th className="num">Mín.</th><th></th>
                 </tr>
               </thead>
               <tbody>
                 {listaPaginada.map((h: any) => {
                   const bajo = h.stock <= h.stock_minimo;
                   const cero = h.stock <= 0;
+                  const disponible = h.stock_disponible ?? h.stock;
+                  const acopiado = h.stock - disponible;
                   return (
                     <tr key={h.id} className={h.activo ? "" : "archivado"}>
                       <td className="num">{h.codigo}</td>
@@ -164,6 +167,12 @@ export function Herramientas() {
                       <td className="num">{pesos(h.precio)}</td>
                       {hayMayorista && <td className="num">{pesos(h.precio_mayor)}</td>}
                       <td className={`num ${cero ? "stock-cero" : bajo ? "stock-bajo" : ""}`}>{numero(h.stock)}</td>
+                      {hayAcopio && (
+                        <td className={`num ${disponible <= 0 ? "stock-cero" : ""}`}>
+                          {numero(disponible)}
+                          {acopiado > 0 && <div className="mut" style={{ fontSize: 11 }}>{numero(acopiado)} acopiado</div>}
+                        </td>
+                      )}
                       <td className="num">{numero(h.stock_minimo)}</td>
                       <td className="acc">
                         <div className="btn-grupo" style={{ justifyContent: "flex-end" }}>
@@ -195,6 +204,9 @@ export function Herramientas() {
                     <span className="num">Min. {pesos(h.precio)}</span>
                     {hayMayorista && <span className="num">May. {pesos(h.precio_mayor)}</span>}
                     <span className={`num ${cero ? "stock-cero" : bajo ? "stock-bajo" : ""}`}>Stock {numero(h.stock)}</span>
+                    {hayAcopio && h.stock !== (h.stock_disponible ?? h.stock) && (
+                      <span className="num mut">Disponible {numero(h.stock_disponible)}</span>
+                    )}
                   </div>
                   <div className="tf-datos" style={{ marginTop: 8 }}>
                     <div className="btn-grupo">

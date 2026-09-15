@@ -1,15 +1,21 @@
 /**
  * Remitos: el papel que acompaña a la mercadería cuando sale.
  *
- * Nace siempre de una venta y NO toca el stock (ya se descontó al vender —
- * ver migrations/0017_remitos.sql). Lo que sí hace es controlar que no se
- * entregue más de lo vendido, sumando lo ya remitado en entregas anteriores.
+ * Nace siempre de una venta y, para una venta NORMAL, no toca el stock (ya se
+ * descontó al vender — ver migrations/0017_remitos.sql). Lo que sí hace
+ * siempre es controlar que no se entregue más de lo vendido, sumando lo ya
+ * remitado en entregas anteriores.
+ *
+ * Excepción — venta de ACOPIO (venta.es_acopio, ver src/acopio.ts): ahí el
+ * stock físico no bajó al vender, así que el remito de retiro es el momento
+ * en que la mercadería realmente sale del depósito. En ese caso SÍ descuenta
+ * stock físico al crearse, y lo devuelve si se anula.
  */
 import { Hono } from "hono";
-import type { Env, Variables, Venta, VentaItem, Remito } from "../types";
+import type { Env, Variables, Venta, VentaItem, Herramienta, Remito } from "../types";
 import { HttpError, texto, entero, fechaISO, enumerado, uuid, normalizarBusqueda } from "../validate";
 import { negocioDe } from "../types";
-import { requireModulo } from "../config";
+import { requireModulo, configDe } from "../config";
 import { auditarDe } from "../auditoria";
 
 export const remitos = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -61,7 +67,7 @@ remitos.get("/", async (c) => {
   if (hasta) { cond.push("r.fecha <= ?"); args.push(fechaISO(hasta, "hasta")); }
 
   const rows = await c.env.DB.prepare(
-    `SELECT r.*, cl.nombre AS cliente_nombre, v.numero AS venta_numero,
+    `SELECT r.*, cl.nombre AS cliente_nombre, v.numero AS venta_numero, v.es_acopio AS venta_es_acopio,
             (SELECT COUNT(*) FROM remito_items ri WHERE ri.negocio_id = r.negocio_id AND ri.remito_id = r.id) AS renglones,
             (SELECT COALESCE(SUM(ri.cantidad), 0) FROM remito_items ri WHERE ri.negocio_id = r.negocio_id AND ri.remito_id = r.id) AS bultos
      FROM remitos r
@@ -71,7 +77,7 @@ remitos.get("/", async (c) => {
      ORDER BY r.fecha DESC, r.numero DESC`
   )
     .bind(...args)
-    .all<Remito & { cliente_nombre: string; venta_numero: number; renglones: number; bultos: number }>();
+    .all<Remito & { cliente_nombre: string; venta_numero: number; venta_es_acopio: number; renglones: number; bultos: number }>();
 
   let lista = rows.results ?? [];
   // Por nombre de cliente (sin acentos) o por número de remito.
@@ -82,6 +88,76 @@ remitos.get("/", async (c) => {
     );
   }
   return c.json({ remitos: lista });
+});
+
+/**
+ * Saldo de acopio de un cliente: qué compró (en ventas de acopio), qué se
+ * llevó ya (remitos entregados o pendientes, cuenta igual — lo que importa
+ * es que no esté anulado) y qué le falta retirar, por producto y por venta.
+ *
+ * Es la "cuenta corriente de artículos": la cuenta corriente de PLATA (fiado)
+ * ya la resuelve cuenta.ts — acá lo que se debe no es dinero, es mercadería.
+ */
+remitos.get("/acopio/:clienteId", async (c) => {
+  const neg = negocioDe(c);
+  const clienteId = c.req.param("clienteId");
+  const cfg = await configDe(c);
+  if (!cfg.modulos.acopio) throw new HttpError(404, "Esta función no está activa en este negocio.");
+
+  const cliente = await c.env.DB.prepare(`SELECT id, nombre FROM clientes WHERE negocio_id = ? AND id = ?`)
+    .bind(neg, clienteId)
+    .first<{ id: string; nombre: string }>();
+  if (!cliente) throw new HttpError(404, "Cliente no encontrado.");
+
+  // Una fila por (venta, producto): así se puede mostrar desglosado por
+  // venta y, sumando en el cliente, el total pendiente de ese producto.
+  const filas = await c.env.DB
+    .prepare(
+      `SELECT v.id AS venta_id, v.numero AS venta_numero, v.fecha AS venta_fecha,
+              vi.herramienta_id, vi.nombre_herramienta, SUM(vi.cantidad) AS comprado,
+              COALESCE((
+                SELECT SUM(ri.cantidad) FROM remito_items ri
+                JOIN remitos r ON r.id = ri.remito_id AND r.negocio_id = ri.negocio_id
+                WHERE r.negocio_id = vi.negocio_id AND r.venta_id = vi.venta_id
+                  AND r.estado != 'anulado' AND ri.herramienta_id = vi.herramienta_id
+              ), 0) AS entregado
+         FROM venta_items vi
+         JOIN ventas v ON v.id = vi.venta_id AND v.negocio_id = vi.negocio_id
+        WHERE vi.negocio_id = ? AND v.cliente_id = ? AND v.es_acopio = 1 AND v.estado != 'anulada'
+        GROUP BY vi.venta_id, vi.herramienta_id
+        ORDER BY v.fecha DESC, v.numero DESC`
+    )
+    .bind(neg, clienteId)
+    .all<{
+      venta_id: string; venta_numero: number; venta_fecha: string;
+      herramienta_id: string; nombre_herramienta: string; comprado: number; entregado: number;
+    }>();
+
+  const lineas = (filas.results ?? []).map((f) => ({
+    ...f,
+    pendiente: Math.max(0, f.comprado - f.entregado),
+  }));
+
+  // Total por producto, cruzando todas las ventas de acopio de este cliente
+  // — lo que la pantalla de "saldo pendiente" muestra en primer lugar.
+  const porProducto = new Map<string, { herramienta_id: string; nombre_herramienta: string; comprado: number; entregado: number; pendiente: number }>();
+  for (const l of lineas) {
+    const acc = porProducto.get(l.herramienta_id) ?? {
+      herramienta_id: l.herramienta_id, nombre_herramienta: l.nombre_herramienta,
+      comprado: 0, entregado: 0, pendiente: 0,
+    };
+    acc.comprado += l.comprado;
+    acc.entregado += l.entregado;
+    acc.pendiente += l.pendiente;
+    porProducto.set(l.herramienta_id, acc);
+  }
+
+  return c.json({
+    cliente,
+    resumen: [...porProducto.values()].sort((a, b) => b.pendiente - a.pendiente),
+    por_venta: lineas,
+    tiene_pendiente: lineas.some((l) => l.pendiente > 0),
+  });
 });
 
 /**
@@ -108,14 +184,31 @@ remitos.get("/pendiente-de/:ventaId", async (c) => {
     .all<VentaItem>();
   const remitado = await yaRemitado(c.env, neg, ventaId);
 
+  // En acopio, además de "cuánto falta", el vendedor necesita ver si el
+  // físico alcanza para entregar eso: a diferencia de una venta normal, acá
+  // nadie garantizó todavía que esa mercadería siga en el depósito.
+  let stockFisico = new Map<string, number>();
+  if (venta.es_acopio) {
+    const ids = [...new Set((items.results ?? []).map((it) => it.herramienta_id))];
+    if (ids.length > 0) {
+      const hRows = await c.env.DB
+        .prepare(`SELECT id, stock FROM herramientas WHERE negocio_id = ? AND id IN (${ids.map(() => "?").join(",")})`)
+        .bind(neg, ...ids)
+        .all<{ id: string; stock: number }>();
+      stockFisico = new Map((hRows.results ?? []).map((h) => [h.id, h.stock]));
+    }
+  }
+
   const lineas = (items.results ?? []).map((it) => {
     const entregado = remitado.get(it.herramienta_id) ?? 0;
+    const pendiente = Math.max(0, it.cantidad - entregado);
     return {
       herramienta_id: it.herramienta_id,
       nombre_herramienta: it.nombre_herramienta,
       vendido: it.cantidad,
       entregado,
-      pendiente: Math.max(0, it.cantidad - entregado),
+      pendiente,
+      stock_fisico: venta.es_acopio ? (stockFisico.get(it.herramienta_id) ?? 0) : null,
     };
   });
 
@@ -124,6 +217,7 @@ remitos.get("/pendiente-de/:ventaId", async (c) => {
       id: venta.id, numero: venta.numero, fecha: venta.fecha, total: venta.total,
       cliente_id: venta.cliente_id, cliente_nombre: venta.cliente_nombre,
       domicilio: [venta.cliente_direccion, venta.cliente_localidad].filter(Boolean).join(", ") || null,
+      es_acopio: !!venta.es_acopio,
     },
     lineas,
     todo_entregado: lineas.every((l) => l.pendiente === 0),
@@ -134,7 +228,7 @@ remitos.get("/:id", async (c) => {
   const neg = negocioDe(c);
   const r = await c.env.DB.prepare(
     `SELECT r.*, cl.nombre AS cliente_nombre, cl.telefono AS cliente_telefono,
-            v.numero AS venta_numero, v.fecha AS venta_fecha,
+            v.numero AS venta_numero, v.fecha AS venta_fecha, v.es_acopio AS venta_es_acopio,
             u.usuario AS atendido_por_nombre, u.foto AS atendido_por_foto
      FROM remitos r
      JOIN clientes cl ON cl.id = r.cliente_id AND cl.negocio_id = r.negocio_id
@@ -220,6 +314,31 @@ remitos.post("/", async (c) => {
     }
   }
 
+  // Acopio: acá es donde la mercadería sale de verdad del depósito, así que
+  // hace falta el producto en sí — a diferencia de un remito normal, donde el
+  // físico ya se había descontado al vender. Se trae el stock actual de una
+  // sola vez para validar y, más abajo, para el UPDATE.
+  let hEnStock = new Map<string, Herramienta>();
+  if (venta.es_acopio) {
+    const idsAcopio = pedidos.map((p) => p.herramienta_id);
+    const hRows = await c.env.DB
+      .prepare(`SELECT * FROM herramientas WHERE negocio_id = ? AND id IN (${idsAcopio.map(() => "?").join(",")})`)
+      .bind(neg, ...idsAcopio)
+      .all<Herramienta>();
+    hEnStock = new Map((hRows.results ?? []).map((h) => [h.id, h]));
+
+    const faltantes: string[] = [];
+    for (const p of pedidos) {
+      const h = hEnStock.get(p.herramienta_id);
+      if (!h || h.stock < p.cantidad) {
+        faltantes.push(`${vendido.get(p.herramienta_id)!.nombre_herramienta} (hay ${h?.stock ?? 0} en depósito, querés retirar ${p.cantidad})`);
+      }
+    }
+    if (faltantes.length > 0) {
+      throw new HttpError(409, `No hay suficiente stock físico para retirar: ${faltantes.join("; ")}. Revisá el depósito o ajustá el stock antes de entregar.`);
+    }
+  }
+
   const ultimo = await c.env.DB.prepare(`SELECT COALESCE(MAX(numero), 0) AS n FROM remitos WHERE negocio_id = ?`)
     .bind(neg)
     .first<{ n: number }>();
@@ -248,6 +367,27 @@ remitos.post("/", async (c) => {
              vendido.get(p.herramienta_id)!.nombre_herramienta, p.cantidad)
     );
   }
+
+  // Acopio: este remito ES el retiro. El físico baja ahora, con su propio
+  // movimiento de stock trazado hasta este remito (para poder revertirlo
+  // exacto si se anula — ver el endpoint de anular más abajo).
+  if (venta.es_acopio) {
+    for (const p of pedidos) {
+      const h = hEnStock.get(p.herramienta_id)!;
+      const resultante = h.stock - p.cantidad;
+      stmts.push(
+        c.env.DB.prepare(`UPDATE herramientas SET stock = ? WHERE negocio_id = ? AND id = ?`)
+          .bind(resultante, neg, p.herramienta_id)
+      );
+      stmts.push(
+        c.env.DB.prepare(
+          `INSERT INTO movimientos_stock (negocio_id, herramienta_id, fecha, tipo, cantidad, stock_resultante, venta_id, remito_id, motivo)
+           VALUES (?, ?, ?, 'retiro_acopio', ?, ?, ?, ?, ?)`
+        ).bind(neg, p.herramienta_id, fecha, -p.cantidad, resultante, ventaId, remitoId, `Retiro de acopio · Remito #${numero}`)
+      );
+    }
+  }
+
   stmts.push(
     auditarDe(c, "crear_remito", "remito", remitoId,
       `Remito #${numero} · Venta #${venta.numero}`)
@@ -281,20 +421,59 @@ remitos.post("/:id/estado", async (c) => {
   return c.json({ ok: true });
 });
 
-/** Anular: libera las cantidades para poder remitarlas de nuevo. */
+/**
+ * Anular: libera las cantidades para poder remitarlas de nuevo.
+ *
+ * Si era un remito de acopio (retiro real de stock físico), además devuelve
+ * ese físico al depósito — es la contraparte exacta de lo que se descontó al
+ * crearlo. En un remito normal el físico nunca se tocó, así que no hay nada
+ * que devolver (igual que hasta ahora).
+ */
 remitos.post("/:id/anular", async (c) => {
   const id = c.req.param("id");
   const neg = negocioDe(c);
-  const r = await c.env.DB.prepare(`SELECT numero, estado FROM remitos WHERE negocio_id = ? AND id = ?`)
+  const r = await c.env.DB.prepare(
+    `SELECT r.numero, r.estado, r.venta_id, v.es_acopio
+       FROM remitos r JOIN ventas v ON v.id = r.venta_id AND v.negocio_id = r.negocio_id
+      WHERE r.negocio_id = ? AND r.id = ?`
+  )
     .bind(neg, id)
-    .first<{ numero: number; estado: string }>();
+    .first<{ numero: number; estado: string; venta_id: string; es_acopio: number }>();
   if (!r) throw new HttpError(404, "Remito no encontrado.");
   if (r.estado === "anulado") throw new HttpError(400, "El remito ya está anulado.");
 
-  await c.env.DB.batch([
+  const stmts: D1PreparedStatement[] = [
     c.env.DB.prepare(`UPDATE remitos SET estado = 'anulado' WHERE negocio_id = ? AND id = ?`).bind(neg, id),
-    auditarDe(c, "anular_remito", "remito", id, `Remito #${r.numero}`, { anterior: { estado: r.estado }, nuevo: { estado: "anulado" } }),
-  ]);
+  ];
+
+  if (r.es_acopio) {
+    const fecha = hoy();
+    const items = await c.env.DB
+      .prepare(`SELECT herramienta_id, cantidad FROM remito_items WHERE negocio_id = ? AND remito_id = ?`)
+      .bind(neg, id)
+      .all<{ herramienta_id: string; cantidad: number }>();
+    for (const it of items.results ?? []) {
+      const h = await c.env.DB.prepare(`SELECT stock FROM herramientas WHERE negocio_id = ? AND id = ?`)
+        .bind(neg, it.herramienta_id)
+        .first<{ stock: number }>();
+      const resultante = (h?.stock ?? 0) + it.cantidad;
+      stmts.push(
+        c.env.DB.prepare(`UPDATE herramientas SET stock = ? WHERE negocio_id = ? AND id = ?`)
+          .bind(resultante, neg, it.herramienta_id)
+      );
+      stmts.push(
+        c.env.DB.prepare(
+          `INSERT INTO movimientos_stock (negocio_id, herramienta_id, fecha, tipo, cantidad, stock_resultante, venta_id, remito_id, motivo)
+           VALUES (?, ?, ?, 'anulacion', ?, ?, ?, ?, ?)`
+        ).bind(neg, it.herramienta_id, fecha, it.cantidad, resultante, r.venta_id, id, `Anulación de retiro · Remito #${r.numero}`)
+      );
+    }
+  }
+
+  stmts.push(
+    auditarDe(c, "anular_remito", "remito", id, `Remito #${r.numero}`, { anterior: { estado: r.estado }, nuevo: { estado: "anulado" } })
+  );
+  await c.env.DB.batch(stmts);
   return c.json({ ok: true });
 });
 

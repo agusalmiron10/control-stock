@@ -52,7 +52,11 @@ export function Remitos() {
     try {
       await api.post(`/api/remitos/${remitoAnular.id}/anular`);
       setAnularId(null);
-      setAviso(`Remito #${remitoAnular.numero} anulado. Lo que llevaba vuelve a quedar pendiente de entrega.`);
+      setAviso(
+        remitoAnular.venta_es_acopio
+          ? `Remito #${remitoAnular.numero} anulado. El stock que había retirado vuelve al depósito.`
+          : `Remito #${remitoAnular.numero} anulado. Lo que llevaba vuelve a quedar pendiente de entrega.`
+      );
       recargar();
     } catch (e: any) {
       setErrAccion(e.message);
@@ -145,7 +149,9 @@ export function Remitos() {
               >
                 <div className="comp-card-top">
                   <div>
-                    <div className="comp-card-tipo">Remito #{r.numero}</div>
+                    <div className="comp-card-tipo">
+                      {r.venta_es_acopio ? "Retiro de acopio" : "Remito"} #{r.numero}
+                    </div>
                     <div className="comp-card-nro">{fecha(r.fecha)} · Venta #{r.venta_numero}</div>
                   </div>
                   <span className={`badge ${BADGE[r.estado] ?? ""}`}>{r.estado}</span>
@@ -204,7 +210,11 @@ export function Remitos() {
 
       {remitoAnular && (
         <Confirmar
-          mensaje={`¿Anular el remito #${remitoAnular.numero}? Lo que llevaba vuelve a quedar pendiente de entrega y se puede remitar de nuevo. El stock no se toca.`}
+          mensaje={
+            remitoAnular.venta_es_acopio
+              ? `¿Anular el retiro #${remitoAnular.numero}? El stock que se había descontado del depósito vuelve a sumarse, y queda pendiente de retirar de nuevo.`
+              : `¿Anular el remito #${remitoAnular.numero}? Lo que llevaba vuelve a quedar pendiente de entrega y se puede remitar de nuevo. El stock no se toca.`
+          }
           textoConfirmar="Anular"
           peligro
           onSi={hacerAnular}

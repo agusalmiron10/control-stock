@@ -6,6 +6,7 @@ import { auditarDe } from "../auditoria";
 import { negocioDe } from "../types";
 import { armarAnulacionVenta } from "../ventas-anular";
 import { configDe } from "../config";
+import { acopioPendientePorHerramienta } from "../acopio";
 
 export const ventas = new Hono<{ Bindings: Env; Variables: Variables }>();
 
@@ -206,6 +207,17 @@ ventas.post("/", async (c) => {
   const permitirNegativo = boolOpt(b.permitir_stock_negativo) || origen === "celular";
 
   const neg = negocioDe(c);
+  const cfgAcopio = await configDe(c);
+  const esAcopio = boolOpt(b.es_acopio);
+  if (esAcopio && !(cfgAcopio.modulos.acopio && cfgAcopio.modulos.remitos)) {
+    throw new HttpError(400, "Este negocio no tiene activo el módulo de Acopio (necesita también Remitos).");
+  }
+  // Los retiros (remito_items.cantidad) son enteros: no soportan todavía
+  // acopiar algo que se vende fraccionado (kg, m). Mejor avisar acá que
+  // dejar un retiro que no puede cargar "1,5" más adelante.
+  if (esAcopio && cfgAcopio.capacidades.venta_fraccionada) {
+    throw new HttpError(400, "El acopio todavía no soporta productos que se venden fraccionados (por kg o metro).");
+  }
   const cliente = await c.env.DB.prepare(`SELECT id, activo FROM clientes WHERE negocio_id = ? AND id = ?`)
     .bind(neg, clienteId)
     .first<{ id: string; activo: number }>();
@@ -216,8 +228,7 @@ ventas.post("/", async (c) => {
 
   // Venta fraccionada: una verdulería vende 1,5 kg. Si el negocio no tiene
   // la capacidad, sigue exigiendo enteros exactamente como antes.
-  const cfgVenta = await configDe(c);
-  const fraccionada = cfgVenta.capacidades.venta_fraccionada;
+  const fraccionada = cfgAcopio.capacidades.venta_fraccionada;
 
   const items: ItemEntrada[] = itemsIn.map((it, i) => ({
     herramienta_id: uuid(it.herramienta_id, `herramienta del renglón ${i + 1}`),
@@ -260,11 +271,24 @@ ventas.post("/", async (c) => {
   const pedidoPorH = new Map<string, number>();
   for (const it of items) pedidoPorH.set(it.herramienta_id, (pedidoPorH.get(it.herramienta_id) ?? 0) + it.cantidad);
 
+  // Lo que ya está comprometido en acopios pendientes de retirar NO se puede
+  // volver a vender, sea o no de acopio esta venta nueva: por eso se compara
+  // siempre contra lo DISPONIBLE (físico − comprometido), no contra el
+  // físico crudo. Si el negocio no tiene el módulo activo, no hay nada
+  // comprometido y el chequeo se comporta exactamente como antes.
+  const pendienteAcopio = cfgAcopio.modulos.acopio
+    ? await acopioPendientePorHerramienta(c.env, neg, [...pedidoPorH.keys()])
+    : new Map<string, number>();
+
   // Detectar qué herramientas quedarían en negativo.
   const faltantes: string[] = [];
   for (const [hid, cant] of pedidoPorH) {
     const h = hMap.get(hid)!;
-    if (h.stock < cant) faltantes.push(`${h.nombre} (hay ${h.stock}, pedís ${cant})`);
+    const disponible = h.stock - (pendienteAcopio.get(hid) ?? 0);
+    if (disponible < cant) {
+      const detalle = pendienteAcopio.has(hid) ? `hay ${h.stock}, ${pendienteAcopio.get(hid)} ya acopiados, disponibles ${disponible}` : `hay ${h.stock}`;
+      faltantes.push(`${h.nombre} (${detalle}, pedís ${cant})`);
+    }
   }
   if (faltantes.length > 0 && !permitirNegativo) {
     throw new HttpError(
@@ -301,9 +325,9 @@ ventas.post("/", async (c) => {
   const stmts: D1PreparedStatement[] = [];
   stmts.push(
     c.env.DB.prepare(
-      `INSERT INTO ventas (id, negocio_id, numero, cliente_id, fecha, subtotal, descuento, total, nota, estado, origen, necesita_revision, motivo_revision, creado_en, sincronizado_en, atendido_por)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(ventaId, neg, numero, clienteId, fecha, subtotal, descuento, total, nota, estado, origen, necesitaRevision ? 1 : 0, motivoRevision, creadoEn, ahoraSQL(), c.get("usuario").uid)
+      `INSERT INTO ventas (id, negocio_id, numero, cliente_id, fecha, subtotal, descuento, total, nota, estado, origen, necesita_revision, motivo_revision, creado_en, sincronizado_en, atendido_por, es_acopio)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(ventaId, neg, numero, clienteId, fecha, subtotal, descuento, total, nota, estado, origen, necesitaRevision ? 1 : 0, motivoRevision, creadoEn, ahoraSQL(), c.get("usuario").uid, esAcopio ? 1 : 0)
   );
 
   for (const it of items) {
@@ -328,18 +352,23 @@ ventas.post("/", async (c) => {
     }
   }
 
-  // Descontar stock y registrar un movimiento 'venta' por herramienta.
-  for (const [hid, cant] of pedidoPorH) {
-    const h = hMap.get(hid)!;
-    const resultante = h.stock - cant;
-    stmts.push(c.env.DB.prepare(`UPDATE herramientas SET stock = ? WHERE negocio_id = ? AND id = ?`)
-      .bind(resultante, neg, hid));
-    stmts.push(
-      c.env.DB.prepare(
-        `INSERT INTO movimientos_stock (negocio_id, herramienta_id, fecha, tipo, cantidad, stock_resultante, venta_id, motivo)
-         VALUES (?, ?, ?, 'venta', ?, ?, ?, NULL)`
-      ).bind(neg, hid, fecha, -cant, resultante, ventaId)
-    );
+  // Descontar stock FÍSICO y registrar un movimiento 'venta' por herramienta
+  // — salvo que sea una venta de acopio: ahí el físico no se toca todavía,
+  // sólo queda "comprometido" (ver acopioPendientePorHerramienta). Baja
+  // recién con cada remito de retiro contra esta venta (src/routes/remitos.ts).
+  if (!esAcopio) {
+    for (const [hid, cant] of pedidoPorH) {
+      const h = hMap.get(hid)!;
+      const resultante = h.stock - cant;
+      stmts.push(c.env.DB.prepare(`UPDATE herramientas SET stock = ? WHERE negocio_id = ? AND id = ?`)
+        .bind(resultante, neg, hid));
+      stmts.push(
+        c.env.DB.prepare(
+          `INSERT INTO movimientos_stock (negocio_id, herramienta_id, fecha, tipo, cantidad, stock_resultante, venta_id, motivo)
+           VALUES (?, ?, ?, 'venta', ?, ?, ?, NULL)`
+        ).bind(neg, hid, fecha, -cant, resultante, ventaId)
+      );
+    }
   }
 
   // Pago inicial opcional.

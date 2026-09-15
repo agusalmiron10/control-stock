@@ -37,6 +37,12 @@ export const MODULOS = [
    *  diseño, referencia). Útil para marroquinería, carpintería, sastrería y
    *  cualquier trabajo a medida — no es específico de un rubro. */
   "croquis",
+  /** El cliente paga y reserva mercadería ahora, y la retira de a poco más
+   *  adelante: el stock queda comprometido (no se puede vender dos veces)
+   *  pero sigue físicamente en el depósito hasta cada retiro. Necesita el
+   *  módulo "remitos" también activo — es el mecanismo que usa para
+   *  registrar cada retiro parcial (ver src/acopio.ts). */
+  "acopio",
 ] as const;
 
 export type Modulo = (typeof MODULOS)[number];

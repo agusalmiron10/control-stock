@@ -13,6 +13,8 @@ import { navegar } from "../lib/router";
 import { qrClienteSvg } from "../lib/qr";
 import { useModulo } from "../lib/config";
 import { useFacturacionLista } from "../lib/facturacion";
+import { SaldoAcopioCliente } from "../components/SaldoAcopioCliente";
+import { NuevoRemito } from "../components/NuevoRemito";
 
 const ETIQUETA_CONDICION_IVA: Record<string, string> = {
   responsable_inscripto: "Responsable Inscripto",
@@ -32,8 +34,14 @@ export function ClienteFicha({ id }: { id: string }) {
   const [archivar, setArchivar] = useState(false);
   const [verQr, setVerQr] = useState(false);
   const hayVentaRapida = useModulo("venta_rapida");
+  const hayAcopio = useModulo("acopio");
   const hayFacturacion = useFacturacionLista().listo;
   const [aviso, setAviso] = useState<string | null>(null);
+  const [retirarVentaId, setRetirarVentaId] = useState<string | null>(null);
+  // SaldoAcopioCliente pide su propio saldo con su propio useCarga: cuando
+  // algo cambia acá (un retiro, una venta anulada) se remonta con una key
+  // nueva para que vuelva a pedirlo, en vez de plomería extra para refetch.
+  const [acopioVersion, setAcopioVersion] = useState(0);
 
   const { data, error, cargando, recargar } = useCarga<any>(() => api.get(`/api/clientes/${id}`), [id]);
 
@@ -45,6 +53,7 @@ export function ClienteFicha({ id }: { id: string }) {
   function actualizar(msg?: string) {
     if (msg) setAviso(msg);
     recargar();
+    setAcopioVersion((v) => v + 1);
   }
 
   async function anularVenta() {
@@ -141,6 +150,8 @@ export function ClienteFicha({ id }: { id: string }) {
         </div>
       </div>
 
+      {hayAcopio && <SaldoAcopioCliente key={acopioVersion} clienteId={id} />}
+
       <div className="card">
         <h2>Ventas</h2>
         <div className="tabla-wrap solo-escritorio">
@@ -161,12 +172,18 @@ export function ClienteFicha({ id }: { id: string }) {
                     <td className="num">{pesos(v.total)}</td>
                     <td className="num">{pesos(v.pagado)}</td>
                     <td className={`num ${v.saldo > 0 ? "debe" : ""}`}>{pesos(v.saldo)}</td>
-                    <td><span className={`badge ${v.estado}`}>{v.estado}</span></td>
+                    <td>
+                      <span className={`badge ${v.estado}`}>{v.estado}</span>
+                      {v.es_acopio ? <span className="badge parcial" style={{ marginLeft: 4 }}>acopio</span> : null}
+                    </td>
                     <td className="acc">
                       <div className="btn-grupo" style={{ justifyContent: "flex-end" }}>
                         <button className="btn chico" onClick={() => setDetalle(v.id)}>Detalle</button>
                         <button className="btn chico" onClick={() => setComprobante(v.id)}>Comprobante</button>
                         <button className="btn chico" onClick={() => setVentaEditar(v)}>Editar</button>
+                        {v.es_acopio && v.estado !== "anulada" && (
+                          <button className="btn chico" onClick={() => setRetirarVentaId(v.id)}>Retirar</button>
+                        )}
                         {v.estado !== "anulada" && (
                           <button className="btn chico peligro" onClick={() => setVentaAnular(v)}>Anular</button>
                         )}
@@ -189,12 +206,16 @@ export function ClienteFicha({ id }: { id: string }) {
                 <div className="tf-datos">
                   <span className="num">{pesos(v.total)}</span>
                   <span className={`badge ${v.estado}`}>{v.estado}</span>
+                  {v.es_acopio && <span className="badge parcial">acopio</span>}
                   {v.saldo > 0 && <span className="num debe">Debe {pesos(v.saldo)}</span>}
                 </div>
                 <div className="tf-datos" style={{ marginTop: 8 }}>
                   <button className="btn chico" onClick={() => setDetalle(v.id)}>Detalle</button>
                   <button className="btn chico" onClick={() => setComprobante(v.id)}>Comprobante</button>
                   <button className="btn chico" onClick={() => setVentaEditar(v)}>Editar</button>
+                  {v.es_acopio && v.estado !== "anulada" && (
+                    <button className="btn chico" onClick={() => setRetirarVentaId(v.id)}>Retirar</button>
+                  )}
                   {v.estado !== "anulada" && (
                     <button className="btn chico peligro" onClick={() => setVentaAnular(v)}>Anular</button>
                   )}
@@ -286,6 +307,12 @@ export function ClienteFicha({ id }: { id: string }) {
 
       {ventaEditar && (
         <FormEditarVenta venta={ventaEditar} onCerrar={(m) => { setVentaEditar(null); if (m) actualizar(m); }} />
+      )}
+      {retirarVentaId && (
+        <NuevoRemito
+          ventaId={retirarVentaId}
+          onCerrar={(m) => { setRetirarVentaId(null); actualizar(m); }}
+        />
       )}
     </div>
   );

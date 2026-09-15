@@ -15,6 +15,7 @@ export const MODULOS = [
   "facturacion_electronica",
   "insumos",
   "croquis",
+  "acopio",
 ] as const;
 
 export type Modulo = (typeof MODULOS)[number];
@@ -72,6 +73,10 @@ export const INFO_MODULOS: Record<Modulo, { titulo: string; detalle: string }> =
   croquis: {
     titulo: "Foto o croquis del trabajo",
     detalle: "Adjuntar una foto de referencia o un boceto técnico a un presupuesto a medida — moldería, diseño, plano. Útil para marroquinería, carpintería, sastrería o cualquier trabajo a medida.",
+  },
+  acopio: {
+    titulo: "Acopio de mercadería",
+    detalle: "El cliente paga y reserva mercadería ahora, y la retira de a poco más adelante. El stock queda comprometido para la venta pero sigue en el depósito hasta cada retiro. Necesita también el módulo Remitos activo.",
   },
 };
 

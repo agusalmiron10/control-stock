@@ -106,7 +106,11 @@ function ArmarRemito({ ventaId, onCerrar }: { ventaId: string; onCerrar: (m?: st
   const totalUnidades = lineas.reduce((s: number, l: any) => s + (Number(cant[l.herramienta_id]) || 0), 0);
 
   return (
-    <Modal titulo={data ? `Remito de la venta #${data.venta.numero}` : "Nuevo remito"} ancho onCerrar={() => onCerrar()}>
+    <Modal
+      titulo={data ? `${data.venta.es_acopio ? "Retiro de acopio" : "Remito"} de la venta #${data.venta.numero}` : "Nuevo remito"}
+      ancho
+      onCerrar={() => onCerrar()}
+    >
       <Error msg={err ?? error} />
       {cargando ? (
         <Cargando />
@@ -128,25 +132,33 @@ function ArmarRemito({ ventaId, onCerrar }: { ventaId: string; onCerrar: (m?: st
               <thead>
                 <tr>
                   <th>Producto</th><th className="num">Vendido</th>
-                  <th className="num">Ya entregado</th><th className="num">Entrega ahora</th>
+                  <th className="num">Ya entregado</th>
+                  {data.venta.es_acopio && <th className="num">En depósito</th>}
+                  <th className="num">Entrega ahora</th>
                 </tr>
               </thead>
               <tbody>
-                {lineas.map((l: any) => (
-                  <tr key={l.herramienta_id} className={l.pendiente === 0 ? "mut" : ""}>
-                    <td>{l.nombre_herramienta}</td>
-                    <td className="num">{l.vendido}</td>
-                    <td className="num">{l.entregado}</td>
-                    <td className="num" style={{ width: 120 }}>
-                      <input
-                        type="number" min="0" max={l.pendiente} className="num"
-                        value={cant[l.herramienta_id] ?? ""}
-                        disabled={l.pendiente === 0}
-                        onChange={(e) => setCant({ ...cant, [l.herramienta_id]: e.target.value })}
-                      />
-                    </td>
-                  </tr>
-                ))}
+                {lineas.map((l: any) => {
+                  const excedeFisico = data.venta.es_acopio && Number(cant[l.herramienta_id] || 0) > (l.stock_fisico ?? 0);
+                  return (
+                    <tr key={l.herramienta_id} className={l.pendiente === 0 ? "mut" : ""}>
+                      <td>{l.nombre_herramienta}</td>
+                      <td className="num">{l.vendido}</td>
+                      <td className="num">{l.entregado}</td>
+                      {data.venta.es_acopio && (
+                        <td className={`num ${excedeFisico ? "debe" : ""}`}>{l.stock_fisico}</td>
+                      )}
+                      <td className="num" style={{ width: 120 }}>
+                        <input
+                          type="number" min="0" max={l.pendiente} className="num"
+                          value={cant[l.herramienta_id] ?? ""}
+                          disabled={l.pendiente === 0}
+                          onChange={(e) => setCant({ ...cant, [l.herramienta_id]: e.target.value })}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -165,7 +177,9 @@ function ArmarRemito({ ventaId, onCerrar }: { ventaId: string; onCerrar: (m?: st
           </Campo>
 
           <p className="mut">
-            El remito no toca el stock: ya se descontó al confirmar la venta. Sólo documenta la entrega.
+            {data.venta.es_acopio
+              ? "Esto es un retiro de acopio: el stock físico se descuenta recién ahora, al crear este remito."
+              : "El remito no toca el stock: ya se descontó al confirmar la venta. Sólo documenta la entrega."}
           </p>
 
           <div className="totales-envio">
