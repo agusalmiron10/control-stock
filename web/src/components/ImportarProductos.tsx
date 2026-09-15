@@ -10,7 +10,10 @@ import { useVocab } from "../lib/config";
  *  el nombre del producto — el código, si no viene, se resuelve solo
  *  (ver revisarFilas en el backend). */
 const COLUMNAS: { clave: string; etiqueta: string; alias: string[] }[] = [
-  { clave: "codigo", etiqueta: "Código", alias: ["codigo", "código", "cod", "cod.", "sku", "codigo interno", "nro", "n°", "numero"] },
+  {
+    clave: "codigo", etiqueta: "Código",
+    alias: ["codigo", "código", "cod", "cod.", "sku", "codigo interno", "nro", "n°", "numero", "code", "id", "ref", "referencia"],
+  },
   {
     clave: "nombre", etiqueta: "Nombre",
     // "herramienta" está a propósito: es la palabra que este sistema usa en
@@ -19,19 +22,31 @@ const COLUMNAS: { clave: string; etiqueta: string; alias: string[] }[] = [
     // planilla de prueba. La palabra que cada negocio configuró para lo
     // suyo ("Prenda", "Artículo"…) se suma aparte, ver vocabComoAlias.
     alias: ["nombre", "descripcion", "descripción", "desc", "producto", "detalle", "denominacion", "denominación",
-            "concepto", "herramienta", "herramientas"],
+            "concepto", "herramienta", "herramientas", "name", "description", "product"],
   },
   {
     clave: "precio", etiqueta: "Precio",
     alias: ["precio", "precio venta", "precio de venta", "precio minorista", "minorista", "pvp", "p. unitario",
             "p unitario", "precio unitario", "unitario", "importe", "valor", "precio lista", "lista",
-            "precio publico", "precio público", "$"],
+            "precio publico", "precio público", "$", "price", "sale price", "unit price"],
   },
-  { clave: "precio_mayor", etiqueta: "Precio mayorista", alias: ["precio mayor", "precio mayorista", "mayorista", "por mayor", "mayor"] },
-  { clave: "costo", etiqueta: "Costo", alias: ["costo", "costo unitario", "compra", "precio compra", "precio de compra"] },
-  { clave: "stock", etiqueta: "Stock", alias: ["stock", "cantidad", "cant", "cant.", "existencia", "existencias", "disponible"] },
-  { clave: "stock_minimo", etiqueta: "Stock mínimo", alias: ["stock minimo", "stock mínimo", "minimo", "mínimo"] },
-  { clave: "rubro", etiqueta: "Rubro", alias: ["rubro", "categoria", "categoría", "familia", "grupo", "linea", "línea"] },
+  {
+    clave: "precio_mayor", etiqueta: "Precio mayorista",
+    alias: ["precio mayor", "precio mayorista", "mayorista", "por mayor", "mayor", "wholesale", "wholesale price"],
+  },
+  {
+    clave: "costo", etiqueta: "Costo",
+    alias: ["costo", "costo unitario", "compra", "precio compra", "precio de compra", "cost", "cost price"],
+  },
+  {
+    clave: "stock", etiqueta: "Stock",
+    alias: ["stock", "cantidad", "cant", "cant.", "existencia", "existencias", "disponible", "qty", "quantity", "inventory", "units"],
+  },
+  { clave: "stock_minimo", etiqueta: "Stock mínimo", alias: ["stock minimo", "stock mínimo", "minimo", "mínimo", "min stock"] },
+  {
+    clave: "rubro", etiqueta: "Rubro",
+    alias: ["rubro", "categoria", "categoría", "familia", "grupo", "linea", "línea", "category", "type", "tipo"],
+  },
   // Sólo para negocios que facturan con productos a distinta alícuota
   // (algunos gravados, otros exentos, o a otro %) — el resto puede ignorar
   // esta columna tranquilo, no hace falta traerla. Acepta "21", "21%",
@@ -87,8 +102,10 @@ const SEPARADORES = ["\t", ";", ","];
  */
 function normalizarEncabezado(h: string): string {
   return normalizar(h)
-    .replace(/\([^)]*\)/g, "")   // "precio ($)" -> "precio "
-    .replace(/[$%#]/g, "")       // símbolos sueltos que puedan quedar
+    .replace(/\([^)]*\)/g, "")       // "precio ($)" -> "precio "
+    .replace(/[$%#]/g, "")           // símbolos sueltos que puedan quedar
+    .replace(/^[\s:.\-–—*•]+/, "")   // decoración al principio: "* Precio", "- Nombre -"
+    .replace(/[\s:.\-–—*•]+$/, "")   // ...y al final: "Precio:", "Nombre -"
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -155,7 +172,12 @@ export function parsear(
   if (lineas.length < 2) return { filas: [], aviso: "Hacen falta al menos el encabezado y una fila." };
 
   let mejor = { fila: -1, mapa: {} as Record<number, string>, sep: ",", puntaje: 0 };
-  const hastaFila = Math.min(lineas.length, 15);
+  // 25 y no menos: algunas listas traen un membrete largo arriba (datos
+  // fiscales del proveedor, logo como texto, varias líneas en blanco). Que
+  // el encabezado esté más abajo es más común que quedar atrapado por una
+  // fila que reconozca columnas de casualidad — eso ya lo evita exigir la
+  // columna "nombre" para aceptar cualquier candidata.
+  const hastaFila = Math.min(lineas.length, 25);
   for (let i = 0; i < hastaFila; i++) {
     for (const sep of SEPARADORES) {
       const mapa = mapearEncabezado(partirLinea(lineas[i], sep), nombreExtra);
@@ -206,13 +228,15 @@ export function ImportarProductos({ onCerrar }: { onCerrar: (mensaje?: string) =
   const [trabajando, setTrabajando] = useState(false);
 
 
-  async function previsualizar(contenido: string) {
+  /** Manda ya-parseadas al backend a previsualizar. Lo separado de parsear()
+   *  es lo que permite juntar varias hojas de un mismo Excel antes de
+   *  mandar (ver alElegirArchivo): cada hoja se parsea por su cuenta, y acá
+   *  sólo entra el resultado ya combinado. */
+  async function previsualizarFilas(parseadas: any[], detectadas: string[]) {
     setError(null);
     setRevisadas(null);
-    const { filas: parseadas, aviso, columnas: detectadas } = parsear(contenido, [vocab.singular, vocab.plural]);
-    if (aviso) { setError(aviso); return; }
     setFilas(parseadas);
-    setColumnas(detectadas ?? []);
+    setColumnas(detectadas);
     setTrabajando(true);
     try {
       const r = await api.post<{ filas: Revisada[]; resumen: any }>(
@@ -226,6 +250,13 @@ export function ImportarProductos({ onCerrar }: { onCerrar: (mensaje?: string) =
     } finally {
       setTrabajando(false);
     }
+  }
+
+  /** Camino de "pegar texto": una sola hoja/bloque de texto. */
+  function previsualizar(contenido: string) {
+    const { filas: parseadas, aviso, columnas: detectadas } = parsear(contenido, [vocab.singular, vocab.plural]);
+    if (aviso) { setError(aviso); return; }
+    void previsualizarFilas(parseadas, detectadas ?? []);
   }
 
   async function confirmar() {
@@ -272,20 +303,44 @@ export function ImportarProductos({ onCerrar }: { onCerrar: (mensaje?: string) =
           const libro = XLSX.read(buffer, { type: "array" });
           if (libro.SheetNames.length === 0) { setError("Ese Excel no tiene ninguna hoja."); return; }
 
-          // La hoja con los datos no siempre es la primera: es común que la
-          // primera sea una carátula, o una "Hoja1" vacía que quedó del
-          // archivo original. Se usa la que más contenido tenga.
-          let contenido = "";
+          // Se usa TODA hoja que tenga una columna de nombre reconocible, no
+          // sólo la más grande. Es común que un proveedor separe la lista
+          // por categoría, una hoja por rubro — quedarse con una sola dejaba
+          // afuera al resto en silencio. Lo que no tiene nombre reconocible
+          // (una carátula, una "Hoja1" vacía, una hoja de notas) se ignora.
+          const vocabExtra = [vocab.singular, vocab.plural];
+          let filas: any[] = [];
+          const columnasVistas = new Set<string>();
+          let mejorAviso: { puntaje: number; aviso: string } | null = null;
+          let huboContenido = false;
+
           for (const hoja of libro.SheetNames) {
             const csv = XLSX.utils.sheet_to_csv(libro.Sheets[hoja]);
-            if (csv.split(/\r?\n/).filter((l) => l.replace(/,/g, "").trim() !== "").length >
-                contenido.split(/\r?\n/).filter((l) => l.replace(/,/g, "").trim() !== "").length) {
-              contenido = csv;
+            if (csv.replace(/[,\s]/g, "") === "") continue;
+            huboContenido = true;
+            const r = parsear(csv, vocabExtra);
+            if (r.aviso) {
+              // Se guarda el aviso más informativo (el de la hoja que más
+              // columnas llegó a reconocer) por si ninguna hoja sirve, para
+              // no mostrar el genérico de una hoja vacía de casualidad.
+              const puntaje = r.columnas?.length ?? 0;
+              if (!mejorAviso || puntaje > mejorAviso.puntaje) mejorAviso = { puntaje, aviso: r.aviso };
+              continue;
             }
+            filas = filas.concat(r.filas);
+            for (const c of r.columnas ?? []) columnasVistas.add(c);
           }
-          if (contenido.trim() === "") { setError("Ese Excel no tiene datos en ninguna hoja."); return; }
-          setTexto(contenido);
-          void previsualizar(contenido);
+
+          if (!huboContenido) { setError("Ese Excel no tiene datos en ninguna hoja."); return; }
+          if (filas.length === 0) {
+            setError(mejorAviso?.aviso ?? "No encontré datos para importar en ninguna hoja de ese Excel.");
+            return;
+          }
+          // El textarea de "pegar" muestra la primera hoja que sí sirvió,
+          // como referencia de lo que se leyó — no las filas combinadas,
+          // que pueden venir de encabezados distintos entre hojas.
+          setTexto(XLSX.utils.sheet_to_csv(libro.Sheets[libro.SheetNames[0]]));
+          void previsualizarFilas(filas, [...columnasVistas]);
         } catch {
           setError("No se pudo leer ese archivo. ¿Es un Excel (.xlsx) válido?");
         }
@@ -339,7 +394,7 @@ export function ImportarProductos({ onCerrar }: { onCerrar: (mensaje?: string) =
           </Campo>
           <p className="mut" style={{ marginTop: -4 }}>
             Subís el Excel tal cual lo tenés — no hace falta guardarlo como CSV. Si tiene varias
-            hojas, se usa la que tenga los datos.
+            hojas (por ejemplo, una por rubro), se juntan todas las que tengan productos.
           </p>
 
           <Campo label="Opción 2 — copiar y pegar desde Excel">

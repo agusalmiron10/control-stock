@@ -97,4 +97,22 @@ describe("parsear: listas que llegan como llegan", () => {
     const r = parsear("Codigo,Prenda,Precio\nA1,Remera básica,8900", ["prenda", "prendas"]);
     expect(r.filas[0]).toEqual({ codigo: "A1", nombre: "Remera básica", precio: "8900" });
   });
+
+  it("saca la decoración alrededor del nombre de columna: dos puntos, guiones, asteriscos", () => {
+    const r = parsear("* Código *,- Nombre -,Precio:\nA1,Martillo,12500");
+    expect(r.columnas).toEqual(["Código", "Nombre", "Precio"]);
+    expect(r.filas[0]).toEqual({ codigo: "A1", nombre: "Martillo", precio: "12500" });
+  });
+
+  it("encabezados en inglés (listas de proveedores del exterior)", () => {
+    const r = parsear("SKU,Name,Price,Qty,Cost\nA1,Hammer,12500,10,8000");
+    expect(r.filas[0]).toEqual({ codigo: "A1", nombre: "Hammer", precio: "12500", stock: "10", costo: "8000" });
+  });
+
+  it("encuentra el encabezado más abajo de la fila 15 si el membrete es largo", () => {
+    const membrete = Array.from({ length: 20 }, (_, i) => `Línea de membrete ${i + 1}`).join("\n");
+    const r = parsear(`${membrete}\nCodigo,Nombre,Precio\nA1,Martillo,12500`);
+    expect(r.aviso).toBeUndefined();
+    expect(r.filas).toEqual([{ codigo: "A1", nombre: "Martillo", precio: "12500" }]);
+  });
 });
