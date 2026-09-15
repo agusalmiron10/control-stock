@@ -8,6 +8,7 @@ import { useFacturacionLista } from "../lib/facturacion";
 import { navegar } from "../lib/router";
 import { BarraEscaneo } from "../components/BarraEscaneo";
 import { CrearProductoExpress } from "../components/CrearProductoExpress";
+import { Comprobante } from "../components/Comprobante";
 import { useCapacidades, useModulo } from "../lib/config";
 
 interface Reng {
@@ -80,6 +81,19 @@ export function NuevaVenta() {
   const [confirmarNeg, setConfirmarNeg] = useState<string | null>(null);
   const [confirmarVaciar, setConfirmarVaciar] = useState(false);
   const [ventaGuardada, setVentaGuardada] = useState<{ id: string; numero: number } | null>(null);
+  /**
+   * La venta que se acaba de cerrar, congelada para la pantalla de
+   * confirmación. Va aparte del formulario (que se vacía) porque después de
+   * cobrar hay que seguir viendo qué se vendió y —sobre todo— cuánto vuelto
+   * dar, mientras se le devuelve la plata al cliente.
+   */
+  const [ventaHecha, setVentaHecha] = useState<{
+    id: string; numero: number; clienteId: string; clienteNombre: string;
+    items: { nombre: string; cantidad: number; subtotal: number }[];
+    total: number; pagado: number; vuelto: number | null;
+  } | null>(null);
+  const [verComprobante, setVerComprobante] = useState(false);
+  const [avisoFactura, setAvisoFactura] = useState<string | null>(null);
   // Resalta un instante el renglón recién agregado (escáner o buscador):
   // confirmación visual rápida, sin tener que leer el nombre para saber si
   // entró. Se apaga solo.
@@ -323,17 +337,121 @@ export function NuevaVenta() {
 
     try {
       const r = await api.post<{ id: string; numero: number }>("/api/ventas", body);
+      // Se congela lo vendido ANTES de vaciar el formulario: es lo que va a
+      // mostrar la confirmación.
+      setVentaHecha({
+        id: r.id,
+        numero: r.numero,
+        clienteId,
+        clienteNombre: clientes.find((c: any) => String(c.id) === String(clienteId))?.nombre ?? "Cliente",
+        items: items
+          .filter((it) => it.herramienta_id && Number(it.cantidad) > 0)
+          .map((it) => ({
+            nombre: hMap.get(it.herramienta_id)?.nombre ?? "",
+            cantidad: Number(it.cantidad),
+            subtotal: Number(it.cantidad) * aCentavos(it.precio || "0"),
+          })),
+        total,
+        pagado: pagoModo !== "nada" ? pagoCent : 0,
+        // Sólo si de verdad hay algo que devolver, y sólo en efectivo.
+        vuelto: pagoMedio === "efectivo" && vuelto !== null && vuelto > 0 ? vuelto : null,
+      });
       // Si el negocio factura, se ofrece hacerlo acá mismo en vez de tener que
       // ir a buscar la venta después.
-      if (facturacion.listo) { setVentaGuardada(r); setGuardando(false); return; }
-      navegar(`/clientes/${clienteId}`);
+      if (facturacion.listo) setVentaGuardada(r);
+      setGuardando(false);
     } catch (err: any) {
       setError(err.message);
       setGuardando(false);
     }
   }
 
+  /** Volver al formulario vacío para cobrarle al que sigue. */
+  function otraVenta() {
+    setVentaHecha(null);
+    setVentaGuardada(null);
+    setAvisoFactura(null);
+    setVerComprobante(false);
+    setClienteId("");
+    setItems([]);
+    setDescValor("");
+    setDescOtro(false);
+    setNota("");
+    setRecibido("");
+    setEsAcopio(false);
+    setPagoModo("total");
+    setError(null);
+  }
+
   if (clientesQ.cargando || herrQ.cargando) return <Cargando />;
+
+  /**
+   * Venta cerrada. No se vuelve al formulario solo ni se salta a otra
+   * pantalla: primero se confirma qué pasó (y cuánto vuelto dar), y desde
+   * acá se elige qué sigue. Lo que más veces sigue en un mostrador es otra
+   * venta, así que ese es el botón principal.
+   */
+  if (ventaHecha) {
+    return (
+      <div>
+        <div className="encabezado-seccion">
+          <div>
+            <a href="#/ventas">← Ventas</a>
+            <h1 style={{ marginTop: 4 }}>Venta #{ventaHecha.numero} guardada</h1>
+          </div>
+        </div>
+
+        {avisoFactura && <div className="ok-box">{avisoFactura}</div>}
+
+        {ventaHecha.vuelto !== null && (
+          <div className="card" style={{ marginBottom: 12 }}>
+            <div className="card-body">
+              <div className="rot">Vuelto</div>
+              <div className="val" style={{ fontSize: 34 }}>{pesos(ventaHecha.vuelto)}</div>
+            </div>
+          </div>
+        )}
+
+        <div className="card">
+          <div className="card-body">
+            <p style={{ marginTop: 0 }}><b>{ventaHecha.clienteNombre}</b></p>
+            {ventaHecha.items.map((it, i) => (
+              <p key={i} className="mut" style={{ marginBottom: 4 }}>
+                {numero(it.cantidad)} × {it.nombre} — {pesos(it.subtotal)}
+              </p>
+            ))}
+            <p style={{ marginTop: 10 }}><b>Total: {pesos(ventaHecha.total)}</b></p>
+            {ventaHecha.pagado > 0
+              ? <p className="mut">Pagó: {pesos(ventaHecha.pagado)}</p>
+              : <p className="mut">Queda en cuenta corriente.</p>}
+          </div>
+        </div>
+
+        <div className="btn-grupo" style={{ marginTop: 14 }}>
+          <button className="btn primario" onClick={otraVenta}>+ Otra venta</button>
+          <button className="btn" onClick={() => setVerComprobante(true)}>Comprobante</button>
+          {facturacion.listo && !avisoFactura && (
+            <button className="btn" onClick={() => setVentaGuardada({ id: ventaHecha.id, numero: ventaHecha.numero })}>
+              Facturar
+            </button>
+          )}
+          <button className="btn" onClick={() => navegar(`/clientes/${ventaHecha.clienteId}`)}>
+            Ver ficha del cliente
+          </button>
+        </div>
+
+        {verComprobante && (
+          <Comprobante ventaId={ventaHecha.id} onCerrar={() => setVerComprobante(false)} />
+        )}
+        {ventaGuardada && (
+          <FacturarTrasVenta
+            venta={ventaGuardada}
+            onListo={(mensaje) => { setVentaGuardada(null); if (mensaje) setAvisoFactura(mensaje); }}
+          />
+        )}
+      </div>
+    );
+  }
 
   const sinClientes = clientes.length === 0;
   const sinHerr = herramientas.length === 0;
@@ -699,9 +817,6 @@ export function NuevaVenta() {
         />
       )}
 
-      {ventaGuardada && (
-        <FacturarTrasVenta venta={ventaGuardada} onListo={() => navegar(`/clientes/${clienteId}`)} />
-      )}
     </div>
   );
 }
