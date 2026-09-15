@@ -10,6 +10,7 @@
 import { pesos, fecha } from "../format";
 import { negocio } from "./negocio";
 import { conReintento } from "./cargarModulo";
+import type { DatosInforme } from "../excel";
 
 const ANCHO_A4 = 210;
 const MARGEN = 15;
@@ -171,6 +172,117 @@ export async function generarPdfPresupuesto(data: any): Promise<Blob> {
     doc.text(`Presupuesto sujeto a cambios de precio sin previo aviso — ${neg.nombre}`, MARGEN, PIE_Y);
     if (hojas > 1) doc.text(`Hoja ${i} de ${hojas}`, DERECHA, PIE_Y, { align: "right" });
   }
+
+  return doc.output("blob");
+}
+
+/**
+ * Informe del período en PDF: el mismo contenido que el Excel, pero para
+ * imprimir o mandar. Una hoja con el resumen arriba (lo vendido, los gastos
+ * y lo que quedó) y abajo el detalle por producto y por categoría de gasto.
+ */
+export async function generarPdfInforme(d: DatosInforme): Promise<Blob> {
+  const { jsPDF } = await conReintento(() => import("jspdf"));
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const neg = negocio();
+  const r = d.resumen;
+  let y = 18;
+
+  // ── Encabezado ──
+  let xTexto = MARGEN;
+  if (neg.logo) {
+    try {
+      doc.addImage(neg.logo, formatoDeDataUri(neg.logo), MARGEN, y - 6, 16, 16);
+      xTexto = MARGEN + 20;
+    } catch {
+      // Formato que jsPDF no reconoce: sigue sin logo.
+    }
+  }
+  doc.setFont("helvetica", "bold").setFontSize(14).setTextColor(20);
+  doc.text(neg.nombre, xTexto, y);
+  doc.setFont("helvetica", "normal").setFontSize(9).setTextColor(110);
+  if (neg.rubro) doc.text(neg.rubro, xTexto, y + 5);
+
+  doc.setTextColor(20).setFont("helvetica", "bold").setFontSize(13);
+  doc.text("INFORME DEL PERÍODO", DERECHA, y, { align: "right" });
+  doc.setFont("helvetica", "normal").setFontSize(9).setTextColor(110);
+  const rango = d.desde || d.hasta
+    ? `${d.desde ? fecha(d.desde) : "el principio"} — ${d.hasta ? fecha(d.hasta) : "hoy"}`
+    : "Todo el historial";
+  doc.text(rango, DERECHA, y + 6, { align: "right" });
+
+  y += 20;
+  doc.setDrawColor(210).line(MARGEN, y, DERECHA, y);
+  y += 9;
+
+  // ── Resumen: dos columnas, concepto a la izquierda y monto a la derecha ──
+  const linea = (campo: string, valor: string, fuerte = false) => {
+    doc.setFont("helvetica", fuerte ? "bold" : "normal").setFontSize(fuerte ? 11 : 10);
+    doc.setTextColor(fuerte ? 20 : 80);
+    doc.text(campo, MARGEN, y);
+    doc.text(valor, DERECHA, y, { align: "right" });
+    y += fuerte ? 8 : 6.5;
+  };
+
+  linea("Vendido", pesos(r.total_vendido));
+  linea("Costo de la mercadería", `- ${pesos(r.costo_estimado)}`);
+  linea("Ganancia sobre lo vendido", pesos(r.ganancia_estimada), true);
+  doc.setFontSize(8).setTextColor(130);
+  doc.text(`margen ${r.margen_pct}%`, DERECHA, y - 4, { align: "right" });
+
+  if (r.resultado != null) {
+    y += 2;
+    linea("Gastos del período", `- ${pesos(r.gastos)}`);
+    doc.setDrawColor(210).line(MARGEN, y - 2, DERECHA, y - 2);
+    y += 3;
+    linea("RESULTADO", pesos(r.resultado), true);
+  }
+
+  // ── Gastos por categoría ──
+  if (d.gastosPorCategoria.length > 0) {
+    y += 5;
+    doc.setFont("helvetica", "bold").setFontSize(10).setTextColor(20);
+    doc.text("Gastos por categoría", MARGEN, y);
+    y += 6;
+    for (const g of d.gastosPorCategoria) {
+      if (y > LIMITE_INFERIOR) break;
+      doc.setFont("helvetica", "normal").setFontSize(9).setTextColor(80);
+      doc.text(g.categoria, MARGEN + 2, y);
+      doc.text(pesos(g.monto), DERECHA, y, { align: "right" });
+      y += 5.5;
+    }
+  }
+
+  // ── Productos que más ganancia dejaron ──
+  if (d.productos.length > 0 && y < LIMITE_INFERIOR - 20) {
+    y += 5;
+    doc.setFont("helvetica", "bold").setFontSize(10).setTextColor(20);
+    doc.text("Productos con más ganancia", MARGEN, y);
+    y += 6;
+    doc.setFontSize(8).setTextColor(130);
+    doc.text("Producto", MARGEN + 2, y);
+    doc.text("U.", MARGEN + 105, y, { align: "right" });
+    doc.text("Vendido", MARGEN + 140, y, { align: "right" });
+    doc.text("Ganancia", DERECHA, y, { align: "right" });
+    y += 5;
+    for (const p of d.productos.slice(0, 20)) {
+      if (y > LIMITE_INFERIOR) break;
+      doc.setFont("helvetica", "normal").setFontSize(9).setTextColor(80);
+      // El nombre se recorta para no pisar la columna de unidades.
+      doc.text(String(p.nombre).slice(0, 52), MARGEN + 2, y);
+      doc.text(String(p.unidades_vendidas), MARGEN + 105, y, { align: "right" });
+      doc.text(pesos(p.vendido), MARGEN + 140, y, { align: "right" });
+      doc.text(pesos(p.ganancia), DERECHA, y, { align: "right" });
+      y += 5.5;
+    }
+  }
+
+  doc.setFont("helvetica", "normal").setFontSize(8).setTextColor(140);
+  doc.text(
+    `${neg.nombre} · Informe generado el ${fecha(new Date().toISOString().slice(0, 10))}`,
+    MARGEN,
+    PIE_Y
+  );
 
   return doc.output("blob");
 }

@@ -465,3 +465,111 @@ export async function exportarClientesContacto(): Promise<void> {
 
   descargar(wb, "clientes-contacto");
 }
+
+// ── G. Informe del período (ventas, gastos y resultado) ─────
+//
+// Es el reporte que responde "¿cómo me fue del día X al día Y?": lo vendido,
+// lo que costó la mercadería, lo que se gastó fuera de mercadería y lo que
+// quedó. Se arma con las dos fuentes que ya existen —rentabilidad y
+// gastos— en vez de un endpoint nuevo, así nunca puede decir algo distinto
+// de lo que muestra la pantalla de Reportes.
+
+export interface DatosInforme {
+  resumen: any;
+  productos: any[];
+  gastos: any[];
+  gastosPorCategoria: { categoria: string; monto: number }[];
+  desde: string;
+  hasta: string;
+}
+
+/** Junta lo que hace falta para el informe, en Excel o en PDF. */
+export async function traerInforme(desde: string, hasta: string): Promise<DatosInforme> {
+  const qs = new URLSearchParams();
+  if (desde) qs.set("desde", desde);
+  if (hasta) qs.set("hasta", hasta);
+  const sufijo = qs.toString() ? `?${qs}` : "";
+
+  const rent = await api.get<any>(`/api/reportes/rentabilidad${sufijo}`);
+  // El detalle de gastos sólo existe si el negocio tiene el módulo; sin él
+  // la ruta responde 404 y el informe sale igual, sin esa parte.
+  let gastos: any[] = [];
+  try {
+    const g = await api.get<any>(`/api/gastos${sufijo}`);
+    gastos = g.gastos ?? [];
+  } catch {
+    gastos = [];
+  }
+
+  return {
+    resumen: rent.resumen,
+    productos: (rent.productos ?? []).filter((p: any) => p.unidades_vendidas > 0),
+    gastos,
+    gastosPorCategoria: rent.gastos_por_categoria ?? [],
+    desde,
+    hasta,
+  };
+}
+
+export async function exportarInforme(desde: string, hasta: string): Promise<void> {
+  const d = await traerInforme(desde, hasta);
+  const r = d.resumen;
+  const wb = XLSX.utils.book_new();
+
+  const resumen: { campo: string; valor: unknown; tipo?: Tipo }[] = [
+    { campo: "Desde", valor: d.desde || "Desde el principio", tipo: d.desde ? "date" : "text" },
+    { campo: "Hasta", valor: d.hasta || "Hasta hoy", tipo: d.hasta ? "date" : "text" },
+    { campo: "Vendido", valor: r.total_vendido, tipo: "money" },
+    { campo: "Costo de la mercadería", valor: r.costo_estimado, tipo: "money" },
+    { campo: "Ganancia sobre lo vendido", valor: r.ganancia_estimada, tipo: "money" },
+    { campo: "Margen %", valor: r.margen_pct, tipo: "text" },
+  ];
+  // El resultado sólo se escribe si el negocio lleva gastos: si no, sería
+  // una ganancia que ignora alquiler y sueldos con nombre de resultado.
+  if (r.resultado != null) {
+    resumen.push(
+      { campo: "Gastos del período", valor: r.gastos, tipo: "money" },
+      { campo: "RESULTADO", valor: r.resultado, tipo: "money" }
+    );
+  }
+  resumen.push(
+    { campo: "Valor del stock (a costo)", valor: r.valor_stock_costo, tipo: "money" },
+    { campo: "Generado", valor: hoyISO(), tipo: "date" }
+  );
+  XLSX.utils.book_append_sheet(wb, hojaResumen("Informe del período", resumen), "Resumen");
+
+  XLSX.utils.book_append_sheet(
+    wb,
+    hoja(
+      [
+        { key: "nombre", header: "Producto", width: 30 },
+        { key: "rubro", header: "Rubro", width: 16 },
+        { key: "unidades_vendidas", header: "U. vendidas", width: 12, tipo: "int" },
+        { key: "vendido", header: "Vendido", width: 14, tipo: "money" },
+        { key: "costo_total", header: "Costo", width: 14, tipo: "money" },
+        { key: "ganancia", header: "Ganancia", width: 14, tipo: "money" },
+      ],
+      d.productos
+    ),
+    "Ventas por producto"
+  );
+
+  if (d.gastos.length > 0) {
+    XLSX.utils.book_append_sheet(
+      wb,
+      hoja(
+        [
+          { key: "fecha", header: "Fecha", width: 12, tipo: "date" },
+          { key: "categoria", header: "Categoría", width: 18 },
+          { key: "descripcion", header: "Descripción", width: 34 },
+          { key: "medio_pago", header: "Medio", width: 14 },
+          { key: "monto", header: "Monto", width: 14, tipo: "money" },
+        ],
+        d.gastos
+      ),
+      "Gastos"
+    );
+  }
+
+  descargar(wb, "informe");
+}

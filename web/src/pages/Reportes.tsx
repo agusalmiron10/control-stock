@@ -4,6 +4,9 @@ import { pesos, pesosCompacto, numero, fecha, mesCorto, hoyISO } from "../format
 import { Cargando, Error, Vacio, useCarga } from "../components/ui";
 import { BarChart } from "../components/BarChart";
 import { useRol, esDueno } from "../lib/rol";
+import { exportarInforme, traerInforme } from "../excel";
+import { generarPdfInforme } from "../lib/pdf";
+import { compartirArchivo, mensajeCompartir } from "../lib/compartirArchivo";
 
 const TABS = [
   ["rentabilidad", "Rentabilidad", true],
@@ -42,6 +45,37 @@ function Rentabilidad() {
   if (hasta) qs.set("hasta", hasta);
   const { data, error, cargando } = useCarga<any>(() => api.get(`/api/reportes/rentabilidad?${qs}`), [desde, hasta]);
 
+  const [bajando, setBajando] = useState<"excel" | "pdf" | null>(null);
+  const [avisoInforme, setAvisoInforme] = useState<string | null>(null);
+
+  async function bajarExcel() {
+    setBajando("excel");
+    setAvisoInforme(null);
+    try {
+      await exportarInforme(desde, hasta);
+      setAvisoInforme("Informe descargado en Excel.");
+    } catch (e: any) {
+      setAvisoInforme("No se pudo generar el Excel: " + e.message);
+    } finally {
+      setBajando(null);
+    }
+  }
+
+  async function bajarPdf() {
+    setBajando("pdf");
+    setAvisoInforme(null);
+    try {
+      const datos = await traerInforme(desde, hasta);
+      const blob = await generarPdfInforme(datos);
+      const nombre = `informe-${desde || "inicio"}-a-${hasta || "hoy"}.pdf`;
+      setAvisoInforme(mensajeCompartir(await compartirArchivo(blob, nombre, { titulo: "Informe del período" })));
+    } catch (e: any) {
+      setAvisoInforme("No se pudo generar el PDF: " + e.message);
+    } finally {
+      setBajando(null);
+    }
+  }
+
   const r = data?.resumen;
   const productos: any[] = data?.productos ?? [];
   const conVentas = productos.filter((p) => p.unidades_vendidas > 0);
@@ -53,8 +87,17 @@ function Rentabilidad() {
         <div className="campo"><label>Desde</label><input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} /></div>
         <div className="campo"><label>Hasta</label><input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} /></div>
         {(desde || hasta) && <button className="btn" onClick={() => { setDesde(""); setHasta(""); }}>Limpiar</button>}
+        {/* El informe sale con las MISMAS fechas que están arriba: lo que se
+            ve en pantalla y lo que se baja no pueden decir cosas distintas. */}
+        <button className="btn" disabled={bajando !== null} onClick={bajarExcel}>
+          {bajando === "excel" ? "Generando…" : "⬇ Excel"}
+        </button>
+        <button className="btn" disabled={bajando !== null} onClick={bajarPdf}>
+          {bajando === "pdf" ? "Generando…" : "⬇ PDF"}
+        </button>
       </div>
 
+      {avisoInforme && <div className="ok-box" onClick={() => setAvisoInforme(null)}>{avisoInforme}</div>}
       {error && <Error msg={error} />}
       {cargando ? (
         <Cargando />
