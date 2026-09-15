@@ -716,17 +716,23 @@ export function NuevaVenta() {
 
           {hayAcopio && (
             <div className="pos-seccion">
-              <label className="campo check">
-                <input type="checkbox" checked={esAcopio} onChange={(e) => setEsAcopio(e.target.checked)} />
-                Es un acopio
-              </label>
-              {esAcopio && (
-                <p className="mut" style={{ marginTop: 4 }}>
-                  El cliente paga esto ahora, pero se lo lleva de a poco más adelante. El stock queda
-                  reservado (no se le puede vender a otro) pero sigue en el depósito hasta cada retiro —
-                  se descuenta recién cuando hagas el remito de esa entrega.
-                </p>
-              )}
+              <button
+                type="button"
+                className={`pos-acopio ${esAcopio ? "activo" : ""}`}
+                aria-pressed={esAcopio}
+                onClick={() => setEsAcopio((v) => !v)}
+              >
+                <span className="pos-acopio-icono" aria-hidden>📦</span>
+                <span className="pos-acopio-texto">
+                  <span className="pos-acopio-titulo">Es un acopio</span>
+                  <span className="pos-acopio-detalle">
+                    {esAcopio
+                      ? "Paga ahora y se lo lleva de a poco. El stock queda reservado y se descuenta en cada retiro."
+                      : "El cliente paga ahora pero retira después, en varias veces."}
+                  </span>
+                </span>
+                <span className="pos-acopio-tilde" aria-hidden>{esAcopio ? "✓" : ""}</span>
+              </button>
             </div>
           )}
 

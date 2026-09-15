@@ -1573,6 +1573,26 @@ table.tabla tbody tr:hover { background: color-mix(in srgb, var(--acento) 9%, tr
 .pos-medio:hover { border-color: var(--acento); }
 .pos-medio.activo { border-color: var(--acento); background: var(--acento-suave); color: var(--acento); }
 
+/* Acopio: decide si el stock sale del depósito ahora o queda reservado
+   para retirar después, así que no puede ser un tilde chiquito perdido
+   entre los campos — va como un bloque que se ve y se toca de una, con el
+   mismo lenguaje que los botones de medio de pago. */
+.pos-acopio {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  border: 1px solid var(--borde-fuerte); border-radius: var(--radio-chico);
+  background: var(--superficie); padding: 12px; cursor: pointer;
+  color: var(--texto); font: inherit; text-align: left;
+}
+.pos-acopio:hover { border-color: var(--acento); }
+.pos-acopio:focus-visible { outline: 2px solid var(--acento); outline-offset: 2px; }
+.pos-acopio.activo { border-color: var(--acento); background: var(--acento-suave); color: var(--acento); }
+.pos-acopio-icono { font-size: 22px; line-height: 1; flex: none; }
+.pos-acopio-texto { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pos-acopio-titulo { font-size: 13.5px; font-weight: 600; }
+.pos-acopio-detalle { font-size: 12px; color: var(--texto-suave); }
+.pos-acopio.activo .pos-acopio-detalle { color: inherit; opacity: 0.85; }
+.pos-acopio-tilde { margin-left: auto; font-size: 17px; font-weight: 700; flex: none; }
+
 .pos-finalizar { width: 100%; font-size: 16px; padding: 14px 18px; }
 
 /* Vuelto: es la cuenta que más apuro tiene en el mostrador, así que va
