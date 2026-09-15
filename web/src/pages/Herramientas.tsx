@@ -5,7 +5,8 @@ import { Cargando, Error, Vacio, Modal, Campo, Confirmar, useCarga } from "../co
 import { ImportarProductos } from "../components/ImportarProductos";
 import { exportarPrecios } from "../excel";
 import { waListaDePrecios } from "../lib/whatsapp";
-import { emailListaDePrecios } from "../lib/email";
+import { generarPdfListaPrecios } from "../lib/pdf";
+import { compartirArchivo, mensajeCompartir } from "../lib/compartirArchivo";
 import { FormProduccion } from "../components/FormProduccion";
 import { useRol, esDueno } from "../lib/rol";
 import { useModulo, useVocab, useCapacidades } from "../lib/config";
@@ -27,6 +28,7 @@ export function Herramientas() {
   const [modo, setModo] = useState<Modo>({ t: "cerrado" });
   const [archivarH, setArchivarH] = useState<any | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
+  const [compartiendoPdf, setCompartiendoPdf] = useState(false);
   const [pagina, setPagina] = useState(1);
   const LIMITE = 20;
   const hayProduccion = useModulo("produccion");
@@ -58,21 +60,41 @@ export function Herramientas() {
   }
 
   /**
-   * Con pocos productos, el mensaje trae la lista entera. Con muchos,
-   * wa/emailListaDePrecios mandan sólo un aviso corto — acá se completa con
-   * la descarga del Excel completo, para adjuntarlo a mano (no hay forma de
-   * pre-cargar un archivo en un link de WhatsApp ni de mailto, sólo texto).
+   * Con pocos productos, el mensaje de WhatsApp trae la lista entera como
+   * texto. Con muchos, waListaDePrecios manda sólo un aviso corto — acá se
+   * completa con la descarga del Excel, para adjuntarlo a mano (no hay
+   * forma de pre-cargar un archivo en un link de WhatsApp, sólo texto).
    */
-  function compartirLista(canal: "whatsapp" | "email") {
-    const { completa, cantidad } =
-      canal === "whatsapp"
-        ? waListaDePrecios(data?.herramientas ?? [], "minorista")
-        : emailListaDePrecios(data?.herramientas ?? [], "minorista");
+  function compartirListaTexto() {
+    const { completa, cantidad } = waListaDePrecios(data?.herramientas ?? [], "minorista");
     if (!completa) {
       exportarPrecios().catch((e) => setAviso(e.message));
       setAviso(
-        `Se abrió ${canal === "whatsapp" ? "WhatsApp" : "el mail"} con un aviso corto (son ${cantidad} productos, no entran bien como texto) — te descargamos también el Excel completo para que lo adjuntes.`
+        `Se abrió WhatsApp con un aviso corto (son ${cantidad} productos, no entran bien como texto) — te descargamos también el Excel completo para que lo adjuntes.`
       );
+    }
+  }
+
+  /**
+   * La lista entera como archivo PDF, con nombre, rubro y precio — a
+   * diferencia del texto de arriba, esto no se corta nunca por más
+   * productos que haya (sigue en la hoja siguiente). compartirArchivo() la
+   * descarga siempre y, si el navegador lo permite, abre el selector nativo
+   * para mandarla directo por WhatsApp en el mismo paso.
+   */
+  async function compartirPdf() {
+    setCompartiendoPdf(true);
+    try {
+      const blob = await generarPdfListaPrecios(data?.herramientas ?? [], "minorista", vocab);
+      const resultado = await compartirArchivo(blob, `lista-precios-${hoyISO()}.pdf`, {
+        titulo: `Lista de precios`,
+        texto: `Lista de precios de ${vocab.plural.toLowerCase()}`,
+      });
+      setAviso(mensajeCompartir(resultado));
+    } catch (e: any) {
+      setAviso("No se pudo generar el PDF: " + e.message);
+    } finally {
+      setCompartiendoPdf(false);
     }
   }
 
@@ -95,11 +117,11 @@ export function Herramientas() {
         <div className="btn-grupo">
           <button className="btn" onClick={() => setImportar(true)}>⬆ Importar</button>
           <button className="btn" onClick={() => setModo({ t: "masivo" })}>% Ajuste masivo</button>
-          <button className="btn wa" onClick={() => compartirLista("whatsapp")}>
+          <button className="btn wa" onClick={compartirListaTexto}>
             Compartir lista
           </button>
-          <button className="btn email" onClick={() => compartirLista("email")}>
-            ✉ Mail
+          <button className="btn" disabled={compartiendoPdf} onClick={compartirPdf}>
+            {compartiendoPdf ? "Generando…" : "⬇ PDF"}
           </button>
           <button className="btn" onClick={() => exportarPrecios().catch((e) => setAviso(e.message))}>
             ⬇ Excel precios

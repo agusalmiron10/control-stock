@@ -8,7 +8,7 @@
 // mail SOLAS, sin que nadie tenga que tocar "Enviar" — y si todavía no está
 // activado (o falla por lo que sea), caen de vuelta al "mailto:" de acá
 // arriba, así el botón nunca deja de funcionar.
-import { pesos, fecha } from "../format";
+import { pesos } from "../format";
 import { negocio } from "./negocio";
 import { api, ApiError } from "../api";
 
@@ -76,36 +76,3 @@ export async function enviarRecordatorioDeuda(cliente: any, saldo: number): Prom
   }
 }
 
-// Mismo motivo que en whatsapp.ts: un mail con 90 líneas de productos es
-// tan incómodo como un WhatsApp con 90 líneas. Con pocos entra cómodo tal
-// cual; con muchos, mejor un aviso corto + el Excel adjunto a mano.
-const LIMITE_LINEAS_EMAIL = 60;
-
-/**
- * Comparte la lista de precios por mail — abre el cliente de correo con el
- * destinatario en blanco (se completa a mano, como "elegir contacto" en
- * WhatsApp). Devuelve si mandó la lista completa: si no, hay que ofrecer el
- * Excel completo aparte para adjuntar.
- */
-export function emailListaDePrecios(herramientas: any[], tipo: "minorista" | "mayorista"): { completa: boolean; cantidad: number } {
-  const conPrecio = herramientas.filter((h) => (tipo === "mayorista" ? h.precio_mayor : h.precio) > 0);
-  const l: string[] = [];
-  l.push(`Lista de precios de ${negocio().nombre} (${tipo}) — ${fecha(new Date().toISOString().slice(0, 10))}`);
-  l.push("");
-
-  const completa = conPrecio.length <= LIMITE_LINEAS_EMAIL;
-  if (completa) {
-    for (const h of conPrecio) {
-      l.push(`${h.nombre}: ${pesos(tipo === "mayorista" ? h.precio_mayor : h.precio)}`);
-    }
-    if (conPrecio.length === 0) l.push("(Todavía no hay precios cargados)");
-  } else {
-    l.push(
-      `Tenemos ${conPrecio.length} productos con precio — te adjunto la lista completa en un archivo aparte para que se vea bien. ¡Cualquier consulta, avisame!`
-    );
-  }
-  l.push("");
-  l.push(`Consultas: ${negocio().telefono} — ${negocio().instagram}`);
-  abrir(null, `Lista de precios — ${negocio().nombre}`, l.join("\n"));
-  return { completa, cantidad: conPrecio.length };
-}

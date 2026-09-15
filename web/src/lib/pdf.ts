@@ -286,3 +286,99 @@ export async function generarPdfInforme(d: DatosInforme): Promise<Blob> {
 
   return doc.output("blob");
 }
+
+/**
+ * Lista de precios en PDF: código, producto, rubro y precio. Pensada para
+ * compartir por WhatsApp con compartirArchivo() — un archivo de verdad, no
+ * el texto plano que arma waListaDePrecios (que además se corta cuando hay
+ * muchos productos).
+ */
+export async function generarPdfListaPrecios(
+  herramientas: any[],
+  tipo: "minorista" | "mayorista",
+  vocab: { singular: string; plural: string }
+): Promise<Blob> {
+  const { jsPDF } = await conReintento(() => import("jspdf"));
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+  const neg = negocio();
+
+  const conPrecio = herramientas
+    .filter((h) => h.activo && (tipo === "mayorista" ? h.precio_mayor : h.precio) > 0)
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+
+  const X_PRODUCTO = MARGEN + 2;
+  const X_RUBRO = MARGEN + 110;
+  const X_PRECIO = DERECHA;
+
+  function dibujarEncabezadoTabla(y: number): number {
+    doc.setFillColor(240, 240, 240).rect(MARGEN, y, DERECHA - MARGEN, 7, "F");
+    doc.setFont("helvetica", "bold").setFontSize(9).setTextColor(80);
+    doc.text(vocab.singular, X_PRODUCTO, y + 5);
+    doc.text("Rubro", X_RUBRO, y + 5);
+    doc.text("Precio", X_PRECIO, y + 5, { align: "right" });
+    return y + 11;
+  }
+
+  let y = 18;
+
+  // ── Encabezado: logo + negocio (izq), "LISTA DE PRECIOS" (der) ──
+  let xTexto = MARGEN;
+  if (neg.logo) {
+    try {
+      doc.addImage(neg.logo, formatoDeDataUri(neg.logo), MARGEN, y - 6, 16, 16);
+      xTexto = MARGEN + 20;
+    } catch {
+      // Formato de imagen que jsPDF no reconoce: se sigue sin logo.
+    }
+  }
+  doc.setFont("helvetica", "bold").setFontSize(14).setTextColor(20);
+  doc.text(neg.nombre, xTexto, y);
+  doc.setFont("helvetica", "normal").setFontSize(9).setTextColor(110);
+  if (neg.rubro) doc.text(neg.rubro, xTexto, y + 5);
+  doc.text(`Tel: ${neg.telefono ?? "—"} · ${neg.instagram ?? ""}`, xTexto, y + 10);
+
+  doc.setTextColor(20).setFont("helvetica", "bold").setFontSize(13);
+  doc.text("LISTA DE PRECIOS", DERECHA, y, { align: "right" });
+  doc.setFont("helvetica", "normal").setFontSize(9).setTextColor(110);
+  doc.text(tipo === "mayorista" ? "Mayorista" : "Minorista", DERECHA, y + 5, { align: "right" });
+  doc.text(fecha(new Date().toISOString().slice(0, 10)), DERECHA, y + 10, { align: "right" });
+
+  y += 20;
+  doc.setDrawColor(220).line(MARGEN, y, DERECHA, y);
+  y += 8;
+
+  if (conPrecio.length === 0) {
+    doc.setFont("helvetica", "normal").setFontSize(10).setTextColor(110);
+    doc.text("Todavía no hay productos con precio cargado.", MARGEN, y);
+  } else {
+    y = dibujarEncabezadoTabla(y);
+    doc.setFont("helvetica", "normal").setTextColor(20);
+    for (const h of conPrecio) {
+      if (y > LIMITE_INFERIOR) {
+        doc.addPage();
+        y = dibujarEncabezadoTabla(20);
+        doc.setFont("helvetica", "normal").setTextColor(20);
+      }
+      doc.setFontSize(9);
+      const nombre = String(h.nombre);
+      doc.text(nombre.length > 58 ? nombre.slice(0, 57) + "…" : nombre, X_PRODUCTO, y);
+      doc.text(h.rubro ? String(h.rubro).slice(0, 22) : "—", X_RUBRO, y);
+      doc.text(pesos(tipo === "mayorista" ? h.precio_mayor : h.precio), X_PRECIO, y, { align: "right" });
+      y += 6;
+    }
+  }
+
+  const hojas = doc.getNumberOfPages();
+  for (let i = 1; i <= hojas; i++) {
+    doc.setPage(i);
+    doc.setFont("helvetica", "normal").setFontSize(8).setTextColor(150);
+    doc.text(
+      `${neg.nombre} · ${conPrecio.length} ${(conPrecio.length === 1 ? vocab.singular : vocab.plural).toLowerCase()} · ${fecha(new Date().toISOString().slice(0, 10))}`,
+      MARGEN,
+      PIE_Y
+    );
+    if (hojas > 1) doc.text(`Hoja ${i} de ${hojas}`, DERECHA, PIE_Y, { align: "right" });
+  }
+
+  return doc.output("blob");
+}
