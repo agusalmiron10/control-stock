@@ -1,5 +1,10 @@
-// Gráfico de barras liviano en SVG puro (sin librerías externas), consistente
-// con la paleta sobria de la app. Pensado para series cortas (6-24 puntos).
+// Gráfico de barras liviano (sin librerías externas), consistente con la
+// paleta sobria de la app. Pensado para series cortas (6-24 puntos).
+//
+// Hecho con flex y no con SVG: un <svg> con viewBox fijo se escala entero
+// para entrar, así que en una pantalla ancha las barras quedaban como una
+// islita de 420px centrada en una tarjeta de 1600, con todo vacío a los
+// lados. Con flex, cada columna se reparte el ancho que haya.
 
 interface Punto { label: string; valor: number }
 
@@ -21,29 +26,27 @@ export function BarChart({
   if (datos.length === 0) return null;
   const max = Math.max(1, ...datos.map((d) => d.valor));
   const etiquetar = formatoEtiqueta ?? formato;
-  const ancho = 70;
 
   return (
-    <div style={{ width: "100%", overflowX: "auto" }}>
-      <svg viewBox={`0 0 ${datos.length * ancho} ${alto}`} style={{ width: "100%", height: alto, minWidth: datos.length * 55 }}>
-        {datos.map((d, i) => {
-          const h = Math.max(2, (d.valor / max) * (alto - 34));
-          const x = i * ancho + 13;
-          const y = alto - 22 - h;
-          return (
-            <g key={d.label}>
-              <title>{`${d.label}: ${formato(d.valor)}`}</title>
-              <rect x={x} y={y} width={44} height={h} rx={3} fill={color} />
-              <text x={x + 22} y={y - 6} textAnchor="middle" fontSize="11" fontFamily="var(--mono)" fill="var(--texto)">
-                {d.valor > 0 ? etiquetar(d.valor) : ""}
-              </text>
-              <text x={x + 22} y={alto - 6} textAnchor="middle" fontSize="11" fill="var(--texto-suave)">
-                {d.label}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
+    // El mínimo por columna es lo que separa los dos casos: con 6 meses el
+    // gráfico entra y las columnas se reparten todo el ancho; con 54 días
+    // (la deuda diaria) se pasa del ancho y scrollea de costado, que es
+    // preferible a amontonar 54 fechas ilegibles.
+    <div className="bar-chart-wrap">
+      <div className="bar-chart" style={{ height: alto, minWidth: datos.length * 44 }}>
+        {datos.map((d) => (
+          <div className="bc-col" key={d.label} title={`${d.label}: ${formato(d.valor)}`}>
+            <div className="bc-valor">{d.valor > 0 ? etiquetar(d.valor) : ""}</div>
+            <div className="bc-area">
+              <div
+                className="bc-barra"
+                style={{ height: `${Math.max(2, (d.valor / max) * 100)}%`, background: color }}
+              />
+            </div>
+            <div className="bc-label">{d.label}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

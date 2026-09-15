@@ -1699,3 +1699,24 @@ table.tabla tbody tr:hover { background: color-mix(in srgb, var(--acento) 9%, tr
   .solo-escritorio { display: none; }
   .solo-movil { display: block; }
 }
+
+/* ── Gráfico de barras (Reportes) ──────────────────────────
+   Cada columna se reparte el ancho disponible en partes iguales, así el
+   gráfico llena la tarjeta en cualquier pantalla. La etiqueta del valor y
+   la del mes tienen su propia fila: antes iban dibujadas adentro del SVG y
+   la de la barra más alta quedaba cortada contra el borde de arriba. */
+.bar-chart-wrap { overflow-x: auto; }
+.bar-chart { display: flex; align-items: stretch; gap: 8px; width: 100%; }
+.bc-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; }
+.bc-valor {
+  flex: none; height: 18px; text-align: center; font-size: 11px;
+  font-family: var(--mono); color: var(--texto);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.bc-area { flex: 1 1 auto; min-height: 0; display: flex; align-items: flex-end; }
+.bc-barra { width: 100%; max-width: 64px; margin: 0 auto; border-radius: 3px 3px 0 0; }
+.bc-label {
+  flex: none; height: 18px; padding-top: 4px; text-align: center;
+  font-size: 11px; color: var(--texto-suave);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
