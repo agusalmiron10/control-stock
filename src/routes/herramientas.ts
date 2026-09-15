@@ -693,8 +693,9 @@ herramientas.post("/importar/previsualizar", async (c) => {
  * previsualización); las demás se crean o se actualizan según el código.
  *
  * Al actualizar sólo se pisan las columnas que vienen en el archivo: si la
- * planilla no trae stock, el stock que ya tenía queda como está. Si no fuera
- * así, importar una lista de precios te borraría todo el stock.
+ * planilla no trae una columna (precio, stock, costo...), lo que ya tenía
+ * queda como está. Si no fuera así, importar sólo una lista de precios te
+ * borraría todo el stock.
  */
 herramientas.post("/importar", async (c) => {
   const b = await c.req.json().catch(() => ({}));
@@ -734,6 +735,27 @@ herramientas.post("/importar", async (c) => {
       creados++;
     } else {
       // COALESCE: lo que no viene en el archivo se deja como estaba.
+      //
+      // El stock es la única excepción a "COALESCE y listo": pisarlo directo
+      // perdería el rastro (no queda movimiento de quién lo cambió ni por
+      // qué), así que primero se lee el stock actual y, si la fila trae un
+      // valor Y ese valor es distinto, se genera un movimiento tipo 'ajuste'
+      // igual que si lo hubiera cargado a mano — así el historial del
+      // producto sigue siendo confiable después de una importación.
+      if (d.stock != null) {
+        const actual = await c.env.DB
+          .prepare(`SELECT id, stock FROM herramientas WHERE negocio_id = ? AND codigo = ? COLLATE NOCASE`)
+          .bind(neg, d.codigo)
+          .first<{ id: string; stock: number }>();
+        if (actual && actual.stock !== d.stock) {
+          stmts.push(
+            c.env.DB.prepare(
+              `INSERT INTO movimientos_stock (negocio_id, herramienta_id, fecha, tipo, cantidad, stock_resultante, motivo)
+               VALUES (?, ?, ?, 'ajuste', ?, ?, 'Actualización por importación')`
+            ).bind(neg, actual.id, fecha, d.stock - actual.stock, d.stock)
+          );
+        }
+      }
       stmts.push(
         c.env.DB.prepare(
           `UPDATE herramientas SET
@@ -742,11 +764,12 @@ herramientas.post("/importar", async (c) => {
              precio_mayor = COALESCE(?, precio_mayor),
              rubro = COALESCE(?, rubro),
              costo = COALESCE(?, costo),
+             stock = COALESCE(?, stock),
              stock_minimo = COALESCE(?, stock_minimo),
              iva_porcentaje = COALESCE(?, iva_porcentaje)
            WHERE negocio_id = ? AND codigo = ? COLLATE NOCASE`
         ).bind(d.nombre, d.precio ?? null, d.precio_mayor ?? null, d.rubro ?? null,
-               d.costo ?? null, d.stock_minimo ?? null, d.iva_porcentaje ?? null, neg, d.codigo)
+               d.costo ?? null, d.stock ?? null, d.stock_minimo ?? null, d.iva_porcentaje ?? null, neg, d.codigo)
       );
       actualizados++;
     }
