@@ -11,7 +11,7 @@ import type { Env, Variables } from "../types";
 import { HttpError, texto, enumerado, entero, boolOpt, fechaISO } from "../validate";
 import { hashPassword, crearSesion, requireSuper } from "../auth";
 import { codigoDeNegocio } from "./auth";
-import { MODULOS, leerConfig, limpiarCapacidades, type Modulo } from "../config";
+import { MODULOS, leerConfig, limpiarCapacidades, leerOverride, reemplazarOverride, type Modulo } from "../config";
 import { auditar } from "../auditoria";
 import { guardarCopias } from "./backup";
 import { leerCertificado } from "../facturacion/certificado-info";
@@ -181,7 +181,17 @@ superAdmin.get("/negocios/:id", async (c) => {
     .bind(id)
     .all();
   const cfg = await leerConfig(c.env, id);
-  return c.json({ negocio, usuarios: usuarios.results ?? [], modulos: cfg.modulos });
+  return c.json({
+    negocio,
+    usuarios: usuarios.results ?? [],
+    modulos: cfg.modulos,
+    // Las dos hacen falta para el editor: las EFECTIVAS son lo que ve el
+    // negocio hoy (rubro + override), y el OVERRIDE es sólo lo que está
+    // puesto a mano — lo que no esté ahí se hereda del rubro y tiene que
+    // poder volver a heredarse.
+    capacidades: cfg.capacidades,
+    override: await leerOverride(c.env, id),
+  });
 });
 
 /**
@@ -207,6 +217,41 @@ superAdmin.put("/negocios/:id/modulos", async (c) => {
     auditar(c.env, id, c.get("usuario").usuario, "cambiar_modulos", "config", null, `Módulos: ${activos.join(", ") || "ninguno"}`),
   ]);
   return c.json({ ok: true, modulos: activos });
+});
+
+/**
+ * Capacidades de UNA cuenta, sin tocar a nadie más.
+ *
+ * Distinto de PUT /perfiles/:id, que cambia el perfil de un rubro entero y
+ * por lo tanto se lo cambia a todas las cuentas de ese rubro. Acá se guarda
+ * un override que le gana al rubro sólo para este negocio — es la salida
+ * para el cliente que se sale del molde (la ferretería que además vende por
+ * metro) sin inventarle un rubro nuevo.
+ *
+ * Se manda el override COMPLETO: lo que no venga vuelve a heredarse del
+ * rubro. Ojo con el vocabulario, que vive en el mismo override y lo edita
+ * el dueño desde Ajustes — si no viene en la lista, se pierde.
+ */
+superAdmin.put("/negocios/:id/capacidades", async (c) => {
+  const id = c.req.param("id");
+  const existe = await c.env.DB.prepare(`SELECT id FROM negocios WHERE id = ?`).bind(id).first();
+  if (!existe) throw new HttpError(404, "Ese negocio no existe.");
+
+  const b = await c.req.json().catch(() => ({}));
+  const limpio = limpiarCapacidades(b.capacidades);
+  await reemplazarOverride(c.env, id, limpio);
+
+  const cfg = await leerConfig(c.env, id);
+  const puestas = Object.keys(limpio);
+  await c.env.DB.batch([
+    auditar(
+      c.env, id, c.get("usuario").usuario, "cambiar_capacidades", "config", null,
+      puestas.length > 0
+        ? `A medida para esta cuenta: ${puestas.join(", ")}`
+        : "Vuelve a las capacidades del rubro"
+    ),
+  ]);
+  return c.json({ ok: true, capacidades: cfg.capacidades, override: limpio });
 });
 
 /**

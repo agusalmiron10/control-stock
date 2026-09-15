@@ -322,6 +322,44 @@ export async function guardarOverride(
 }
 
 /**
+ * Pisa el override de capacidades de una cuenta COMPLETO, en vez de
+ * mezclarlo como guardarOverride.
+ *
+ * Es lo que necesita el editor del proveedor: ahí se ve el override entero
+ * y se manda entero, así que sacar una capacidad de la lista tiene que
+ * significar "volvé a lo que dice el rubro". Con un merge eso sería
+ * imposible — una vez puesta a mano, quedaría pegada para siempre.
+ *
+ * Por eso mismo el que llama tiene que mandar TODO lo que quiere conservar
+ * (incluido el vocabulario, que vive en el mismo override y lo edita el
+ * dueño desde Ajustes).
+ */
+export async function reemplazarOverride(
+  env: Env,
+  negocioId: string,
+  override: Partial<Capacidades>
+): Promise<void> {
+  await env.DB
+    .prepare(`UPDATE negocios SET config_override_json = ? WHERE id = ?`)
+    .bind(Object.keys(override).length > 0 ? JSON.stringify(override) : null, negocioId)
+    .run();
+}
+
+/** El override crudo de una cuenta: qué capacidades tiene puestas a mano. */
+export async function leerOverride(env: Env, negocioId: string): Promise<Partial<Capacidades>> {
+  const fila = await env.DB
+    .prepare(`SELECT config_override_json FROM negocios WHERE id = ?`)
+    .bind(negocioId)
+    .first<{ config_override_json: string | null }>();
+  if (!fila?.config_override_json) return {};
+  try {
+    return limpiarCapacidades(JSON.parse(fila.config_override_json));
+  } catch {
+    return {};
+  }
+}
+
+/**
  * La config del request actual, leída una sola vez. Sin esto, una ruta
  * protegida por requireModulo consulta la config para el middleware y otra
  * vez adentro de la ruta. El memo vive en el contexto de Hono (por request),

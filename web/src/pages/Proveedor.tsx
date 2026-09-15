@@ -518,9 +518,18 @@ function FormEditar({ negocio, onCerrar }: { negocio: Negocio; onCerrar: (msg?: 
   // Los módulos son el único dato de este modal que el proveedor controla y
   // el dueño del negocio no puede tocar — por eso se cargan y se guardan
   // aparte, contra su propio endpoint.
-  const detalle = useCarga<{ modulos: Record<Modulo, boolean> }>(() => api.get(`/api/super/negocios/${negocio.id}`), [negocio.id]);
+  const detalle = useCarga<{ modulos: Record<Modulo, boolean>; capacidades: any; override: any }>(
+    () => api.get(`/api/super/negocios/${negocio.id}`),
+    [negocio.id]
+  );
   const [modulos, setModulos] = useState<Record<Modulo, boolean> | null>(null);
   useEffect(() => { if (detalle.data) setModulos(detalle.data.modulos); }, [detalle.data]);
+
+  // Override de capacidades: SÓLO lo que está puesto a mano para esta
+  // cuenta. Lo que no esté acá se hereda del rubro, y sacarlo de la lista
+  // es justamente cómo se vuelve a heredar.
+  const [override, setOverride] = useState<Record<string, unknown> | null>(null);
+  useEffect(() => { if (detalle.data) setOverride(detalle.data.override ?? {}); }, [detalle.data]);
   const toggleModulo = (m: Modulo) => setModulos((mm) => (mm ? { ...mm, [m]: !mm[m] } : mm));
 
   // El rubro va aparte de los módulos y no es lo mismo: los módulos son lo
@@ -534,6 +543,7 @@ function FormEditar({ negocio, onCerrar }: { negocio: Negocio; onCerrar: (msg?: 
     try {
       await api.put(`/api/super/negocios/${negocio.id}`, f);
       if (modulos) await api.put(`/api/super/negocios/${negocio.id}/modulos`, { modulos });
+      if (override) await api.put(`/api/super/negocios/${negocio.id}/capacidades`, { capacidades: override });
       if (rubroId && rubroId !== negocio.rubro_id) {
         await api.put(`/api/super/negocios/${negocio.id}/rubro`, { rubro_id: rubroId });
       }
@@ -601,12 +611,107 @@ function FormEditar({ negocio, onCerrar }: { negocio: Negocio; onCerrar: (msg?: 
           </div>
         )}
 
+        {override && detalle.data && (
+          <EditorCapacidades
+            efectivas={detalle.data.capacidades}
+            override={override}
+            onCambiar={setOverride}
+          />
+        )}
+
         <div className="btn-grupo" style={{ justifyContent: "flex-end", marginTop: 16 }}>
           <button type="button" className="btn" onClick={() => onCerrar()}>Cancelar</button>
           <button className="btn primario">Guardar</button>
         </div>
       </form>
     </Modal>
+  );
+}
+
+/**
+ * Capacidades a medida de UNA cuenta.
+ *
+ * Las capacidades vienen del rubro: una ferretería se comporta como
+ * ferretería. Esto es la salida para el cliente que se sale del molde (la
+ * ferretería que además vende cable por metro) sin tener que inventarle un
+ * rubro nuevo ni cambiarle el perfil a todas las ferreterías.
+ *
+ * Cada campo tiene tres estados, no dos: lo que diga el rubro, forzado a sí
+ * y forzado a no. Vaciar el campo vuelve a heredar — por eso el override se
+ * manda entero y lo que no está adentro se hereda.
+ */
+function EditorCapacidades({
+  efectivas, override, onCambiar,
+}: {
+  efectivas: Record<string, any>;
+  override: Record<string, unknown>;
+  onCambiar: (o: Record<string, unknown>) => void;
+}) {
+  const BOOLEANAS: [string, string][] = [
+    ["venta_fraccionada", "Vender fraccionado (kg, metros)"],
+    ["permite_variantes", "Variantes (talle, color)"],
+    ["permite_vencimientos", "Fecha de vencimiento por producto"],
+    ["requiere_numero_serie", "Número de serie por unidad"],
+    ["precios_por_escala", "Precio por cantidad (escalas)"],
+  ];
+  const TEXTOS: [string, string, string][] = [
+    ["producto_singular", "Cómo llama a un producto", "Producto"],
+    ["producto_plural", "…y a varios", "Productos"],
+    ["unidad_default", "Unidad por defecto", "unidad"],
+  ];
+
+  function poner(clave: string, valor: unknown) {
+    const nuevo = { ...override };
+    // undefined = sacarla del override, o sea volver a lo del rubro.
+    if (valor === undefined) delete nuevo[clave];
+    else nuevo[clave] = valor;
+    onCambiar(nuevo);
+  }
+
+  const aMedida = Object.keys(override).length;
+
+  return (
+    <>
+      <hr />
+      <p className="mut" style={{ marginTop: 0 }}>
+        <b>Capacidades de esta cuenta.</b> Por defecto salen del rubro; acá se
+        pisan sólo para este negocio, sin tocar a las demás cuentas del mismo
+        rubro. {aMedida > 0
+          ? `Hay ${aMedida} puesta${aMedida === 1 ? "" : "s"} a mano.`
+          : "Ahora mismo hereda todo del rubro."}
+      </p>
+
+      {BOOLEANAS.map(([clave, etiqueta]) => (
+        <Campo key={clave} label={etiqueta}>
+          <select
+            value={override[clave] === undefined ? "" : String(override[clave])}
+            onChange={(e) =>
+              poner(clave, e.target.value === "" ? undefined : e.target.value === "true")
+            }
+          >
+            <option value="">Según el rubro ({efectivas?.[clave] ? "sí" : "no"})</option>
+            <option value="true">Sí</option>
+            <option value="false">No</option>
+          </select>
+        </Campo>
+      ))}
+
+      {TEXTOS.map(([clave, etiqueta, ejemplo]) => (
+        <Campo key={clave} label={etiqueta}>
+          <input
+            value={String(override[clave] ?? "")}
+            placeholder={`Según el rubro (${efectivas?.[clave] ?? ejemplo})`}
+            onChange={(e) => poner(clave, e.target.value.trim() === "" ? undefined : e.target.value)}
+          />
+        </Campo>
+      ))}
+
+      {aMedida > 0 && (
+        <button type="button" className="btn" onClick={() => onCambiar({})}>
+          Volver a las capacidades del rubro
+        </button>
+      )}
+    </>
   );
 }
 
