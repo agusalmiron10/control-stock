@@ -548,12 +548,27 @@ export function NuevaVenta() {
                 </button>
               )}
             </div>
-            {/* El ticket va PRIMERO, antes del buscador: es lo que ya está
-                cargado, y con el catálogo entero mostrándose debajo del
-                buscador (ver BarraEscaneo) quedaba enterrado más abajo —
-                para bajar o subir una cantidad había que primero pasar por
-                toda la lista para agregar más. Así queda a la vista apenas
-                se toca algo. */}
+            {/* El buscador va arriba, donde se empieza: se escanea o se
+                busca acá y lo cargado aparece abajo. Se puede porque el
+                ticket tiene su propia zona con scroll (ver .ticket-venta en
+                styles.css): no queda enterrado abajo del catálogo como
+                pasaría si la tarjeta creciera sin límite. */}
+            <div className="card-body pos-buscador" style={{ paddingBottom: 0 }}>
+              <BarraEscaneo
+                herramientas={herramientas}
+                onElegir={sumarProducto}
+                onNoEncontrado={(d) => setCrearExpress(d)}
+              />
+            </div>
+
+            {items.length === 0 && (
+              <div className="card-body">
+                <p className="mut" style={{ margin: 0 }}>
+                  Escaneá o buscá arriba para empezar a cargar el ticket.
+                </p>
+              </div>
+            )}
+
             {items.length > 0 && (
               <div className="ticket-venta">
                 {items.map((it, i) => {
@@ -623,22 +638,6 @@ export function NuevaVenta() {
                     </div>
                   );
                 })}
-              </div>
-            )}
-
-            <div className="card-body" style={{ paddingBottom: 0 }}>
-              <BarraEscaneo
-                herramientas={herramientas}
-                onElegir={sumarProducto}
-                onNoEncontrado={(d) => setCrearExpress(d)}
-              />
-            </div>
-
-            {items.length === 0 && (
-              <div className="card-body">
-                <p className="mut" style={{ margin: 0 }}>
-                  Escaneá o buscá arriba para empezar a cargar el ticket.
-                </p>
               </div>
             )}
 

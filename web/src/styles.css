@@ -1618,28 +1618,42 @@ table.tabla tbody tr:hover { background: color-mix(in srgb, var(--acento) 9%, tr
     height: var(--alto-pos, auto);
     align-items: stretch;
   }
-  /* Con el alto acotado, los hijos de una columna flex se encogen por
-     defecto: la tarjeta del cliente pasaba de 260px a 58px y la de
-     productos de 1317 a 285, recortando el contenido adentro (las dos
-     tienen overflow:hidden por las esquinas redondeadas). Nada se encoge:
-     lo que absorbe el alto sobrante es la tarjeta del ticket, y adentro de
-     ella scrollea SÓLO la lista de productos. Así el cliente, el lector y
-     los avisos quedan siempre enteros y a la vista. */
+  /* Adentro de la columna izquierda, con el alto acotado, hay que decidir
+     quién cede lugar. Por defecto un hijo flex se encoge, y como las
+     tarjetas tienen overflow:hidden (esquinas redondeadas) lo que sobraba
+     se recortaba en silencio: la tarjeta del cliente pasaba de 260px a
+     58px y la del ticket de 1317 a 285.
+     El reparto quedó así: cliente, encabezado, buscador y avisos conservan
+     su alto; la tarjeta del ticket absorbe lo que sobra y se lo da a la
+     lista de lo que se está cobrando, que scrollea sola. */
   .pos-principal { overflow-y: auto; min-height: 0; }
   .pos-principal > * { flex: none; }
-  /* flex: 1 0 auto — crece si sobra lugar, pero NO se encoge. El "no se
-     encoge" hay que decirlo explícito: la tarjeta tiene overflow:hidden
-     (por las esquinas redondeadas) y, con overflow distinto de visible, el
-     mínimo automático de un ítem flex pasa a ser cero — o sea que se
-     achicaba hasta 82px y recortaba adentro los 756px de contenido. */
-  .pos-ticket-card { flex: 1 0 auto; display: flex; flex-direction: column; }
+
+  /* min-height: min-content y no `auto`: la tarjeta tiene overflow:hidden
+     (esquinas redondeadas) y, con overflow distinto de visible, el mínimo
+     automático de un ítem flex pasa a ser cero — se achicaba a 82px y
+     recortaba adentro 756px de contenido. min-content suma lo que de
+     verdad necesitan sus partes, contando que la lista del ticket
+     scrollea (aporta su min-height, no su contenido entero). */
+  .pos-ticket-card {
+    flex: 1 1 auto; min-height: min-content; overflow: hidden;
+    display: flex; flex-direction: column;
+  }
   .pos-ticket-card > * { flex: none; }
-  /* El piso importa: abajo del ticket está el buscador, que muestra el
-     catálogo entero y se lleva ~400px. Sin un mínimo, en una pantalla baja
-     el ticket quedaba en 1px — o sea, vendías sin ver lo que estabas
-     cargando. Si con el piso ya no entra todo, scrollea la columna (arriba
-     tiene overflow-y: auto): preferible a que algo quede recortado. */
-  .pos-ticket-card > .ticket-venta { flex: 1 1 auto; min-height: 160px; overflow-y: auto; }
+
+  /* El catálogo lleva un alto fijo en vez de pelear por el espacio con el
+     ticket. Probé repartir con flex y no sirve: al encogerse, el reparto
+     es proporcional al tamaño de cada parte y el catálogo —que lista TODOS
+     los productos— siempre ganaba; y forzándolo al revés terminaba
+     desapareciendo, que deja el buscador inservible (tipeás y no ves los
+     resultados). Con alto fijo siempre se ven ~4 renglones y el resto
+     scrollea adentro. */
+  .pos-ticket-card .be-sugerencias { flex: none; height: 12rem; max-height: 12rem; }
+
+  /* El ticket se queda con todo lo que sobre, con un piso: es lo que se
+     está cobrando, tiene que verse. Si no entra ni el piso, scrollea la
+     columna entera (arriba tiene overflow-y: auto) — preferible a recortar. */
+  .pos-ticket-card > .ticket-venta { flex: 1 1 auto; min-height: 11rem; overflow-y: auto; }
   .pos-cierre { min-height: 0; }
   .pos-barra-movil { display: none; }
 }
