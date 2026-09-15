@@ -73,4 +73,28 @@ describe("parsear: listas que llegan como llegan", () => {
       costo: "8000", stock: "7", rubro: "Herramientas", iva_porcentaje: "21",
     });
   });
+
+  it('"Herramienta" es el nombre del producto (la propia palabra del sistema)', () => {
+    // Caso real: un usuario probó el importador con una planilla que usa el
+    // mismo vocabulario que la app ("Herramienta" es el título de la
+    // página). Antes esto no reconocía NINGUNA columna: ni el nombre ni el
+    // precio, y la importación se rechazaba entera.
+    const r = parsear('Código,Herramienta,Precio ($)\nHR-001,Martillo de carpintero,"$15,500.00"');
+    expect(r.aviso).toBeUndefined();
+    expect(r.columnas).toEqual(["Código", "Nombre", "Precio"]);
+    expect(r.filas[0]).toEqual({ codigo: "HR-001", nombre: "Martillo de carpintero", precio: "$15,500.00" });
+  });
+
+  it('un encabezado con aclaración entre paréntesis — "Precio ($)", "Stock (unidades)" — se reconoce igual', () => {
+    const r = parsear("Producto,Precio ($),Stock (unidades),Costo (u$s)\nMartillo,12500,8,9000");
+    expect(r.columnas).toEqual(["Nombre", "Precio", "Stock", "Costo"]);
+    expect(r.filas[0]).toEqual({ nombre: "Martillo", precio: "12500", stock: "8", costo: "9000" });
+  });
+
+  it("el vocabulario propio del negocio (Prenda, Artículo…) también cuenta como nombre de columna", () => {
+    // Es lo que useVocab() le pasa a parsear() desde el componente: la
+    // palabra que ESE negocio eligió para lo que vende, no sólo las fijas.
+    const r = parsear("Codigo,Prenda,Precio\nA1,Remera básica,8900", ["prenda", "prendas"]);
+    expect(r.filas[0]).toEqual({ codigo: "A1", nombre: "Remera básica", precio: "8900" });
+  });
 });

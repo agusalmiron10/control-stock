@@ -13,7 +13,13 @@ const COLUMNAS: { clave: string; etiqueta: string; alias: string[] }[] = [
   { clave: "codigo", etiqueta: "Código", alias: ["codigo", "código", "cod", "cod.", "sku", "codigo interno", "nro", "n°", "numero"] },
   {
     clave: "nombre", etiqueta: "Nombre",
-    alias: ["nombre", "descripcion", "descripción", "desc", "producto", "detalle", "denominacion", "denominación", "concepto"],
+    // "herramienta" está a propósito: es la palabra que este sistema usa en
+    // todos lados (el título de la página se llama justo así) para lo que
+    // se vende, así que es lo primero que alguien prueba escribir en una
+    // planilla de prueba. La palabra que cada negocio configuró para lo
+    // suyo ("Prenda", "Artículo"…) se suma aparte, ver vocabComoAlias.
+    alias: ["nombre", "descripcion", "descripción", "desc", "producto", "detalle", "denominacion", "denominación",
+            "concepto", "herramienta", "herramientas"],
   },
   {
     clave: "precio", etiqueta: "Precio",
@@ -73,6 +79,21 @@ function partirLinea(linea: string, sep: string): string[] {
 const SEPARADORES = ["\t", ";", ","];
 
 /**
+ * Además de acentos y mayúsculas, saca las anotaciones que la gente agrega
+ * al lado del nombre de la columna sin que cambien lo que significa: "Precio
+ * ($)", "Stock (unidades)", "Costo (u$s)". Sin esto "Precio ($)" no
+ * encontraba ningún alias — "precio ($)" no es igual a "precio" ni a "$" —
+ * y una columna de precio bien puesta se perdía en silencio.
+ */
+function normalizarEncabezado(h: string): string {
+  return normalizar(h)
+    .replace(/\([^)]*\)/g, "")   // "precio ($)" -> "precio "
+    .replace(/[$%#]/g, "")       // símbolos sueltos que puedan quedar
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
  * Qué campo es cada columna de una fila candidata a encabezado. Devuelve el
  * mapa posición -> clave; vacío si esa fila no parece un encabezado.
  *
@@ -80,22 +101,32 @@ const SEPARADORES = ["\t", ";", ","];
  * ambiguos, que ocupan lo que haya quedado libre (ver AMBIGUOS). Un campo
  * ya asignado no se pisa: si la planilla trae dos columnas "Precio", vale
  * la primera.
+ *
+ * `nombreExtra` sirve para sumar, sólo a la columna "nombre", la palabra
+ * que ESTE negocio configuró para lo que vende (ver vocab en el llamador):
+ * si le puso "Prenda" a sus productos, una columna "Prenda" en su propia
+ * lista tiene que reconocerse igual que "Herramienta" o "Producto".
  */
-function mapearEncabezado(campos: string[]): Record<number, string> {
+function mapearEncabezado(campos: string[], nombreExtra: string[] = []): Record<number, string> {
   const mapa: Record<number, string> = {};
   const usados = new Set<string>();
+  const aliasNombre = new Set([...COLUMNAS.find((c) => c.clave === "nombre")!.alias, ...nombreExtra]);
 
   campos.forEach((h, i) => {
-    const n = normalizar(h);
+    const n = normalizarEncabezado(h);
     if (!n) return;
-    const col = COLUMNAS.find((c) => !usados.has(c.clave) && c.alias.some((a) => normalizar(a) === n));
+    const col = COLUMNAS.find((c) => {
+      if (usados.has(c.clave)) return false;
+      const alias = c.clave === "nombre" ? aliasNombre : c.alias;
+      return [...alias].some((a) => normalizarEncabezado(a) === n);
+    });
     if (col) { mapa[i] = col.clave; usados.add(col.clave); }
   });
 
   campos.forEach((h, i) => {
     if (mapa[i]) return;
-    const n = normalizar(h);
-    const amb = AMBIGUOS.find((a) => a.alias.some((x) => normalizar(x) === n));
+    const n = normalizarEncabezado(h);
+    const amb = AMBIGUOS.find((a) => a.alias.some((x) => normalizarEncabezado(x) === n));
     if (!amb) return;
     const libre = amb.orden.find((clave) => !usados.has(clave));
     if (libre) { mapa[i] = libre; usados.add(libre); }
@@ -113,7 +144,13 @@ function mapearEncabezado(campos: string[]): Record<number, string> {
  * con cada separador posible y gana la que reconozca más columnas; todo
  * lo que esté por encima se descarta.
  */
-export function parsear(contenido: string): { filas: any[]; aviso?: string; columnas?: string[] } {
+export function parsear(
+  contenido: string,
+  /** Alias extra para la columna "nombre" — normalmente el vocabulario del
+   *  negocio (ver useVocab). Los tests la llaman sin esto y andan igual:
+   *  son los alias fijos de siempre. */
+  nombreExtra: string[] = []
+): { filas: any[]; aviso?: string; columnas?: string[] } {
   const lineas = contenido.split(/\r?\n/).filter((l) => l.trim() !== "");
   if (lineas.length < 2) return { filas: [], aviso: "Hacen falta al menos el encabezado y una fila." };
 
@@ -121,7 +158,7 @@ export function parsear(contenido: string): { filas: any[]; aviso?: string; colu
   const hastaFila = Math.min(lineas.length, 15);
   for (let i = 0; i < hastaFila; i++) {
     for (const sep of SEPARADORES) {
-      const mapa = mapearEncabezado(partirLinea(lineas[i], sep));
+      const mapa = mapearEncabezado(partirLinea(lineas[i], sep), nombreExtra);
       const puntaje = Object.keys(mapa).length;
       if (puntaje > mejor.puntaje) mejor = { fila: i, mapa, sep, puntaje };
     }
@@ -172,7 +209,7 @@ export function ImportarProductos({ onCerrar }: { onCerrar: (mensaje?: string) =
   async function previsualizar(contenido: string) {
     setError(null);
     setRevisadas(null);
-    const { filas: parseadas, aviso, columnas: detectadas } = parsear(contenido);
+    const { filas: parseadas, aviso, columnas: detectadas } = parsear(contenido, [vocab.singular, vocab.plural]);
     if (aviso) { setError(aviso); return; }
     setFilas(parseadas);
     setColumnas(detectadas ?? []);
