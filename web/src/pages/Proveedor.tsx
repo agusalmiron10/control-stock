@@ -110,6 +110,7 @@ export function Proveedor({ onEntrar }: { onEntrar: () => void }) {
     | { t: "plan"; n: Negocio }
     | { t: "cobro"; n: Negocio }
     | { t: "pagos"; n: Negocio }
+    | { t: "miClave" }
     | null
   >(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -172,6 +173,7 @@ export function Proveedor({ onEntrar }: { onEntrar: () => void }) {
               {ICONO_TEMA[tema]} {LABEL_TEMA[tema]}
             </button>
             <button className="btn primario" onClick={() => setModo({ t: "alta" })}>+ Nuevo cliente</button>
+            <button className="btn" onClick={() => setModo({ t: "miClave" })}>Mi contraseña</button>
             <button className="btn" onClick={() => api.post("/api/auth/logout").then(onEntrar)}>Salir</button>
           </div>
         </div>
@@ -386,6 +388,7 @@ export function Proveedor({ onEntrar }: { onEntrar: () => void }) {
       {modo?.t === "plan" && <FormPlan negocio={modo.n} onCerrar={cerrar} />}
       {modo?.t === "cobro" && <FormCobro negocio={modo.n} onCerrar={cerrar} />}
       {modo?.t === "pagos" && <FormPagos negocio={modo.n} onCerrar={cerrar} />}
+      {modo?.t === "miClave" && <FormMiClave onCerrar={() => setModo(null)} onCambiada={() => api.post("/api/auth/logout").then(onEntrar)} />}
     </div>
   );
 }
@@ -759,6 +762,58 @@ function FormClave({ negocio, onCerrar }: { negocio: Negocio; onCerrar: (msg?: s
   );
 }
 
+/**
+ * La contraseña del PROPIO superadmin — distinta de FormClave, que blanquea
+ * la de un negocio ajeno. Usa el mismo endpoint que ya tiene Ajustes para
+ * el dueño y el empleado (/api/auth/password: pide la actual, sirve para
+ * cualquier usuario autenticado), pero acá el paso siguiente es distinto:
+ * en vez de quedarse adentro con un toast, cierra la sesión y manda a
+ * loguearse de nuevo. Con una cuenta que puede entrar a cualquier negocio,
+ * es mejor forzar un login con la contraseña nueva —y así confirmar que
+ * quedó bien— que dejar la sesión vieja corriendo como si nada.
+ */
+function FormMiClave({ onCerrar, onCambiada }: { onCerrar: () => void; onCambiada: () => void }) {
+  const [actual, setActual] = useState("");
+  const [nueva, setNueva] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+
+  async function guardar(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setGuardando(true);
+    try {
+      await api.post("/api/auth/password", { actual, nueva });
+      onCambiada();
+    } catch (err: any) {
+      setError(err.message);
+      setGuardando(false);
+    }
+  }
+
+  return (
+    <Modal titulo="Cambiar mi contraseña" onCerrar={onCerrar}>
+      <form onSubmit={guardar}>
+        <Error msg={error} />
+        <p className="mut" style={{ marginTop: 0 }}>
+          Al guardar se cierra la sesión, para volver a entrar ya con la contraseña nueva.
+        </p>
+        <Campo label="Contraseña actual">
+          <input type="password" value={actual} onChange={(e) => setActual(e.target.value)} />
+        </Campo>
+        <Campo label="Contraseña nueva">
+          <input type="password" value={nueva} onChange={(e) => setNueva(e.target.value)} placeholder="mínimo 6 caracteres" />
+        </Campo>
+        <div className="btn-grupo" style={{ justifyContent: "flex-end", marginTop: 16 }}>
+          <button type="button" className="btn" onClick={onCerrar}>Cancelar</button>
+          <button className="btn primario" disabled={guardando || !actual || nueva.length < 6}>
+            {guardando ? "Guardando…" : "Cambiar y salir"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
 
 /** Cuánto paga este negocio y con qué tolerancia. No cobra: sólo define. */
 function FormPlan({ negocio, onCerrar }: { negocio: Negocio; onCerrar: (msg?: string) => void }) {
