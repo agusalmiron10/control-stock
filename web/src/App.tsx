@@ -5,11 +5,14 @@ import { Auth } from "./pages/Auth";
 import { Proveedor } from "./pages/Proveedor";
 import { SeleccionRubro } from "./components/SeleccionRubro";
 import { tourYaVisto } from "./lib/tour";
+import { conReintento } from "./lib/cargarModulo";
 // react-joyride + floating-ui pesan bastante (~27 KB gzip) para algo que un
 // usuario que ya vio el tour nunca vuelve a necesitar — se carga aparte del
 // bundle principal, y sólo se pide (ver más abajo) cuando tourYaVisto()
 // dice que hace falta mostrarlo.
-const TourInicial = lazy(() => import("./components/TourInicial").then((m) => ({ default: m.TourInicial })));
+const TourInicial = lazy(() =>
+  conReintento(() => import("./components/TourInicial").then((m) => ({ default: m.TourInicial })))
+);
 import { Panel } from "./pages/Panel";
 import { Herramientas } from "./pages/Herramientas";
 import { ProductoFicha } from "./pages/ProductoFicha";

@@ -8,8 +8,10 @@ import { waResumenDiario } from "../lib/whatsapp";
 // recharts pesa bastante (~150 KB gzip) para algo que sólo se usa acá — se
 // carga aparte, no en el bundle principal, para no atrasar el primer render
 // de toda la app (importa sobre todo en el celular, en el local, con datos).
+import { conReintento } from "../lib/cargarModulo";
+
 const GraficoVentas7Dias = lazy(() =>
-  import("../components/GraficoVentas7Dias").then((m) => ({ default: m.GraficoVentas7Dias }))
+  conReintento(() => import("../components/GraficoVentas7Dias").then((m) => ({ default: m.GraficoVentas7Dias })))
 );
 
 const STOCK_POR_PAGINA = 10;

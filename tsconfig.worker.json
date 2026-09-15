@@ -17,5 +17,5 @@
     "noEmit": true
   },
   "include": ["src", "test"],
-  "exclude": ["test/sync-queue.test.ts"]
+  "exclude": ["test/sync-queue.test.ts", "test/importar-planillas.test.ts"]
 }

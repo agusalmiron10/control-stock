@@ -600,8 +600,18 @@ interface FilaRevisada {
   datos?: FilaImportada;
 }
 
-/** Acepta "1234,50", "1234.50", "$ 1.234,50" y devuelve centavos. */
-function aCentavos(valor: unknown): number | null {
+/**
+ * Acepta "1234,50", "1234.50", "$ 1.234,50", "12.500" y devuelve centavos.
+ *
+ * El caso difícil es un separador solo, porque "12.500" es ambiguo: en una
+ * lista argentina son doce mil quinientos, en una en inglés son doce con
+ * medio. Se resuelve por la cantidad de dígitos que deja atrás, igual para
+ * la coma que para el punto: 1 o 2 dígitos es decimal ("12.50", "12,5"),
+ * exactamente 3 es separador de miles ("12.500"). Antes el punto se trataba
+ * SIEMPRE como decimal, así que una lista con precios "12.500" entraba a
+ * $12,50 — mil veces más barato, en silencio.
+ */
+export function aCentavos(valor: unknown): number | null {
   if (valor == null || valor === "") return null;
   let t = String(valor).trim().replace(/[^0-9.,-]/g, "");
   if (t === "") return null;
@@ -612,46 +622,152 @@ function aCentavos(valor: unknown): number | null {
     const decimal = ultimaComa > ultimoPunto ? "," : ".";
     const miles = decimal === "," ? "." : ",";
     t = t.split(miles).join("").replace(decimal, ".");
-  } else if (ultimaComa >= 0) {
-    // Una sola coma: decimal si deja 1 o 2 dígitos ("1234,5"), si no es de miles.
-    t = t.length - ultimaComa - 1 <= 2 ? t.replace(",", ".") : t.split(",").join("");
+  } else if (ultimaComa >= 0 || ultimoPunto >= 0) {
+    const sep = ultimaComa >= 0 ? "," : ".";
+    const ultimo = ultimaComa >= 0 ? ultimaComa : ultimoPunto;
+    const decimales = t.length - ultimo - 1;
+    const repetido = t.split(sep).length > 2; // "1.234.567": todos de miles
+    t = !repetido && decimales <= 2
+      ? t.slice(0, ultimo) + "." + t.slice(ultimo + 1)
+      : t.split(sep).join("");
   }
   const n = Number(t);
   if (!Number.isFinite(n)) return null;
   return Math.round(n * 100);
 }
 
-function aEntero(valor: unknown): number | null {
+/**
+ * Cantidades enteras (stock, mínimo). Devuelve null —y no 0— cuando la celda
+ * no tiene ningún número: "consultar", "a pedido", "s/stock" son texto, no
+ * "cero". La diferencia importa de verdad desde que el stock se actualiza al
+ * importar: un null deja el stock como estaba, un 0 se lo lleva puesto.
+ */
+export function aEntero(valor: unknown): number | null {
   if (valor == null || valor === "") return null;
-  const n = Number(String(valor).trim().replace(/[^0-9-]/g, ""));
-  return Number.isFinite(n) ? n : null;
+  const limpio = String(valor).trim().replace(/[^0-9.,-]/g, "");
+  if (!/[0-9]/.test(limpio)) return null;
+  // Se reusa aCentavos para no repetir la lógica de separadores: "1.000" son
+  // mil unidades, "5,5" son 5 (se redondea, el stock entero no lleva medios).
+  const centavos = aCentavos(limpio);
+  if (centavos == null) return null;
+  return Math.round(centavos / 100);
 }
 
-/** Revisa las filas contra lo que ya existe, sin escribir nada. */
+/**
+ * Revisa las filas contra lo que ya existe, sin escribir nada.
+ *
+ * Lo único obligatorio es el NOMBRE. Muchísimas listas de proveedor son dos
+ * columnas —producto y precio— y no traen ningún código: exigirlo dejaba
+ * afuera justo el archivo más común. Cuando no viene código, la identidad
+ * del producto pasa a ser su nombre:
+ *   · si ya hay uno con ese nombre → se actualiza ESE (y por eso reimportar
+ *     la lista de precios del mes que viene no duplica el catálogo);
+ *   · si no hay ninguno → se crea con un código correlativo automático.
+ * El único caso que no se puede resolver solo es que el negocio tenga dos
+ * productos distintos con el mismo nombre: ahí se pide el código, porque
+ * adivinar cuál de los dos actualizar sería peor que frenar la fila.
+ */
 async function revisarFilas(env: Env, neg: string, filas: any[]): Promise<FilaRevisada[]> {
   const existentes = await env.DB
-    .prepare(`SELECT codigo FROM herramientas WHERE negocio_id = ?`)
+    .prepare(`SELECT codigo, nombre FROM herramientas WHERE negocio_id = ?`)
     .bind(neg)
-    .all<{ codigo: string }>();
+    .all<{ codigo: string; nombre: string }>();
+  const lista = existentes.results ?? [];
+
   // Mapea en minúsculas -> código real, para poder mostrar con cuál coincide.
-  const yaHay = new Map((existentes.results ?? []).map((h) => [h.codigo.toLowerCase(), h.codigo]));
+  const yaHay = new Map(lista.map((h) => [h.codigo.toLowerCase(), h.codigo]));
+  // Nombre normalizado -> código. null marca "hay más de uno con ese nombre".
+  const porNombre = new Map<string, string | null>();
+  for (const h of lista) {
+    const k = normalizarBusqueda(h.nombre);
+    porNombre.set(k, porNombre.has(k) ? null : h.codigo);
+  }
+
+  // Códigos automáticos para las filas nuevas que no traen uno. Se numeran a
+  // partir del último P#### que ya exista y se reservan en memoria, así dos
+  // filas nuevas del mismo archivo nunca reciben el mismo código.
+  let ultimoAuto = 0;
+  for (const h of lista) {
+    const m = /^P(\d{4,})$/i.exec(h.codigo);
+    if (m) ultimoAuto = Math.max(ultimoAuto, Number(m[1]));
+  }
+  const ocupados = new Set(yaHay.keys());
+  function codigoAutomatico(): string {
+    let cod = "";
+    do {
+      cod = `P${String(++ultimoAuto).padStart(4, "0")}`;
+    } while (ocupados.has(cod.toLowerCase()));
+    ocupados.add(cod.toLowerCase());
+    return cod;
+  }
 
   const vistos = new Set<string>();
   return filas.map((f, i): FilaRevisada => {
     const linea = i + 1;
-    const codigo = String(f?.codigo ?? "").trim();
+    const codigoArchivo = String(f?.codigo ?? "").trim();
     const nombre = String(f?.nombre ?? "").trim();
 
-    if (!codigo && !nombre) return { linea, codigo, nombre, accion: "error", motivo: "Fila vacía." };
-    if (!codigo) return { linea, codigo, nombre, accion: "error", motivo: "Le falta el código." };
-    if (!nombre) return { linea, codigo, nombre, accion: "error", motivo: "Le falta el nombre." };
-    if (codigo.length > 60) return { linea, codigo, nombre, accion: "error", motivo: "El código es demasiado largo." };
+    if (!codigoArchivo && !nombre) return { linea, codigo: "", nombre, accion: "error", motivo: "Fila vacía." };
+    if (!nombre) return { linea, codigo: codigoArchivo, nombre, accion: "error", motivo: "Le falta el nombre." };
 
-    const clave = codigo.toLowerCase();
-    if (vistos.has(clave)) {
-      return { linea, codigo, nombre, accion: "error", motivo: "El código está repetido dentro del archivo." };
+    // Filas de cierre ("TOTAL ITEMS: 3") y subtítulos de sección: traen sólo
+    // texto en la columna del nombre y todo lo demás vacío. Se reconocen
+    // porque el archivo SÍ tiene esas otras columnas (llegan como claves con
+    // string vacío) — en una planilla de puros nombres, esas claves no
+    // existen y no se descarta nada.
+    const otras = ["codigo", "precio", "precio_mayor", "costo", "stock", "stock_minimo", "rubro", "iva_porcentaje"];
+    const presentes = otras.filter((k) => k in (f ?? {}));
+    if (presentes.length > 0 && presentes.every((k) => String(f[k] ?? "").trim() === "")) {
+      return {
+        linea, codigo: codigoArchivo, nombre, accion: "error",
+        motivo: "La fila sólo tiene texto en la columna del nombre: parece un subtítulo o un total, no un producto.",
+      };
     }
-    vistos.add(clave);
+    if (codigoArchivo.length > 60) {
+      return { linea, codigo: codigoArchivo, nombre, accion: "error", motivo: "El código es demasiado largo." };
+    }
+
+    // La clave para detectar repetidos DENTRO del archivo es la misma con la
+    // que después se busca en la base: el código si vino, el nombre si no.
+    const nombreNorm = normalizarBusqueda(nombre);
+    const claveFila = codigoArchivo ? `cod:${codigoArchivo.toLowerCase()}` : `nom:${nombreNorm}`;
+    if (vistos.has(claveFila)) {
+      return {
+        linea, codigo: codigoArchivo, nombre, accion: "error",
+        motivo: codigoArchivo
+          ? "El código está repetido dentro del archivo."
+          : "El nombre está repetido dentro del archivo (y no hay columna de código para diferenciarlos).",
+      };
+    }
+    vistos.add(claveFila);
+
+    let codigo = codigoArchivo;
+    let existe = false;
+    let motivo: string | undefined;
+
+    if (codigoArchivo) {
+      const existente = yaHay.get(codigoArchivo.toLowerCase());
+      existe = !!existente;
+      // Si el código del archivo viene con otra capitalización, se avisa:
+      // "hacha" va a actualizar el producto cargado como "HACHA".
+      if (existente && existente !== codigoArchivo) motivo = `Coincide con el código existente "${existente}".`;
+    } else {
+      const porNom = porNombre.get(nombreNorm);
+      if (porNom === null) {
+        return {
+          linea, codigo: "", nombre, accion: "error",
+          motivo: "Hay más de un producto con ese nombre. Agregá una columna de código para saber cuál actualizar.",
+        };
+      }
+      if (porNom) {
+        codigo = porNom;
+        existe = true;
+        motivo = `Coincide por nombre con el código "${porNom}".`;
+      } else {
+        codigo = codigoAutomatico();
+        motivo = `El archivo no trae código: se crea como "${codigo}".`;
+      }
+    }
 
     const datos: FilaImportada = {
       codigo,
@@ -668,14 +784,7 @@ async function revisarFilas(env: Env, neg: string, filas: any[]): Promise<FilaRe
       iva_porcentaje: parsearAlicuota(f?.iva_porcentaje) ?? undefined,
     };
 
-    const existente = yaHay.get(clave);
-    return {
-      linea, codigo, nombre, datos,
-      accion: existente ? "actualizar" : "crear",
-      // Si el código del archivo viene con otra capitalización, se avisa:
-      // "hacha" va a actualizar el producto cargado como "HACHA".
-      motivo: existente && existente !== codigo ? `Coincide con el código existente "${existente}".` : undefined,
-    };
+    return { linea, codigo, nombre, datos, accion: existe ? "actualizar" : "crear", motivo };
   });
 }
 

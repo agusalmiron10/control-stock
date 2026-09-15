@@ -9,6 +9,7 @@
 // (mismo criterio que ya se usa en el proyecto para recharts/react-joyride).
 import { pesos, fecha } from "../format";
 import { negocio } from "./negocio";
+import { conReintento } from "./cargarModulo";
 
 const ANCHO_A4 = 210;
 const MARGEN = 15;
@@ -26,7 +27,7 @@ function formatoDeDataUri(dataUri: string): string {
 }
 
 export async function generarPdfPresupuesto(data: any): Promise<Blob> {
-  const { jsPDF } = await import("jspdf");
+  const { jsPDF } = await conReintento(() => import("jspdf"));
   const doc = new jsPDF({ unit: "mm", format: "a4" });
   const neg = negocio();
   const p = data.presupuesto;

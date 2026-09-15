@@ -17,5 +17,5 @@
     "isolatedModules": true,
     "noEmit": true
   },
-  "include": ["web", "test/sync-queue.test.ts"]
+  "include": ["web", "test/sync-queue.test.ts", "test/importar-planillas.test.ts"]
 }

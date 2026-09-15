@@ -659,6 +659,17 @@ table.tabla td.acc .btn-grupo { flex-wrap: nowrap; }
      .contenido en la misma fila en vez de arriba. */
   .app { flex-direction: column; }
   .topbar-movil { display: flex; }
+  /* El chip de sincronización no entra entero en la barra de un teléfono:
+     "Todo sincronizado" al lado de la marca y la hamburguesa empujaba 29px
+     hacia afuera y hacía que TODA la app se pudiera arrastrar de costado.
+     Cuando está todo bien alcanza con el punto verde (el detalle está a un
+     toque); los estados que piden acción sí muestran texto, recortado si
+     hace falta. */
+  .topbar-movil .marca { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .topbar-movil .sync-indicador { min-width: 0; }
+  .topbar-movil .sync-chip { min-width: 0; max-width: 45vw; }
+  .topbar-movil .sync-texto { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar-movil .sync-ok .sync-texto { display: none; }
   .sidebar {
     position: fixed; top: 0; left: 0; bottom: 0; height: 100vh;
     width: 250px; transform: translateX(-100%);

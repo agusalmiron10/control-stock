@@ -19,7 +19,7 @@ export function SyncIndicator() {
   return (
     <div className="sync-indicador">
       <button className={`sync-chip sync-${clase}`} onClick={() => setAbierto((v) => !v)}>
-        <span className="sync-punto" /> {etiqueta}
+        <span className="sync-punto" /> <span className="sync-texto">{etiqueta}</span>
       </button>
       {abierto && (
         <>

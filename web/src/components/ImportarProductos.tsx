@@ -6,21 +6,43 @@ import { Modal, Error, Campo } from "./ui";
 import { useVocab } from "../lib/config";
 
 /** Columnas que se pueden traer. El orden en el archivo no importa: se
- *  reconocen por el nombre del encabezado. */
-const COLUMNAS: { clave: string; alias: string[]; obligatoria?: boolean }[] = [
-  { clave: "codigo", alias: ["codigo", "código", "cod", "sku"], obligatoria: true },
-  { clave: "nombre", alias: ["nombre", "descripcion", "descripción", "producto", "detalle"], obligatoria: true },
-  { clave: "precio", alias: ["precio", "precio venta", "precio minorista", "minorista", "pvp"] },
-  { clave: "precio_mayor", alias: ["precio mayor", "precio mayorista", "mayorista", "por mayor"] },
-  { clave: "costo", alias: ["costo", "costo unitario", "compra"] },
-  { clave: "stock", alias: ["stock", "cantidad", "existencia"] },
-  { clave: "stock_minimo", alias: ["stock minimo", "stock mínimo", "minimo", "mínimo"] },
-  { clave: "rubro", alias: ["rubro", "categoria", "categoría", "familia"] },
+ *  reconocen por el nombre del encabezado. Lo único que no puede faltar es
+ *  el nombre del producto — el código, si no viene, se resuelve solo
+ *  (ver revisarFilas en el backend). */
+const COLUMNAS: { clave: string; etiqueta: string; alias: string[] }[] = [
+  { clave: "codigo", etiqueta: "Código", alias: ["codigo", "código", "cod", "cod.", "sku", "codigo interno", "nro", "n°", "numero"] },
+  {
+    clave: "nombre", etiqueta: "Nombre",
+    alias: ["nombre", "descripcion", "descripción", "desc", "producto", "detalle", "denominacion", "denominación", "concepto"],
+  },
+  {
+    clave: "precio", etiqueta: "Precio",
+    alias: ["precio", "precio venta", "precio de venta", "precio minorista", "minorista", "pvp", "p. unitario",
+            "p unitario", "precio unitario", "unitario", "importe", "valor", "precio lista", "lista",
+            "precio publico", "precio público", "$"],
+  },
+  { clave: "precio_mayor", etiqueta: "Precio mayorista", alias: ["precio mayor", "precio mayorista", "mayorista", "por mayor", "mayor"] },
+  { clave: "costo", etiqueta: "Costo", alias: ["costo", "costo unitario", "compra", "precio compra", "precio de compra"] },
+  { clave: "stock", etiqueta: "Stock", alias: ["stock", "cantidad", "cant", "cant.", "existencia", "existencias", "disponible"] },
+  { clave: "stock_minimo", etiqueta: "Stock mínimo", alias: ["stock minimo", "stock mínimo", "minimo", "mínimo"] },
+  { clave: "rubro", etiqueta: "Rubro", alias: ["rubro", "categoria", "categoría", "familia", "grupo", "linea", "línea"] },
   // Sólo para negocios que facturan con productos a distinta alícuota
   // (algunos gravados, otros exentos, o a otro %) — el resto puede ignorar
   // esta columna tranquilo, no hace falta traerla. Acepta "21", "21%",
   // "10,5", "Exento": ver parsearAlicuota en el backend.
-  { clave: "iva_porcentaje", alias: ["iva", "% iva", "iva %", "alicuota", "alícuota", "alicuota iva", "alícuota iva"] },
+  { clave: "iva_porcentaje", etiqueta: "IVA", alias: ["iva", "% iva", "iva %", "alicuota", "alícuota", "alicuota iva", "alícuota iva"] },
+];
+
+/**
+ * Encabezados que significan una cosa u otra según qué más traiga la
+ * planilla. "ARTÍCULO" es el nombre del producto en una lista de dos
+ * columnas ("Artículo | Precio"), pero es el código cuando al lado hay una
+ * descripción ("Artículo | Descripción | Precio"). Se resuelven al final,
+ * ocupando el primer lugar de su orden de preferencia que haya quedado
+ * libre.
+ */
+const AMBIGUOS: { alias: string[]; orden: string[] }[] = [
+  { alias: ["articulo", "artículo", "art", "art.", "item", "ítem"], orden: ["nombre", "codigo"] },
 ];
 
 
@@ -48,16 +70,87 @@ function partirLinea(linea: string, sep: string): string[] {
   return salida.map((x) => x.trim());
 }
 
-/** Detecta si el archivo usa coma, punto y coma o tabulación. */
-function detectarSeparador(primeraLinea: string): string {
-  const candidatos = ["\t", ";", ","];
-  let mejor = ",";
-  let max = 0;
-  for (const sep of candidatos) {
-    const n = partirLinea(primeraLinea, sep).length;
-    if (n > max) { max = n; mejor = sep; }
+const SEPARADORES = ["\t", ";", ","];
+
+/**
+ * Qué campo es cada columna de una fila candidata a encabezado. Devuelve el
+ * mapa posición -> clave; vacío si esa fila no parece un encabezado.
+ *
+ * Primero se resuelven los nombres inequívocos y recién después los
+ * ambiguos, que ocupan lo que haya quedado libre (ver AMBIGUOS). Un campo
+ * ya asignado no se pisa: si la planilla trae dos columnas "Precio", vale
+ * la primera.
+ */
+function mapearEncabezado(campos: string[]): Record<number, string> {
+  const mapa: Record<number, string> = {};
+  const usados = new Set<string>();
+
+  campos.forEach((h, i) => {
+    const n = normalizar(h);
+    if (!n) return;
+    const col = COLUMNAS.find((c) => !usados.has(c.clave) && c.alias.some((a) => normalizar(a) === n));
+    if (col) { mapa[i] = col.clave; usados.add(col.clave); }
+  });
+
+  campos.forEach((h, i) => {
+    if (mapa[i]) return;
+    const n = normalizar(h);
+    const amb = AMBIGUOS.find((a) => a.alias.some((x) => normalizar(x) === n));
+    if (!amb) return;
+    const libre = amb.orden.find((clave) => !usados.has(clave));
+    if (libre) { mapa[i] = libre; usados.add(libre); }
+  });
+
+  return mapa;
+}
+
+/**
+ * Convierte el texto pegado o el CSV en filas con nombres de columna.
+ *
+ * No asume que el encabezado sea la primera fila: las listas de proveedor
+ * casi siempre arrancan con un título ("LISTA DE PRECIOS - MAYO"), una
+ * fila en blanco o los datos de la empresa. Se prueban las primeras filas
+ * con cada separador posible y gana la que reconozca más columnas; todo
+ * lo que esté por encima se descarta.
+ */
+export function parsear(contenido: string): { filas: any[]; aviso?: string; columnas?: string[] } {
+  const lineas = contenido.split(/\r?\n/).filter((l) => l.trim() !== "");
+  if (lineas.length < 2) return { filas: [], aviso: "Hacen falta al menos el encabezado y una fila." };
+
+  let mejor = { fila: -1, mapa: {} as Record<number, string>, sep: ",", puntaje: 0 };
+  const hastaFila = Math.min(lineas.length, 15);
+  for (let i = 0; i < hastaFila; i++) {
+    for (const sep of SEPARADORES) {
+      const mapa = mapearEncabezado(partirLinea(lineas[i], sep));
+      const puntaje = Object.keys(mapa).length;
+      if (puntaje > mejor.puntaje) mejor = { fila: i, mapa, sep, puntaje };
+    }
   }
-  return mejor;
+
+  const claves = Object.values(mejor.mapa);
+  if (!claves.includes("nombre")) {
+    return {
+      filas: [],
+      aviso:
+        "No encontré la columna con el nombre del producto. El encabezado tiene que decir alguna de: " +
+        COLUMNAS.find((c) => c.clave === "nombre")!.alias.join(", ") + ".",
+    };
+  }
+
+  const filas = lineas.slice(mejor.fila + 1).map((l) => {
+    const partes = partirLinea(l, mejor.sep);
+    const fila: any = {};
+    partes.forEach((v, i) => { if (mejor.mapa[i]) fila[mejor.mapa[i]] = v; });
+    return fila;
+  });
+
+  // En el orden en que aparecen en el archivo, para que se entienda de un
+  // vistazo qué entendió el sistema de esa planilla.
+  const columnas = Object.keys(mejor.mapa)
+    .sort((a, b) => Number(a) - Number(b))
+    .map((i) => COLUMNAS.find((c) => c.clave === mejor.mapa[Number(i)])!.etiqueta);
+
+  return { filas, columnas };
 }
 
 interface Revisada {
@@ -71,47 +164,18 @@ export function ImportarProductos({ onCerrar }: { onCerrar: (mensaje?: string) =
   const [filas, setFilas] = useState<any[]>([]);
   const [revisadas, setRevisadas] = useState<Revisada[] | null>(null);
   const [resumen, setResumen] = useState<{ crear: number; actualizar: number; error: number } | null>(null);
+  const [columnas, setColumnas] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [trabajando, setTrabajando] = useState(false);
 
-  /** Convierte el texto pegado o el CSV en filas con nombres de columna. */
-  function parsear(contenido: string): { filas: any[]; aviso?: string } {
-    const lineas = contenido.split(/\r?\n/).filter((l) => l.trim() !== "");
-    if (lineas.length < 2) return { filas: [], aviso: "Hacen falta al menos el encabezado y una fila." };
-
-    const sep = detectarSeparador(lineas[0]);
-    const encabezados = partirLinea(lineas[0], sep).map(normalizar);
-
-    // Mapea cada columna del archivo a un campo conocido.
-    const mapa: Record<number, string> = {};
-    encabezados.forEach((h, i) => {
-      const col = COLUMNAS.find((c) => c.alias.some((a) => normalizar(a) === h));
-      if (col) mapa[i] = col.clave;
-    });
-
-    const faltan = COLUMNAS.filter((c) => c.obligatoria && !Object.values(mapa).includes(c.clave));
-    if (faltan.length > 0) {
-      return {
-        filas: [],
-        aviso: `No encontré la columna "${faltan[0].clave}". El encabezado tiene que decir alguna de: ${faltan[0].alias.join(", ")}.`,
-      };
-    }
-
-    const filas = lineas.slice(1).map((l) => {
-      const partes = partirLinea(l, sep);
-      const fila: any = {};
-      partes.forEach((v, i) => { if (mapa[i]) fila[mapa[i]] = v; });
-      return fila;
-    });
-    return { filas };
-  }
 
   async function previsualizar(contenido: string) {
     setError(null);
     setRevisadas(null);
-    const { filas: parseadas, aviso } = parsear(contenido);
+    const { filas: parseadas, aviso, columnas: detectadas } = parsear(contenido);
     if (aviso) { setError(aviso); return; }
     setFilas(parseadas);
+    setColumnas(detectadas ?? []);
     setTrabajando(true);
     try {
       const r = await api.post<{ filas: Revisada[]; resumen: any }>(
@@ -169,9 +233,20 @@ export function ImportarProductos({ onCerrar }: { onCerrar: (mensaje?: string) =
         try {
           const buffer = lector.result as ArrayBuffer;
           const libro = XLSX.read(buffer, { type: "array" });
-          const primeraHoja = libro.SheetNames[0];
-          if (!primeraHoja) { setError("Ese Excel no tiene ninguna hoja."); return; }
-          const contenido = XLSX.utils.sheet_to_csv(libro.Sheets[primeraHoja]);
+          if (libro.SheetNames.length === 0) { setError("Ese Excel no tiene ninguna hoja."); return; }
+
+          // La hoja con los datos no siempre es la primera: es común que la
+          // primera sea una carátula, o una "Hoja1" vacía que quedó del
+          // archivo original. Se usa la que más contenido tenga.
+          let contenido = "";
+          for (const hoja of libro.SheetNames) {
+            const csv = XLSX.utils.sheet_to_csv(libro.Sheets[hoja]);
+            if (csv.split(/\r?\n/).filter((l) => l.replace(/,/g, "").trim() !== "").length >
+                contenido.split(/\r?\n/).filter((l) => l.replace(/,/g, "").trim() !== "").length) {
+              contenido = csv;
+            }
+          }
+          if (contenido.trim() === "") { setError("Ese Excel no tiene datos en ninguna hoja."); return; }
           setTexto(contenido);
           void previsualizar(contenido);
         } catch {
@@ -200,9 +275,17 @@ export function ImportarProductos({ onCerrar }: { onCerrar: (mensaje?: string) =
       {!revisadas ? (
         <>
           <p style={{ marginTop: 0 }}>
-            Traé toda tu lista de una. El encabezado tiene que tener al menos
-            {" "}<b>codigo</b> y <b>nombre</b>; si además trae <b>precio</b>, <b>costo</b>,{" "}
-            <b>stock</b>, <b>stock_minimo</b>, <b>precio_mayor</b> o <b>rubro</b>, se cargan también.
+            Traé la lista tal cual te la pasó el proveedor. Lo único que no puede faltar es la
+            columna del <b>nombre</b> del producto; si además trae <b>precio</b>, <b>codigo</b>,{" "}
+            <b>costo</b>, <b>stock</b>, <b>stock_minimo</b>, <b>precio_mayor</b> o <b>rubro</b>, se
+            cargan también.
+          </p>
+          <p className="mut" style={{ marginTop: -8 }}>
+            No importa el orden de las columnas, ni que el archivo arranque con un título o filas
+            en blanco arriba: se busca el encabezado solo. Si la lista no trae código, se usa el
+            nombre para saber cuál es cuál y a los nuevos se les pone un código automático — así
+            volver a importar la lista del mes que viene actualiza los precios en vez de duplicarte
+            el catálogo.
           </p>
           <p className="mut" style={{ marginTop: -8 }}>
             ¿Algunos productos llevan IVA y otros no, o a distinta alícuota? Agregá una columna{" "}
@@ -219,7 +302,7 @@ export function ImportarProductos({ onCerrar }: { onCerrar: (mensaje?: string) =
           </Campo>
           <p className="mut" style={{ marginTop: -4 }}>
             Subís el Excel tal cual lo tenés — no hace falta guardarlo como CSV. Si tiene varias
-            hojas, se usa la primera.
+            hojas, se usa la que tenga los datos.
           </p>
 
           <Campo label="Opción 2 — copiar y pegar desde Excel">
@@ -248,6 +331,16 @@ export function ImportarProductos({ onCerrar }: { onCerrar: (mensaje?: string) =
       ) : (
         <>
           <p style={{ marginTop: 0 }}>Esto es lo que va a pasar. Todavía no se guardó nada.</p>
+
+          {/* Qué entendió de la planilla. Es lo que deja ver de un vistazo si
+              se salteó la columna de precios por llamarse distinto — antes eso
+              terminaba en 300 productos cargados en $0 sin ningún aviso. */}
+          {columnas.length > 0 && (
+            <p className="mut" style={{ marginTop: -6 }}>
+              Columnas que reconocí en tu archivo: <b>{columnas.join(", ")}</b>.
+              {!columnas.includes("Precio") && " Ojo: no encontré ninguna columna de precio."}
+            </p>
+          )}
 
           <div className="grid-kpi">
             <div className="kpi">
