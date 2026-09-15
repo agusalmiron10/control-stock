@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Env, Variables, Cliente, Venta, Herramienta } from "../types";
 import { estadoDeCuentaTodos } from "../cuenta";
 import { requireDueno } from "../auth";
-import { requireModulo } from "../config";
+import { requireModulo, configDe } from "../config";
 import { negocioDe } from "../types";
 
 export const reportes = new Hono<{ Bindings: Env; Variables: Variables }>();
@@ -129,6 +129,27 @@ reportes.get("/rentabilidad", requireDueno, async (c) => {
 
   porProducto.sort((a, b) => b.ganancia - a.ganancia);
 
+  // Gastos del mismo período: es lo que separa el margen bruto (lo vendido
+  // menos lo que costó la mercadería) del resultado de verdad. Sólo si el
+  // negocio tiene el módulo: sin él la consulta no aporta nada y el
+  // resultado viaja en null, para que la pantalla no muestre una ganancia
+  // que en realidad no contempla ningún gasto.
+  const cfg = await configDe(c);
+  let gastosTotal: number | null = null;
+  let gastosPorCategoria: { categoria: string; monto: number }[] = [];
+  if (cfg.modulos.gastos) {
+    const condG = ["negocio_id = ?"];
+    const argsG: string[] = [neg];
+    if (desde) { condG.push("fecha >= ?"); argsG.push(desde); }
+    if (hasta) { condG.push("fecha <= ?"); argsG.push(hasta); }
+    const filas = await c.env.DB.prepare(
+      `SELECT categoria, COALESCE(SUM(monto), 0) AS monto FROM gastos
+        WHERE ${condG.join(" AND ")} GROUP BY categoria ORDER BY monto DESC`
+    ).bind(...argsG).all<{ categoria: string; monto: number }>();
+    gastosPorCategoria = filas.results ?? [];
+    gastosTotal = gastosPorCategoria.reduce((a, g) => a + g.monto, 0);
+  }
+
   return c.json({
     resumen: {
       total_vendido: totalVendido,
@@ -137,8 +158,11 @@ reportes.get("/rentabilidad", requireDueno, async (c) => {
       margen_pct: totalVendido > 0 ? Math.round((ganancia / totalVendido) * 1000) / 10 : 0,
       valor_stock_costo: valorStockCosto,
       valor_stock_venta: valorStockVenta,
+      gastos: gastosTotal,
+      resultado: gastosTotal === null ? null : ganancia - gastosTotal,
       desde: desde ?? null, hasta: hasta ?? null,
     },
+    gastos_por_categoria: gastosPorCategoria,
     productos: porProducto,
   });
 });

@@ -67,6 +67,7 @@ export const TABLAS_RESPALDO: TablaRespaldo[] = [
   },
   { nombre: "remitos" },
   { nombre: "remito_items" },
+  { nombre: "gastos" },
   { nombre: "resumenes_diarios" },
   { nombre: "config" },
   { nombre: "operaciones" },

@@ -35,6 +35,7 @@ import { Pagos } from "./pages/Pagos";
 import { Cobranzas } from "./pages/Cobranzas";
 import { Produccion } from "./pages/Produccion";
 import { Insumos } from "./pages/Insumos";
+import { Gastos } from "./pages/Gastos";
 import { Reportes } from "./pages/Reportes";
 import { Ajustes } from "./pages/Ajustes";
 import { Auditoria } from "./pages/Auditoria";
@@ -103,7 +104,9 @@ function construirNav(cfg: ConfigNegocio, permisos: string[] | null, esDueno: bo
   if (puede("produccion")) deposito.push(["/produccion", "Producción"]);
   if (puede("insumos")) deposito.push(["/insumos", "Insumos"]);
 
-  const negocio: [string, string][] = [["/panel", "Panel"], ["/reportes", "Reportes"], ["/mapa-clientes", "Mapa"]];
+  const negocio: [string, string][] = [["/panel", "Panel"], ["/reportes", "Reportes"]];
+  if (puede("gastos")) negocio.push(["/gastos", "Gastos"]);
+  negocio.push(["/mapa-clientes", "Mapa"]);
   negocio.push(["/ajustes", "Ajustes"]);
   if (esDueno && puede("auditoria")) negocio.push(["/auditoria", "Auditoría"]);
 
@@ -127,6 +130,7 @@ const MODULO_DE_SECCION: Record<string, Modulo> = {
   compras: "compras",
   proveedores: "compras",
   insumos: "insumos",
+  gastos: "gastos",
 };
 
 export function App() {
@@ -583,6 +587,8 @@ function Vista({ ruta, cfg, cfgCargada, permisos }: { ruta: ReturnType<typeof us
       return <Produccion />;
     case "insumos":
       return <Insumos />;
+    case "gastos":
+      return <Gastos />;
     case "compras":
       return <Compras />;
     case "proveedores":

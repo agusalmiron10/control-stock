@@ -226,6 +226,18 @@ export interface Pago {
   creado_en: string;
 }
 
+export interface Gasto {
+  id: string;
+  fecha: string;
+  categoria: string;
+  descripcion: string | null;
+  /** Centavos, como todos los montos del sistema. */
+  monto: number;
+  medio_pago: string | null;
+  atendido_por: number | null;
+  creado_en: string;
+}
+
 export interface MovimientoStock {
   id: number;
   herramienta_id: string;

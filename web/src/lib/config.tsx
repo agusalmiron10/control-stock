@@ -16,6 +16,7 @@ export const MODULOS = [
   "insumos",
   "croquis",
   "acopio",
+  "gastos",
 ] as const;
 
 export type Modulo = (typeof MODULOS)[number];
@@ -73,6 +74,10 @@ export const INFO_MODULOS: Record<Modulo, { titulo: string; detalle: string }> =
   croquis: {
     titulo: "Foto o croquis del trabajo",
     detalle: "Adjuntar una foto de referencia o un boceto técnico a un presupuesto a medida — moldería, diseño, plano. Útil para marroquinería, carpintería, sastrería o cualquier trabajo a medida.",
+  },
+  gastos: {
+    titulo: "Gastos",
+    detalle: "Registrar lo que sale y no es mercadería (alquiler, sueldos, servicios, impuestos) para saber la ganancia real del mes, no sólo el margen de lo vendido.",
   },
   acopio: {
     titulo: "Acopio de mercadería",

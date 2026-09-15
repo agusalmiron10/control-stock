@@ -43,6 +43,10 @@ export const MODULOS = [
    *  módulo "remitos" también activo — es el mecanismo que usa para
    *  registrar cada retiro parcial (ver src/acopio.ts). */
   "acopio",
+  /** La plata que sale y no es mercadería (alquiler, sueldos, servicios,
+   *  impuestos). Es lo que convierte el margen bruto del reporte de
+   *  rentabilidad en una ganancia de verdad. */
+  "gastos",
 ] as const;
 
 export type Modulo = (typeof MODULOS)[number];

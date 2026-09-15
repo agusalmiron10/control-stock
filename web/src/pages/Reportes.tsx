@@ -69,8 +69,36 @@ function Rentabilidad() {
               <div className="mut">a precio venta {pesos(r.valor_stock_venta)}</div></div>
           </div>
 
+          {/* El resultado sólo aparece con el módulo de Gastos: sin él, el
+              backend manda null en vez de un número que ignoraría todo lo
+              que no sea mercadería y se leería como la ganancia real. */}
+          {r.resultado !== null && r.resultado !== undefined && (
+            <div className="card">
+              <h2>Resultado del período</h2>
+              <div className="card-body">
+                <dl className="dt-list">
+                  <dt>Ganancia sobre lo vendido</dt><dd className="num">{pesos(r.ganancia_estimada)}</dd>
+                  <dt>Gastos del período</dt><dd className="num debe">− {pesos(r.gastos)}</dd>
+                  <dt><b>Resultado</b></dt>
+                  <dd className={`num ${r.resultado >= 0 ? "saldado" : "debe"}`}>
+                    <b>{pesos(r.resultado)}</b>
+                  </dd>
+                </dl>
+                {(data?.gastos_por_categoria ?? []).length > 0 && (
+                  <p className="mut" style={{ marginTop: 10 }}>
+                    Gastos: {(data.gastos_por_categoria as any[])
+                      .map((g) => `${g.categoria} ${pesos(g.monto)}`)
+                      .join(" · ")}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
           <p className="mut" style={{ marginTop: -6 }}>
             La ganancia es <b>estimada</b>: usa el costo actual de cada herramienta por las unidades vendidas.
+            {(r.resultado === null || r.resultado === undefined) &&
+              " No incluye alquiler, sueldos ni servicios — para eso hace falta el módulo de Gastos."}
           </p>
 
           {conVentas.length === 0 ? (

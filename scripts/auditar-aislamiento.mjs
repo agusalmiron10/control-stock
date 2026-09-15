@@ -22,6 +22,7 @@ const TABLAS = [
   "remitos", "remito_items",
   "precios_escala", "series_vendidas",
   "insumos", "presupuesto_insumos",
+  "gastos",
 ];
 
 /**
